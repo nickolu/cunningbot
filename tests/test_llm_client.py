@@ -1,7 +1,7 @@
 from typing import Dict, List
 import pytest
 from unittest.mock import AsyncMock, patch
-
+from types import SimpleNamespace
 from bot.core.llm_client import LLMClient
 
 @pytest.fixture
@@ -13,15 +13,15 @@ def chat_history() -> List[Dict[str, str]]:
     ]
 
 @pytest.mark.asyncio
-@patch("bot.core.llm_client.ChatOpenAI")
-async def test_chat_openai(mock_chatopenai: AsyncMock, chat_history: List[Dict[str, str]]) -> None:
+@patch("bot.core.llm_client.RunnableWithMessageHistory")
+async def test_chat_openai(mock_runnable: AsyncMock, chat_history: List[Dict[str, str]]) -> None:
     mock_llm = AsyncMock()
-    mock_llm.ainvoke.return_value = AsyncMock(content="I can chat with you.")
-    mock_chatopenai.return_value = mock_llm
+    mock_llm.ainvoke.return_value = SimpleNamespace(content="I can chat with you.")
+    mock_runnable.return_value = mock_llm
 
     client = LLMClient(model="gpt-4o-mini")
-    with patch.object(client, "memory"):
-        result = await client.chat(chat_history)
+    result = await client.chat(chat_history, session_id="test-session")
+    print("Result: ", result)
     assert result == "I can chat with you."
     mock_llm.ainvoke.assert_awaited()
 
@@ -29,12 +29,11 @@ async def test_chat_openai(mock_chatopenai: AsyncMock, chat_history: List[Dict[s
 @patch("bot.core.llm_client.ChatOpenAI")
 async def test_summarize_openai(mock_chatopenai: AsyncMock) -> None:
     mock_llm = AsyncMock()
-    mock_llm.ainvoke.return_value = AsyncMock(content="This is a summary.")
+    mock_llm.ainvoke.return_value = SimpleNamespace(content="This is a summary.")
     mock_chatopenai.return_value = mock_llm
 
     client = LLMClient(model="gpt-4o-mini")
-    with patch.object(client, "memory"):
-        result = await client.summarize("Long text here.")
+    result = await client.summarize("Long text here.")
     assert result == "This is a summary."
     mock_llm.ainvoke.assert_awaited()
 
@@ -48,7 +47,7 @@ def test_invalid_model() -> None:
     with pytest.raises(ValueError):
         LLMClient(model="invalid-model") # type: ignore
 
-# @pytest.mark.skip(reason="Live test - requires valid OpenAI API key and network access")
+@pytest.mark.skip(reason="Live test - requires valid OpenAI API key and network access")
 @pytest.mark.asyncio
 async def test_live_chat_openai() -> None:
     """Live integration test: requires OPENAI_API_KEY in env and network access."""

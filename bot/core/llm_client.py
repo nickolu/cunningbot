@@ -5,7 +5,8 @@ Core LLM client logic for the bot.
 
 from typing import List, Dict, Any, Literal
 from langchain_openai import ChatOpenAI
-from langchain.memory import ConversationBufferMemory
+from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_core.chat_history import InMemoryChatMessageHistory
 
 class LLMClient:
     PERMITTED_MODELS = {
@@ -24,33 +25,47 @@ class LLMClient:
     def __init__(self, model: _PermittedModelType = "gpt-4o-mini"):
         self.model = model
         self.provider = self.PERMITTED_MODELS.get(model)
-        self.memory: ConversationBufferMemory  # type annotation for mypy
-        self.llm: ChatOpenAI  # type annotation for mypy    
+        self.llm: ChatOpenAI  # type annotation for mypy
+        self.runnable: RunnableWithMessageHistory  # type annotation for mypy
+        self._history_store: Dict[str, InMemoryChatMessageHistory] = {}
 
         if not self.provider:
             raise ValueError(f"Unsupported or unknown model: {model}")
         if self.provider == "openai":
             self.llm = ChatOpenAI(model=model)
-            self.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+            def get_session_history(session_id: str) -> InMemoryChatMessageHistory:
+                if session_id not in self._history_store:
+                    self._history_store[session_id] = InMemoryChatMessageHistory()
+                return self._history_store[session_id]
+            self.runnable = RunnableWithMessageHistory(
+                self.llm,
+                get_session_history,
+                input_messages_key="messages",
+                history_messages_key="history"
+            )
         else:
             raise ValueError(f"Unsupported provider: {self.provider}")
 
-    async def chat(self, history: List[Dict[str, Any]]) -> str:
+    async def chat(self, history: List[Dict[str, Any]], session_id: str = "default") -> str:
+        """
+        Chat with the LLM model, maintaining message history per session.
+        Args:
+            history: List of message dicts with 'role' and 'content'.
+            session_id: Unique identifier for the chat session.
+        Returns:
+            The assistant's reply as a string.
+        """
         if self.provider == "openai":
-            if not self.memory:
-                raise ValueError("Memory not initialized")
-            self.memory.clear()
-            for msg in history:
-                role = msg.get("role")
-                if "content" not in msg or msg["content"] is None:
-                    raise ValueError("Message dict missing non-null 'content'")
-                content: str = msg["content"]
-                if role == "user":
-                    self.memory.chat_memory.add_user_message(content)
-                elif role == "assistant":
-                    self.memory.chat_memory.add_ai_message(content)
-            response = await self.llm.ainvoke(self.memory.chat_memory.messages)
-            return str(response.content) if hasattr(response, "content") else ""
+            response = await self.runnable.ainvoke(
+                {"messages": history},
+                config={"configurable": {"session_id": session_id}}
+            )
+            print("Response: ", response)
+            if hasattr(response, "content"):
+                return str(response.content)
+            if isinstance(response, dict) and "content" in response:
+                return str(response["content"])
+            return str(response)
         raise NotImplementedError(f"chat not implemented for provider: {self.provider}")
 
     async def summarize(self, text: str) -> str:
