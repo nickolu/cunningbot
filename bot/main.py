@@ -8,6 +8,7 @@ import sys
 import asyncio
 import logging
 import signal
+from typing import Any, Callable
 from discord.ext import commands
 import discord
 from dotenv import load_dotenv
@@ -17,7 +18,7 @@ load_dotenv()
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("manchatbot")
+logger = logging.getLogger("ManchatBot")
 
 # Intents
 intents = discord.Intents.none()
@@ -27,7 +28,12 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-async def load_cogs_from_dir(directory: str):
+# Minimal slash command for debugging
+@bot.tree.command(name="testslash", description="Test slash command")
+async def testslash(interaction: discord.Interaction) -> None:
+    await interaction.response.send_message("Slash command works!")
+
+async def load_cogs_from_dir(directory: str) -> None:
     base = os.path.dirname(__file__)
     path = os.path.join(base, directory)
     if not os.path.isdir(path):
@@ -43,32 +49,46 @@ async def load_cogs_from_dir(directory: str):
                 logger.error(f"Failed to load extension {ext}: {e}")
 
 @bot.event
-async def on_ready():
-    logger.info(f"Bot ready as {bot.user} (ID: {bot.user.id})")
+async def on_ready() -> None:
+    logger.info(f"Bot ready as {bot.user}")
+    # Log local commands before sync
+    local_cmds = [cmd.name for cmd in bot.tree.walk_commands()]
+    logger.info(f"Local commands before sync: {local_cmds}")
     guild_id = os.getenv("GUILD_ID")
     if guild_id:
         try:
             guild = discord.Object(id=int(guild_id))
-            await bot.tree.sync(guild=guild)
+            synced = await bot.tree.sync(guild=guild)
+            synced = await bot.tree.sync()
+            logger.info(f"Synced commands list: {[cmd.name for cmd in synced]}")
             logger.info(f"Command tree synced to guild {guild_id}")
+            # Log all registered app commands for this guild
+            cmds = await bot.tree.fetch_commands(guild=guild)
+            for cmd in cmds:
+                logger.info(f"Registered command: {cmd.name} (type: {cmd.type})")
         except Exception as e:
             logger.error(f"Failed to sync command tree to guild {guild_id}: {e}")
     else:
         try:
-            await bot.tree.sync()
+            synced = await bot.tree.sync()
+            logger.info(f"Synced global commands: {[cmd.name for cmd in synced]}")
             logger.info("Command tree synced globally")
+            # Log all registered global app commands
+            cmds = await bot.tree.fetch_commands()
+            for cmd in cmds:
+                logger.info(f"Registered command: {cmd.name} (type: {cmd.type})")
         except Exception as e:
             logger.error(f"Failed to sync command tree globally: {e}")
 
-def handle_shutdown(loop):
-    async def shutdown():
+def handle_shutdown(loop: asyncio.AbstractEventLoop) -> Callable[[], asyncio.Task[Any]]:
+    async def shutdown() -> None:
         logger.info("Shutting down gracefully...")
         await bot.close()
         for handler in logging.root.handlers:
             handler.flush()
-    return lambda *_: asyncio.ensure_future(shutdown(), loop=loop)
+    return lambda *args: asyncio.ensure_future(shutdown(), loop=loop)
 
-async def main():
+async def main() -> None:
     await load_cogs_from_dir("commands")
     await load_cogs_from_dir("listeners")
     token = os.getenv("DISCORD_TOKEN")

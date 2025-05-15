@@ -20,7 +20,7 @@ async def test_chat_openai(mock_runnable: AsyncMock, chat_history: List[Dict[str
     mock_runnable.return_value = mock_llm
 
     client = LLMClient(model="gpt-4o-mini")
-    result = await client.chat(chat_history, session_id="test-session")
+    result = await client.chat(chat_history)
     print("Result: ", result)
     assert result == "I can chat with you."
     mock_llm.ainvoke.assert_awaited()
