@@ -101,7 +101,7 @@ class ManchatBot(commands.Cog):
             # Use the specified model if provided, otherwise use the default
             current_llm = LLMClient.factory(model=model)
             response = await current_llm.chat(history)
-            model_text = "" if was_default else  "\n_model: " + model 
+            model_text = "" if was_default else  "\n_model: " + model +"_"
             formatted_response = f"**You:** {input_text}\n**ManchatBot:** {response}{model_text}"
             await interaction.followup.send(formatted_response)
         except Exception as e:
