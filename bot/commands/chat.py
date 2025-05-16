@@ -10,7 +10,7 @@ from typing import List, Optional
 from langchain_core.messages.base import BaseMessage
 from langchain_core.messages import HumanMessage, AIMessage
 from bot.core.llm_client import LLMClient, PermittedModelType
-from bot.core.settings.personality_service import get_personality
+from bot.core.settings.personality_service import get_personality, set_personality
 from bot.core.logger import get_logger
 import os
 import re
@@ -50,7 +50,7 @@ class ChatCog(commands.Cog):
         self.llm = LLMClient.factory()
 
     @app_commands.command(name="chat", description="Chat with the ManchatBot LLM")
-    @app_commands.describe(input_text="Your message for the chatbot", message_count="Number of previous messages to include (default: 20)")
+    @app_commands.describe(msg="Your message for the chatbot", message_count="Number of previous messages to include (default: 20)")
     @app_commands.choices(  
         model=[
             app_commands.Choice(name="gpt-4o-mini (default)", value="gpt-4o-mini"),
@@ -60,7 +60,7 @@ class ChatCog(commands.Cog):
             app_commands.Choice(name="o4-mini", value="o4-mini"),
         ]
     )
-    async def chat(self, interaction: discord.Interaction, input_text: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 20) -> None:
+    async def chat(self, interaction: discord.Interaction, msg: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 20) -> None:
         was_default = False
         if model is None:
             model = "gpt-4o-mini"
@@ -72,7 +72,7 @@ class ChatCog(commands.Cog):
             "event": "chat_command_invoked",
             "author_id": author_id,
             "channel_id": channel_id,
-            "input_text": input_text,
+            "msg": msg,
             "model": model,
             "was_default": was_default,
             "message_count": message_count
@@ -92,7 +92,7 @@ class ChatCog(commands.Cog):
         history.reverse()  # Oldest first for LLM context
         # Add the current user input as the last message
         current_user_name = sanitize_name(interaction.user.display_name) # Sanitized name
-        history.append(HumanMessage(content=input_text, name=current_user_name))
+        history.append(HumanMessage(content=msg, name=current_user_name))
 
         # Retrieve current personality
         personality = get_personality()
@@ -106,13 +106,14 @@ class ChatCog(commands.Cog):
         messages = [
             {"role": "system", "content": system_prompt}
         ]
-        for msg in history:
+
+        for history_message in history:
             current_content_str: str
-            if isinstance(msg.content, str):
-                current_content_str = msg.content
-            elif isinstance(msg.content, list):
+            if isinstance(history_message.content, str):
+                current_content_str = history_message.content
+            elif isinstance(history_message.content, list):
                 processed_parts = []
-                for part in msg.content:
+                for part in history_message.content:
                     if isinstance(part, str):
                         processed_parts.append(part)
                     elif isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str):
@@ -120,21 +121,20 @@ class ChatCog(commands.Cog):
                     # Other parts (e.g., images) could be handled or logged here if necessary
                 current_content_str = "\n".join(processed_parts)
             else:
-                current_content_str = str(msg.content) # Fallback
+                current_content_str = str(history_message.content) # Fallback
 
-            if isinstance(msg, HumanMessage):
+            if isinstance(history_message, HumanMessage):
                 message_dict = {"role": "user", "content": current_content_str}
-                if msg.name: # Add name if it exists
-                    message_dict["name"] = msg.name
+                if history_message.name: # Add name if it exists
+                    message_dict["name"] = history_message.name
                 messages.append(message_dict)
-            elif isinstance(msg, AIMessage):
+            elif isinstance(history_message, AIMessage):
                 message_dict = {"role": "assistant", "content": current_content_str}
-                if msg.name: # Add name if it exists (though less common for assistant role in some APIs)
-                    message_dict["name"] = msg.name
+                if history_message.name: # Add name if it exists (though less common for assistant role in some APIs)
+                    message_dict["name"] = history_message.name
                 messages.append(message_dict)
             else:
-                logger.warning({"event": "unexpected_message_type", "type": str(type(msg))})
-        print(messages)
+                logger.warning({"event": "unexpected_message_type", "type": str(type(history_message))})
 
         await interaction.response.defer()
         try:
@@ -142,7 +142,7 @@ class ChatCog(commands.Cog):
             current_llm = LLMClient.factory(model=model)
             response = await current_llm.chat(transform_messages_to_base_messages(messages))
             model_text = "" if was_default else  "\n_model: " + model +"_"
-            formatted_response = f"**{current_user_name}:** {input_text}\n**ManchatBot:** {response}{model_text}"
+            formatted_response = f"**{current_user_name}:** {msg}\n**ManchatBot:** {response}{model_text}"
             await interaction.followup.send(formatted_response)
         except Exception as e:
             print("Exception: ", e)

@@ -18,11 +18,11 @@ class SettingsCog(commands.Cog):
         description="Set, get, or clear the bot's personality."
     )
     @app_commands.describe(
-        value="Personality description (e.g., 'a helpful assistant'). Leave empty to clear. Type 'get' to view current."
+        description="Personality description (e.g., 'a helpful assistant'). Leave empty to clear. Type 'get' to view current."
     )
-    async def set_personality_setting(self, interaction: discord.Interaction, value: Optional[str] = None) -> None:
+    async def set_personality_setting(self, interaction: discord.Interaction, description: Optional[str] = None) -> None:
         """Manages the bot's personality setting."""
-        if value and value.lower() == "get":
+        if description and description.lower() == "get":
             current_pers = get_personality()
             if current_pers:
                 await interaction.response.send_message(f"Current personality: '{current_pers}'", ephemeral=True)
@@ -31,8 +31,8 @@ class SettingsCog(commands.Cog):
             return
 
         try:
-            set_personality(value)
-            if value:
+            set_personality(description)
+            if description:
                 processed_text = get_personality() # Get the potentially processed text
                 await interaction.response.send_message(f"Personality setting updated to: '{processed_text}'.", ephemeral=True)
             else:
