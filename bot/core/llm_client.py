@@ -9,21 +9,38 @@ from langchain_openai import ChatOpenAI
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory, InMemoryChatMessageHistory
 
+PermittedModelType = Literal[
+    "gpt-3.5-turbo",
+    "gpt-4",
+    "gpt-4-turbo",
+    "gpt-4.1-mini",
+    "gpt-4.1-nano",
+    "gpt-4.1",
+    "gpt-4.5-preview",
+    "gpt-4o-mini",
+    "gpt-4o",
+    "o3",
+    "o4-mini",
+    "o4",
+]
 class LLMClient:
     PERMITTED_MODELS = {
+        "gpt-3.5-turbo": "openai",
+        "gpt-4": "openai",
+        "gpt-4-turbo": "openai",
+        "gpt-4.1-mini": "openai",
+        "gpt-4.1-nano": "openai",
+        "gpt-4.1": "openai",
+        "gpt-4.5-preview": "openai",
         "gpt-4o-mini": "openai",
         "gpt-4o": "openai",
-        "gpt-4-turbo": "openai",
-        "gpt-3.5-turbo": "openai",
+        "o3": "openai",
+        "o4-mini": "openai",
+        "o4": "openai",
     }
-    _PermittedModelType = Literal[
-        "gpt-4o-mini",
-        "gpt-4o",
-        "gpt-4-turbo",
-        "gpt-3.5-turbo",
-    ]
+    
 
-    def __init__(self, model: _PermittedModelType = "gpt-4o-mini"):
+    def __init__(self, model: PermittedModelType = "gpt-4o-mini"):
         self.model = model
         self.provider = self.PERMITTED_MODELS.get(model)
         if not self.provider:
@@ -65,6 +82,6 @@ class LLMClient:
         raise NotImplementedError(f"summarize not implemented for provider: {self.provider}")
 
     @staticmethod
-    def factory(model: _PermittedModelType = "gpt-4o-mini") -> "LLMClient":
+    def factory(model: PermittedModelType = "gpt-4o-mini") -> "LLMClient":
         return LLMClient(model=model)
 
