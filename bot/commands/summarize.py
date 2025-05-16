@@ -63,8 +63,8 @@ class Summarize(commands.Cog):
             
         try:
             # Create a prompt for summarization
-            system_prompt = "You are a helpful assistant. Summarize the following conversation or text concisely."
-            user_prompt = f"Please summarize the following:\n\n{content_to_summarize}"
+            system_prompt = "Summarize the following conversation or text concisely."
+            user_prompt = f"Please summarize the following. In you summary, please mention each user's name:\n\n{content_to_summarize}"
             
             history = [
                 HumanMessage(content=system_prompt),
