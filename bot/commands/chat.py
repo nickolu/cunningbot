@@ -10,6 +10,7 @@ from typing import List, Optional
 from langchain_core.messages.base import BaseMessage
 from langchain_core.messages import HumanMessage, AIMessage
 from bot.core.llm_client import LLMClient, PermittedModelType
+from bot.core.settings.personality_service import get_personality
 from bot.core.logger import get_logger
 import os
 import re
@@ -32,6 +33,16 @@ def sanitize_name(name: str) -> str:
     # Ensure name is not longer than 64 characters
     return sanitized[:64]
 
+def transform_messages_to_base_messages(messages: List[dict[str, str]]) -> List[BaseMessage]:
+    base_messages: List[BaseMessage] = []
+    for msg in messages:
+        if msg["role"] == "system":
+            base_messages.append(HumanMessage(content=msg["content"]))
+        elif msg["role"] == "user":
+            base_messages.append(HumanMessage(content=msg["content"], name=msg.get("name")))
+        elif msg["role"] == "assistant":
+            base_messages.append(AIMessage(content=msg["content"], name=msg.get("name")))
+    return base_messages
 
 class ChatCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
@@ -83,13 +94,44 @@ class ChatCog(commands.Cog):
         current_user_name = sanitize_name(interaction.user.display_name) # Sanitized name
         history.append(HumanMessage(content=input_text, name=current_user_name))
 
+        # Retrieve current personality
+        personality = get_personality()
+        system_prompt_parts = ["You are a helpful AI assistant."]
+        if personality:
+            system_prompt_parts.append(f"Your current personality is: '{personality}'. Please act accordingly.")
+        
+        system_prompt = " ".join(system_prompt_parts)
+
         # Convert messages to dicts as expected by LLMClient
-        messages = []
+        messages = [
+            {"role": "system", "content": system_prompt}
+        ]
         for msg in history:
+            current_content_str: str
+            if isinstance(msg.content, str):
+                current_content_str = msg.content
+            elif isinstance(msg.content, list):
+                processed_parts = []
+                for part in msg.content:
+                    if isinstance(part, str):
+                        processed_parts.append(part)
+                    elif isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str):
+                        processed_parts.append(part["text"])
+                    # Other parts (e.g., images) could be handled or logged here if necessary
+                current_content_str = "\n".join(processed_parts)
+            else:
+                current_content_str = str(msg.content) # Fallback
+
             if isinstance(msg, HumanMessage):
-                messages.append({"role": "user", "content": msg.content, "name": msg.name})
+                message_dict = {"role": "user", "content": current_content_str}
+                if msg.name: # Add name if it exists
+                    message_dict["name"] = msg.name
+                messages.append(message_dict)
             elif isinstance(msg, AIMessage):
-                messages.append({"role": "assistant", "content": msg.content, "name": msg.name})
+                message_dict = {"role": "assistant", "content": current_content_str}
+                if msg.name: # Add name if it exists (though less common for assistant role in some APIs)
+                    message_dict["name"] = msg.name
+                messages.append(message_dict)
             else:
                 logger.warning({"event": "unexpected_message_type", "type": str(type(msg))})
         print(messages)
@@ -98,9 +140,9 @@ class ChatCog(commands.Cog):
         try:
             # Use the specified model if provided, otherwise use the default
             current_llm = LLMClient.factory(model=model)
-            response = await current_llm.chat(history)
+            response = await current_llm.chat(transform_messages_to_base_messages(messages))
             model_text = "" if was_default else  "\n_model: " + model +"_"
-            formatted_response = f"**You:** {input_text}\n**ManchatBot:** {response}{model_text}"
+            formatted_response = f"**{current_user_name}:** {input_text}\n**ManchatBot:** {response}{model_text}"
             await interaction.followup.send(formatted_response)
         except Exception as e:
             print("Exception: ", e)
