@@ -58,7 +58,7 @@ class LLMClient:
             The assistant's reply as a string.
         """
         if self.provider == "openai":
-            response = await self.llm.ainvoke(history)
+            response = await self.llm.ainvoke(history, max_tokens=10000)
             # print("Response: ", response)
             if hasattr(response, "content"):
                 return str(response.content)
@@ -75,7 +75,7 @@ class LLMClient:
                 f"{text}"
                 
             )
-            response = await self.llm.ainvoke([HumanMessage(content=prompt)])
+            response = await self.llm.ainvoke([HumanMessage(content=prompt)], max_tokens=10000)
             return str(response.content) if hasattr(response, "content") else ""
         raise NotImplementedError(f"summarize not implemented for provider: {self.provider}")
 

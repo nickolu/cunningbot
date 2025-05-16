@@ -59,11 +59,17 @@ class ChatCog(commands.Cog):
     )
     @app_commands.choices(  
         model=[
+            app_commands.Choice(name="gpt-3.5-turbo (cheapest)", value="gpt-3.5-turbo"),
+            app_commands.Choice(name="gpt-4.1-nano", value="gpt-4.1-nano"),
             app_commands.Choice(name="gpt-4o-mini (default)", value="gpt-4o-mini"),
+            app_commands.Choice(name="gpt-4.1-mini", value="gpt-4.1-mini"),
+            app_commands.Choice(name="o4-mini", value="o4-mini"),
+            app_commands.Choice(name="gpt-4.1", value="gpt-4.1"),
             app_commands.Choice(name="gpt-4o", value="gpt-4o"),
             app_commands.Choice(name="gpt-4-turbo", value="gpt-4-turbo"),
-            app_commands.Choice(name="gpt-3.5-turbo", value="gpt-3.5-turbo"),
-            app_commands.Choice(name="o4-mini", value="o4-mini"),
+            app_commands.Choice(name="gpt-4", value="gpt-4"),
+            app_commands.Choice(name="gpt-4.5-preview (most expensive)", value="gpt-4.5-preview"),
+            
         ]
     )
     async def chat(self, interaction: discord.Interaction, msg: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 20, private: Optional[int] = 0) -> None:
@@ -153,7 +159,22 @@ class ChatCog(commands.Cog):
             response = await current_llm.chat(transform_messages_to_base_messages(messages))
             model_text = "" if was_default else  "\n_model: " + model +"_"
             formatted_response = f"**{current_user_name}:** {msg}\n**ManchatBot:** {response}{model_text}"
-            await interaction.followup.send(formatted_response, ephemeral=private)
+            # Discord message limit is 2000 characters
+            def split_message(text: str, max_length: int = 2000):
+                # Split at the last newline before max_length, or hard split if none
+                chunks = []
+                while len(text) > max_length:
+                    split_at = text.rfind('\n', 0, max_length)
+                    if split_at == -1:
+                        split_at = max_length
+                    chunks.append(text[:split_at])
+                    text = text[split_at:]
+                if text:
+                    chunks.append(text)
+                return chunks
+
+            for chunk in split_message(formatted_response):
+                await interaction.followup.send(chunk, ephemeral=private)
         except Exception as e:
             print("Exception: ", e)
             logger.error({
@@ -165,7 +186,9 @@ class ChatCog(commands.Cog):
                 "was_default": was_default
             })
             try:
-                await interaction.followup.send("An error occurred while generating a response.", ephemeral=private)
+                error_message = f"An error occurred while generating a response. Error: {str(e)}"
+                for chunk in split_message(error_message):
+                    await interaction.followup.send(chunk, ephemeral=private)
             except Exception:
                 pass  # Interaction may have expired
             return
