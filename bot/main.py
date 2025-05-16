@@ -28,11 +28,6 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Minimal slash command for debugging
-@bot.tree.command(name="testslash", description="Test slash command")
-async def testslash(interaction: discord.Interaction) -> None:
-    await interaction.response.send_message("Slash command works!")
-
 async def load_cogs_from_dir(directory: str) -> None:
     base = os.path.dirname(__file__)
     path = os.path.join(base, directory)
@@ -42,6 +37,7 @@ async def load_cogs_from_dir(directory: str) -> None:
     for filename in os.listdir(path):
         if filename.endswith(".py") and not filename.startswith("__"):
             ext = f"bot.{directory}.{filename[:-3]}"
+            print('loading cog from '+ext)
             try:
                 await bot.load_extension(ext)
                 logger.info(f"Loaded extension: {ext}")

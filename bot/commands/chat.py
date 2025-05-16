@@ -51,6 +51,12 @@ class ChatCog(commands.Cog):
 
     @app_commands.command(name="chat", description="Chat with the ManchatBot LLM")
     @app_commands.describe(msg="Your message for the chatbot", message_count="Number of previous messages to include (default: 20)")
+    @app_commands.choices(
+        private=[
+            app_commands.Choice(name="True", value=1),
+            app_commands.Choice(name="False", value=0),
+        ]
+    )
     @app_commands.choices(  
         model=[
             app_commands.Choice(name="gpt-4o-mini (default)", value="gpt-4o-mini"),
@@ -60,11 +66,14 @@ class ChatCog(commands.Cog):
             app_commands.Choice(name="o4-mini", value="o4-mini"),
         ]
     )
-    async def chat(self, interaction: discord.Interaction, msg: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 20) -> None:
+    async def chat(self, interaction: discord.Interaction, msg: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 20, private: Optional[int] = 0) -> None:
         was_default = False
         if model is None:
             model = "gpt-4o-mini"
             was_default = True
+
+        # Ensure 'private' is a boolean
+        private = bool(private)
         
         author_id = interaction.user.id
         channel_id = interaction.channel_id
@@ -75,7 +84,8 @@ class ChatCog(commands.Cog):
             "msg": msg,
             "model": model,
             "was_default": was_default,
-            "message_count": message_count
+            "message_count": message_count,
+            "private": private,
         }
         logger.info(log_payload)
 
@@ -136,14 +146,14 @@ class ChatCog(commands.Cog):
             else:
                 logger.warning({"event": "unexpected_message_type", "type": str(type(history_message))})
 
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=private)
         try:
             # Use the specified model if provided, otherwise use the default
             current_llm = LLMClient.factory(model=model)
             response = await current_llm.chat(transform_messages_to_base_messages(messages))
             model_text = "" if was_default else  "\n_model: " + model +"_"
             formatted_response = f"**{current_user_name}:** {msg}\n**ManchatBot:** {response}{model_text}"
-            await interaction.followup.send(formatted_response)
+            await interaction.followup.send(formatted_response, ephemeral=private)
         except Exception as e:
             print("Exception: ", e)
             logger.error({
@@ -155,7 +165,7 @@ class ChatCog(commands.Cog):
                 "was_default": was_default
             })
             try:
-                await interaction.followup.send("An error occurred while generating a response.", ephemeral=True)
+                await interaction.followup.send("An error occurred while generating a response.", ephemeral=private)
             except Exception:
                 pass  # Interaction may have expired
             return
