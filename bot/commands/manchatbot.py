@@ -35,6 +35,11 @@ class ManchatBot(commands.Cog):
     )
     async def manchatbot(self, interaction: discord.Interaction, input_text: str, model: Optional[PermittedModelType] = None) -> None:
         model = model or "gpt-4o-mini"
+        was_default = False
+        if model is None:
+            model = "gpt-4o-mini"
+            was_default = True
+        
         author_id = interaction.user.id
         channel_id = interaction.channel_id
         log_payload = {
@@ -42,7 +47,8 @@ class ManchatBot(commands.Cog):
             "author_id": author_id,
             "channel_id": channel_id,
             "input_text": input_text,
-            "model": model
+            "model": model,
+            "was_default": was_default
         }
         logger.info(log_payload)
 
@@ -74,7 +80,8 @@ class ManchatBot(commands.Cog):
             # Use the specified model if provided, otherwise use the default
             current_llm = LLMClient.factory(model=model)
             response = await current_llm.chat(history)
-            formatted_response = f"**You:** {input_text}\n**ManchatBot:** {response}\n\n_model: {model}_"
+            model_text = "" if was_default else  "\n_model: " + model 
+            formatted_response = f"**You:** {input_text}\n**ManchatBot:** {response}{model_text}"
             await interaction.followup.send(formatted_response)
         except Exception as e:
             logger.error({
@@ -82,7 +89,8 @@ class ManchatBot(commands.Cog):
                 "error": str(e),
                 "author_id": author_id,
                 "channel_id": channel_id,
-                "model": model
+                "model": model,
+                "was_default": was_default
             })
             try:
                 await interaction.followup.send("An error occurred while generating a response.", ephemeral=True)
