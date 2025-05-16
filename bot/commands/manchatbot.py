@@ -11,11 +11,29 @@ from langchain_core.messages.base import BaseMessage
 from langchain_core.messages import HumanMessage, AIMessage
 from bot.core.llm_client import LLMClient, PermittedModelType
 from bot.core.logger import get_logger
+import os
+import re
 
 logger = get_logger()
 
-import os
 print(f"Loaded token: '{os.getenv('DISCORD_TOKEN')}'")
+
+# Helper function to sanitize names for OpenAI API
+def sanitize_name(name: str) -> str:
+    """Sanitizes a name to conform to OpenAI's required pattern and length."""
+    if not name: # Handle empty input name
+        return "unknown_user" # Default for empty name
+
+    # Replace disallowed characters (whitespace, <, |, \, /, >) with underscore
+    sanitized = re.sub(r"[\s<|\\/>]+", "_", name)
+    
+    # If sanitization results in an empty string (e.g., name was only disallowed chars), provide a default
+    if not sanitized:
+        return "unknown_user"
+        
+    # Ensure name is not longer than 64 characters
+    return sanitized[:64]
+
 
 class ManchatBot(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
@@ -57,23 +75,26 @@ class ManchatBot(commands.Cog):
         if isinstance(interaction.channel, discord.TextChannel):
             async for message in interaction.channel.history(limit=message_count, oldest_first=False):
                 content = str(message.content) if message.content is not None else ""
+                author_name = sanitize_name(message.author.display_name) # Sanitized name
                 if message.author.bot:
-                    history.append(AIMessage(content=content))
+                    history.append(AIMessage(content=content, name=author_name))
                 else:
-                    history.append(HumanMessage(content=content))
+                    history.append(HumanMessage(content=content, name=author_name))
         history.reverse()  # Oldest first for LLM context
         # Add the current user input as the last message
-        history.append(HumanMessage(content=input_text))
+        current_user_name = sanitize_name(interaction.user.display_name) # Sanitized name
+        history.append(HumanMessage(content=input_text, name=current_user_name))
 
         # Convert messages to dicts as expected by LLMClient
         messages = []
         for msg in history:
             if isinstance(msg, HumanMessage):
-                messages.append({"role": "user", "content": msg.content})
+                messages.append({"role": "user", "content": msg.content, "name": msg.name})
             elif isinstance(msg, AIMessage):
-                messages.append({"role": "assistant", "content": msg.content})
+                messages.append({"role": "assistant", "content": msg.content, "name": msg.name})
             else:
                 logger.warning({"event": "unexpected_message_type", "type": str(type(msg))})
+        print(messages)
 
         await interaction.response.defer()
         try:
@@ -84,6 +105,7 @@ class ManchatBot(commands.Cog):
             formatted_response = f"**You:** {input_text}\n**ManchatBot:** {response}{model_text}"
             await interaction.followup.send(formatted_response)
         except Exception as e:
+            print("Exception: ", e)
             logger.error({
                 "event": "llm_error",
                 "error": str(e),

@@ -3,25 +3,26 @@ import pytest
 from unittest.mock import AsyncMock, patch
 from types import SimpleNamespace
 from bot.core.llm_client import LLMClient
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 
 @pytest.fixture
-def chat_history() -> List[Dict[str, str]]:
+def chat_history() -> List[BaseMessage]:
     return [
-        {"role": "user", "content": "Hello, who are you?"},
-        {"role": "assistant", "content": "I'm a bot."},
-        {"role": "user", "content": "What can you do?"}
+        HumanMessage(content="Hello, who are you?"),
+        AIMessage(content="I'm a bot."),
+        HumanMessage(content="What can you do?")
     ]
 
 @pytest.mark.asyncio
 @patch("bot.core.llm_client.RunnableWithMessageHistory")
-async def test_chat_openai(mock_runnable: AsyncMock, chat_history: List[Dict[str, str]]) -> None:
+async def test_chat_openai(mock_runnable: AsyncMock, chat_history: List[BaseMessage]) -> None:
     mock_llm = AsyncMock()
     mock_llm.ainvoke.return_value = SimpleNamespace(content="I can chat with you.")
     mock_runnable.return_value = mock_llm
 
     client = LLMClient(model="gpt-4o-mini")
     result = await client.chat(chat_history)
-    print("Result: ", result)
+    # print("Result: ", result)
     assert result == "I can chat with you."
     mock_llm.ainvoke.assert_awaited()
 
@@ -54,9 +55,9 @@ async def test_live_chat_openai() -> None:
     from bot.core.llm_client import LLMClient
     client = LLMClient(model="gpt-3.5-turbo")
     history = [
-        {"role": "user", "content": "What is the capital of France?"}
+        BaseMessage(content="What is the capital of France?"),
     ]
     result = await client.chat(history)
-    print("Ai response: ", result)
+    # print("Ai response: ", result)
     assert isinstance(result, str)
     assert "Paris" in result

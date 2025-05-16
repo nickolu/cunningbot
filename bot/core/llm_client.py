@@ -3,11 +3,9 @@ llm_client.py
 Core LLM client logic for the bot.
 """
 
-from typing import Callable, List, Dict, Any, Literal
+from typing import List, Literal
 from langchain_core.messages import BaseMessage
 from langchain_openai import ChatOpenAI
-from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_core.chat_history import BaseChatMessageHistory, InMemoryChatMessageHistory
 
 PermittedModelType = Literal[
     "gpt-3.5-turbo",
@@ -61,7 +59,7 @@ class LLMClient:
         """
         if self.provider == "openai":
             response = await self.llm.ainvoke(history)
-            print("Response: ", response)
+            # print("Response: ", response)
             if hasattr(response, "content"):
                 return str(response.content)
             if isinstance(response, dict) and "content" in response:
