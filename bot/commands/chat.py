@@ -1,5 +1,5 @@
 """
-ManchatBot.py
+Chat.py
 Command handler for chat functionality.
 """
 
@@ -15,8 +15,6 @@ import os
 import re
 
 logger = get_logger()
-
-print(f"Loaded token: '{os.getenv('DISCORD_TOKEN')}'")
 
 # Helper function to sanitize names for OpenAI API
 def sanitize_name(name: str) -> str:
@@ -35,12 +33,12 @@ def sanitize_name(name: str) -> str:
     return sanitized[:64]
 
 
-class ManchatBot(commands.Cog):
+class ChatCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.llm = LLMClient.factory()
 
-    @app_commands.command(name="manchatbot", description="Chat with the ManchatBot LLM")
+    @app_commands.command(name="chat", description="Chat with the ManchatBot LLM")
     @app_commands.describe(input_text="Your message for the chatbot", message_count="Number of previous messages to include (default: 20)")
     @app_commands.choices(  
         model=[
@@ -51,7 +49,7 @@ class ManchatBot(commands.Cog):
             app_commands.Choice(name="o4-mini", value="o4-mini"),
         ]
     )
-    async def manchatbot(self, interaction: discord.Interaction, input_text: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 20) -> None:
+    async def chat(self, interaction: discord.Interaction, input_text: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 20) -> None:
         was_default = False
         if model is None:
             model = "gpt-4o-mini"
@@ -101,7 +99,7 @@ class ManchatBot(commands.Cog):
             # Use the specified model if provided, otherwise use the default
             current_llm = LLMClient.factory(model=model)
             response = await current_llm.chat(history)
-            model_text = "" if was_default else  "\n_model: " + model 
+            model_text = "" if was_default else  "\n_model: " + model +"_"
             formatted_response = f"**You:** {input_text}\n**ManchatBot:** {response}{model_text}"
             await interaction.followup.send(formatted_response)
         except Exception as e:
@@ -121,4 +119,4 @@ class ManchatBot(commands.Cog):
             return
 
 async def setup(bot: commands.Bot) -> None:
-    await bot.add_cog(ManchatBot(bot))
+    await bot.add_cog(ChatCog(bot))

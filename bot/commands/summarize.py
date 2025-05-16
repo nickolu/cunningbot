@@ -6,9 +6,9 @@ Command handler for summarization functionality.
 import discord
 from discord import app_commands
 from discord.ext import commands
-from typing import Optional
+from typing import List, Optional
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage
 from bot.core.llm_client import LLMClient
 from bot.core.logger import get_logger
 
@@ -63,8 +63,8 @@ class Summarize(commands.Cog):
             
         try:
             # Create a prompt for summarization
-            system_prompt = "You are a helpful assistant. Summarize the following conversation or text concisely."
-            user_prompt = f"Please summarize the following:\n\n{content_to_summarize}"
+            system_prompt = "Summarize the following conversation or text concisely."
+            user_prompt = f"Please summarize the following. In you summary, please mention each user's name:\n\n{content_to_summarize}"
             
             history = [
                 HumanMessage(content=system_prompt),
