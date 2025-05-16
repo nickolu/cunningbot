@@ -33,7 +33,7 @@ class ManchatBot(commands.Cog):
             app_commands.Choice(name="o4-mini", value="o4-mini"),
         ]
     )
-    async def manchatbot(self, interaction: discord.Interaction, input_text: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 0) -> None:
+    async def manchatbot(self, interaction: discord.Interaction, input_text: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 20) -> None:
         was_default = False
         if model is None:
             model = "gpt-4o-mini"
