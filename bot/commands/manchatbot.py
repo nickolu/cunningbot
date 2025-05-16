@@ -23,7 +23,7 @@ class ManchatBot(commands.Cog):
         self.llm = LLMClient.factory()
 
     @app_commands.command(name="manchatbot", description="Chat with the ManchatBot LLM")
-    @app_commands.describe(input_text="Your message for the chatbot")
+    @app_commands.describe(input_text="Your message for the chatbot", message_count="Number of previous messages to include (default: 20)")
     @app_commands.choices(  
         model=[
             app_commands.Choice(name="gpt-4o-mini (default)", value="gpt-4o-mini"),
@@ -33,8 +33,7 @@ class ManchatBot(commands.Cog):
             app_commands.Choice(name="o4-mini", value="o4-mini"),
         ]
     )
-    async def manchatbot(self, interaction: discord.Interaction, input_text: str, model: Optional[PermittedModelType] = None) -> None:
-        model = model or "gpt-4o-mini"
+    async def manchatbot(self, interaction: discord.Interaction, input_text: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 0) -> None:
         was_default = False
         if model is None:
             model = "gpt-4o-mini"
@@ -48,14 +47,15 @@ class ManchatBot(commands.Cog):
             "channel_id": channel_id,
             "input_text": input_text,
             "model": model,
-            "was_default": was_default
+            "was_default": was_default,
+            "message_count": message_count
         }
         logger.info(log_payload)
 
-        # Retrieve last 20 messages from the channel
+        # Retrieve last messages from the channel based on message_count
         history: List[BaseMessage] = []
         if isinstance(interaction.channel, discord.TextChannel):
-            async for message in interaction.channel.history(limit=20, oldest_first=False):
+            async for message in interaction.channel.history(limit=message_count, oldest_first=False):
                 content = str(message.content) if message.content is not None else ""
                 if message.author.bot:
                     history.append(AIMessage(content=content))
