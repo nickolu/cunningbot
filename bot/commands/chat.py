@@ -8,39 +8,47 @@ from discord import app_commands
 from discord.ext import commands
 from typing import List, Optional
 
+from bot.core.chat.chat_service import chat_service
 from bot.core.llm_client import LLMClient, PermittedModelType
 from bot.core.settings.personality_service import get_personality, set_personality
 from bot.core.logger import get_logger
 import os
 import re
 
+from bot.services.openai.utils import sanitize_name
+
 logger = get_logger()
 
-# Helper function to sanitize names for OpenAI API
-def sanitize_name(name: str) -> str:
-    """Sanitizes a name to conform to OpenAI's required pattern and length."""
-    if not name: # Handle empty input name
-        return "unknown_user" # Default for empty name
 
-    # Replace disallowed characters (whitespace, <, |, \, /, >) with underscore
-    sanitized = re.sub(r"[\s<|\\/>]+", "_", name)
-    
-    # If sanitization results in an empty string (e.g., name was only disallowed chars), provide a default
-    if not sanitized:
-        return "unknown_user"
-        
-    # Ensure name is not longer than 64 characters
-    return sanitized[:64]
+def split_message(text: str, max_length: int = 2000) -> List[str]:
+    # Split at the last newline before max_length, or hard split if none
+    chunks = []
+    while len(text) > max_length:
+        split_at = text.rfind('\n', 0, max_length)
+        if split_at == -1:
+            split_at = max_length
+        chunks.append(text[:split_at])
+        text = text[split_at:]
+    if text:
+        chunks.append(text)
+    return chunks
 
-def transform_messages_to_openai(messages: List[dict[str, str]]) -> List[dict[str, str]]:
-    # Passes through message dicts, ensuring OpenAI-compatible keys
-    result = []
-    for msg in messages:
-        entry = {"role": msg["role"], "content": msg["content"]}
-        if "name" in msg and msg["name"]:
-            entry["name"] = msg["name"]
-        result.append(entry)
-    return result
+def flatten_discord_message(message: discord.Message) -> str:
+    content = ""
+    if isinstance(message.content, str):
+        content = message.content
+    elif isinstance(message.content, list):
+        processed_parts = []
+        for part in message.content:
+            if isinstance(part, str):
+                processed_parts.append(part)
+            elif isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str):
+                processed_parts.append(part["text"])
+            # Other parts (e.g., images) could be handled or logged here if necessary
+        content = "\n".join(processed_parts)
+    else:
+        content = str(message.content) # Fallback
+    return content
 
 class ChatCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
@@ -76,9 +84,7 @@ class ChatCog(commands.Cog):
             model = "gpt-4o-mini"
             was_default = True
 
-        # Ensure 'private' is a boolean
-        private = bool(private)
-        
+        name = interaction.user.display_name
         author_id = interaction.user.id
         channel_id = interaction.channel_id
         log_payload = {
@@ -92,100 +98,41 @@ class ChatCog(commands.Cog):
             "private": private,
         }
         logger.info(log_payload)
-
+        
         # Retrieve last messages from the channel based on message_count
-        history: List[dict[str, str]] = []
+        history = []
+
         if isinstance(interaction.channel, discord.TextChannel):
             async for message in interaction.channel.history(limit=message_count, oldest_first=False):
-                content = str(message.content) if message.content is not None else ""
+                content = flatten_discord_message(message)
                 author_name = sanitize_name(message.author.display_name) # Sanitized name
                 if message.author.bot:
                     history.append({"role": "assistant", "content": content, "name": author_name})
                 else:
                     history.append({"role": "user", "content": content, "name": author_name})
-        history.reverse()  # Oldest first for LLM context
-        # Add the current user input as the last message
-        current_user_name = sanitize_name(interaction.user.display_name) # Sanitized name
-        history.append({"role": "user", "content": msg, "name": current_user_name})
-
-        # Retrieve current personality
-        personality = get_personality()
-        system_prompt_parts = ["You are a helpful AI assistant."]
-        if personality:
-            system_prompt_parts.append(f"Your current personality is: '{personality}'. Please act accordingly.")
         
-        system_prompt = " ".join(system_prompt_parts)
+        history.reverse()  # Oldest first for LLM context  
 
-        # Convert messages to dicts as expected by LLMClient
-        # Use transform_messages_to_openai(messages) if needed
-        messages = [
-            {"role": "system", "content": system_prompt}
-        ]
+        model_text = "\n_model: " + model +"_"
 
-        for history_message in history:
-            current_content_str: str
-            if isinstance(history_message["content"], str):
-                current_content_str = history_message["content"]
-            elif isinstance(history_message["content"], list):
-                processed_parts = []
-                for part in history_message["content"]:
-                    if isinstance(part, str):
-                        processed_parts.append(part)
-                    elif isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str):
-                        processed_parts.append(part["text"])
-                    # Other parts (e.g., images) could be handled or logged here if necessary
-                current_content_str = "\n".join(processed_parts)
-            else:
-                current_content_str = str(history_message.content) # Fallback
+        response = await chat_service(msg, model, interaction.user.display_name, get_personality(), history)
 
-            if isinstance(history_message, dict):
-                message_dict = {"role": "user", "content": current_content_str}
-                if history_message["name"]: # Add name if it exists
-                    message_dict["name"] = history_message["name"]
-                messages.append(message_dict)
-            else:
-                logger.warning({"event": "unexpected_message_type", "type": str(type(history_message))})
-
-        await interaction.response.defer(ephemeral=private)
-        try:
-            # Use the specified model if provided, otherwise use the default
-            current_llm = LLMClient.factory(model=model)
-            response = await current_llm.chat(messages)
-            model_text = "" if was_default else  "\n_model: " + model +"_"
-            formatted_response = f"**{current_user_name}:** {msg}\n**ManchatBot:** {response}{model_text}"
-            # Discord message limit is 2000 characters
-            def split_message(text: str, max_length: int = 2000) -> List[str]:
-                # Split at the last newline before max_length, or hard split if none
-                chunks = []
-                while len(text) > max_length:
-                    split_at = text.rfind('\n', 0, max_length)
-                    if split_at == -1:
-                        split_at = max_length
-                    chunks.append(text[:split_at])
-                    text = text[split_at:]
-                if text:
-                    chunks.append(text)
-                return chunks
-
-            for chunk in split_message(formatted_response):
-                await interaction.followup.send(chunk, ephemeral=private)
-        except Exception as e:
-            print("Exception: ", e)
-            logger.error({
-                "event": "llm_error",
-                "error": str(e),
-                "author_id": author_id,
-                "channel_id": channel_id,
-                "model": model,
-                "was_default": was_default
-            })
-            try:
-                error_message = f"An error occurred while generating a response. Error: {str(e)}"
-                for chunk in split_message(error_message):
-                    await interaction.followup.send(chunk, ephemeral=private)
-            except Exception:
-                pass  # Interaction may have expired
+        private = bool(private)
+        
+        if len(response) < 2000:
+            response += "\n" + model_text if not was_default else ""
+            await interaction.response.send_message(response, ephemeral=private)
             return
+
+        await interaction.response.defer(thinking=True, ephemeral=private)
+       
+        try:
+            for chunk in split_message(response):
+                await interaction.followup.send(chunk, ephemeral=private)
+            if not was_default:
+                await interaction.followup.send(model_text, ephemeral=private)
+        except Exception:
+            pass
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(ChatCog(bot))
