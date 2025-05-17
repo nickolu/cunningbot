@@ -6,49 +6,17 @@ Command handler for chat functionality.
 import discord
 from discord import app_commands
 from discord.ext import commands
-from typing import List, Optional
+from typing import Optional
 
 from bot.core.chat.chat_service import chat_service
 from bot.core.llm_client import LLMClient, PermittedModelType
-from bot.core.settings.personality_service import get_personality, set_personality
+from bot.core.settings.personality_service import get_personality
 from bot.core.logger import get_logger
-import os
-import re
-
 from bot.services.openai.utils import sanitize_name
+from bot.utils import split_message
+from bot.services.discord.utils import flatten_discord_message
 
 logger = get_logger()
-
-
-def split_message(text: str, max_length: int = 2000) -> List[str]:
-    # Split at the last newline before max_length, or hard split if none
-    chunks = []
-    while len(text) > max_length:
-        split_at = text.rfind('\n', 0, max_length)
-        if split_at == -1:
-            split_at = max_length
-        chunks.append(text[:split_at])
-        text = text[split_at:]
-    if text:
-        chunks.append(text)
-    return chunks
-
-def flatten_discord_message(message: discord.Message) -> str:
-    content = ""
-    if isinstance(message.content, str):
-        content = message.content
-    elif isinstance(message.content, list):
-        processed_parts = []
-        for part in message.content:
-            if isinstance(part, str):
-                processed_parts.append(part)
-            elif isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str):
-                processed_parts.append(part["text"])
-            # Other parts (e.g., images) could be handled or logged here if necessary
-        content = "\n".join(processed_parts)
-    else:
-        content = str(message.content) # Fallback
-    return content
 
 class ChatCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:

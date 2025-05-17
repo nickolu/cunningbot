@@ -39,11 +39,11 @@ async def chat_service(
     messages = [
         {"role": "system", "content": system_prompt},
         *(history or []),
-        {"role": "user", "content": msg, "name": sanitize_name(name)},
     ]
+    if msg:
+        messages.append({"role": "user", "content": msg, "name": sanitize_name(name)})
 
     try:
-        # Use the specified model if provided, otherwise use the default
         current_llm = LLMClient.factory(model=model)
         response = await current_llm.chat(messages)
         

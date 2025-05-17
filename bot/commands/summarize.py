@@ -1,87 +1,104 @@
 """
-summarize.py
-Command handler for summarization functionality.
+Chat.py
+Command handler for chat functionality.
 """
 
 import discord
 from discord import app_commands
 from discord.ext import commands
-from typing import List, Optional
+from typing import Optional
 
-
-from bot.core.llm_client import LLMClient
+from bot.core.chat.chat_service import chat_service
+from bot.core.llm_client import LLMClient, PermittedModelType
+from bot.core.settings.personality_service import get_personality
 from bot.core.logger import get_logger
+from bot.services.openai.utils import sanitize_name
+from bot.utils import split_message
+from bot.services.discord.utils import flatten_discord_message
 
 logger = get_logger()
 
-class Summarize(commands.Cog):
+class SummarizeCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.llm = LLMClient.factory()
 
     @app_commands.command(name="summarize", description="Summarize a conversation or text")
-    @app_commands.describe(
-        message_count="Number of recent messages to summarize (default: 10)",
-        text="Custom text to summarize instead of messages"
+    @app_commands.describe(message_count="Number of previous messages to include (default: 20)")
+    @app_commands.choices(
+        private=[
+            app_commands.Choice(name="True", value=1),
+            app_commands.Choice(name="False", value=0),
+        ]
     )
-    async def summarize(
-        self, 
-        interaction: discord.Interaction, 
-        message_count: Optional[int] = 10,
-        text: Optional[str] = None
-    ) -> None:
-        await interaction.response.defer(thinking=True)
-        
+    @app_commands.choices(  
+        model=[
+            app_commands.Choice(name="gpt-3.5-turbo (cheapest)", value="gpt-3.5-turbo"),
+            app_commands.Choice(name="gpt-4.1-nano", value="gpt-4.1-nano"),
+            app_commands.Choice(name="gpt-4o-mini (default)", value="gpt-4o-mini"),
+            app_commands.Choice(name="gpt-4.1-mini", value="gpt-4.1-mini"),
+            app_commands.Choice(name="o4-mini", value="o4-mini"),
+            app_commands.Choice(name="gpt-4.1", value="gpt-4.1"),
+            app_commands.Choice(name="gpt-4o", value="gpt-4o"),
+            app_commands.Choice(name="gpt-4-turbo", value="gpt-4-turbo"),
+            app_commands.Choice(name="gpt-4", value="gpt-4"),
+            app_commands.Choice(name="gpt-4.5-preview (most expensive)", value="gpt-4.5-preview"),
+            
+        ]
+    )
+    async def summarize(self, interaction: discord.Interaction, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 20, private: Optional[int] = 0) -> None:
+        was_default = False
+        if model is None:
+            model = "gpt-4o-mini"
+            was_default = True
+
+        name = interaction.user.display_name
         author_id = interaction.user.id
         channel_id = interaction.channel_id
-        logger.info({
+        log_payload = {
             "event": "summarize_command_invoked",
+            "name": name,
             "author_id": author_id,
             "channel_id": channel_id,
+            "model": model,
+            "was_default": was_default,
             "message_count": message_count,
-            "custom_text": bool(text)
-        })
+            "private": private,
+        }
+        logger.info(log_payload)
 
-        content_to_summarize = ""
-        history: List[BaseMessage] = []
-        
-        # Either use provided text or gather messages
-        if text:
-            content_to_summarize = text
-        elif isinstance(interaction.channel, discord.TextChannel):
-            messages = []
-            async for message in interaction.channel.history(limit=message_count):
-                author = f"{message.author.display_name}: " if not message.author.bot else ""
-                content = message.content if message.content else "[No text content]"
-                messages.append(f"{author}{content}")
-            
-            content_to_summarize = "\n".join(reversed(messages))
-        
-        if not content_to_summarize:
-            await interaction.followup.send("No content to summarize.")
-            return
-            
+        await interaction.response.defer(thinking=True, ephemeral=bool(private))
+
+        # Retrieve last messages from the channel based on message_count
+        history = []
+        if isinstance(interaction.channel, discord.TextChannel):
+            async for message in interaction.channel.history(limit=message_count, oldest_first=False):
+                content = flatten_discord_message(message)
+                author_name = sanitize_name(message.author.display_name)
+                if message.author.bot:
+                    history.append({"role": "assistant", "content": content, "name": author_name})
+                else:
+                    history.append({"role": "user", "content": content, "name": author_name})
+        history.reverse()  # Oldest first for LLM context
+
+        model_text = "\n_model: " + model + "_"
+        history_text = "\n".join([f"{msg['name']}: {msg['content']}" for msg in history])
+        response = await chat_service(
+            "You are summarizing a conversation in a discord channel. Please summarize the conversation, making sure to mention each user in the thread. Here is the content of the conversation: \n\n" + history_text,
+            model,
+            interaction.user.display_name,
+            get_personality(),
+            []
+        )
+
         try:
-            # Create a prompt for summarization
-            system_prompt = "Summarize the following conversation or text concisely."
-            user_prompt = f"Please summarize the following. In you summary, please mention each user's name:\n\n{content_to_summarize}"
-            
-            history = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ]
-            
-            summary = await self.llm.summarize(content_to_summarize)
-            await interaction.followup.send(summary)
-            
-        except Exception as e:
-            logger.error({
-                "event": "summarization_error",
-                "error": str(e),
-                "author_id": author_id,
-                "channel_id": channel_id
-            })
-            await interaction.followup.send("An error occurred while generating the summary.")
+            for chunk in split_message(response):
+                await interaction.followup.send(chunk, ephemeral=bool(private))
+            if not was_default:
+                await interaction.followup.send(model_text, ephemeral=bool(private))
+        except Exception:
+            logger.exception("Failed to send followup messages in summarize command.")
+
 
 async def setup(bot: commands.Bot) -> None:
-    await bot.add_cog(Summarize(bot))
+    await bot.add_cog(SummarizeCog(bot))
