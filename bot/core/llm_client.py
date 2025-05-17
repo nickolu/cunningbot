@@ -3,9 +3,15 @@ llm_client.py
 Core LLM client logic for the bot.
 """
 
-from typing import List, Literal
-from langchain_core.messages import BaseMessage
-from langchain_openai import ChatOpenAI
+from typing import List, Literal, Dict, Any, Iterable
+from openai import AsyncOpenAI
+import os
+
+from openai.types.chat import ChatCompletionUserMessageParam, ChatCompletionAssistantMessageParam, ChatCompletionSystemMessageParam, ChatCompletionDeveloperMessageParam, ChatCompletionFunctionMessageParam, ChatCompletionToolMessageParam, ChatCompletionMessageParam, ChatCompletionFunctionMessageParam
+from bot.core.logger import get_logger
+logger = get_logger()
+
+openai = AsyncOpenAI()
 
 PermittedModelType = Literal[
     "gpt-3.5-turbo",
@@ -21,6 +27,25 @@ PermittedModelType = Literal[
     "o4-mini",
     "o4",
 ]
+
+def transform_history_to_openai(history: List[Dict[str, Any]]) -> Iterable[ChatCompletionMessageParam]:
+    for message in history:
+        if message["role"] == "user":
+            yield ChatCompletionUserMessageParam(content=message["content"], role="user")
+        elif message["role"] == "assistant":
+            yield ChatCompletionAssistantMessageParam(content=message["content"], role="assistant")
+        elif message["role"] == "system":
+            yield ChatCompletionSystemMessageParam(content=message["content"], role="system")
+        elif message["role"] == "developer":
+            yield ChatCompletionDeveloperMessageParam(content=message["content"], role="developer")
+        elif message["role"] == "function":
+            yield ChatCompletionFunctionMessageParam(content=message["content"], role="function", name=message["name"])
+        elif message["role"] == "tool":
+            yield ChatCompletionToolMessageParam(content=message["content"], role="tool", tool_call_id=message["tool_call_id"])
+        else:
+            raise ValueError(f"Unsupported role: {message['role']}")
+    
+
 class LLMClient:
     PERMITTED_MODELS = {
         "gpt-3.5-turbo": "openai",
@@ -36,48 +61,50 @@ class LLMClient:
         "o4-mini": "openai",
         "o4": "openai",
     }
-    
 
     def __init__(self, model: PermittedModelType = "gpt-4o-mini"):
         self.model = model
         self.provider = self.PERMITTED_MODELS.get(model)
         if not self.provider:
             raise ValueError(f"Unsupported or unknown model: {model}")
-        if self.provider == "openai":
-            self.llm = ChatOpenAI(model=model)
-        else:
+        if self.provider != "openai":
             raise ValueError(f"Unsupported provider: {self.provider}")
+        self.api_key = os.getenv("OPENAI_API_KEY")
+        if not self.api_key:
+            raise EnvironmentError("OPENAI_API_KEY environment variable is not set.")
 
-
-    async def chat(self, history: List[BaseMessage]) -> str:
+    async def chat(self, history: List[Dict[str, Any]]) -> str:
         """
         Chat with the LLM model, maintaining message history per session.
         Args:
-            history: List of BaseMessage objects.
+            history: List of message dicts with 'role' and 'content'.
         Returns:
             The assistant's reply as a string.
         """
-        if self.provider == "openai":
-            response = await self.llm.ainvoke(history, max_tokens=10000)
-            # print("Response: ", response)
-            if hasattr(response, "content"):
-                return str(response.content)
-            if isinstance(response, dict) and "content" in response:
-                return str(response["content"])
-            return str(response)
-        raise NotImplementedError(f"chat not implemented for provider: {self.provider}")
+
+        try:
+            openai_history = transform_history_to_openai(history)
+            response = await openai.chat.completions.create(
+                model=self.model,
+                messages=openai_history,
+                max_tokens=10000,
+            )
+            return response.choices[0].message.content or ""
+        except Exception as e:
+            logger.error(f"Failed to generate response: {e}")
+            return "There was an error: " + str(e)
 
     async def summarize(self, text: str) -> str:
-        if self.provider == "openai":
-            from langchain_core.messages import HumanMessage
-            prompt = (
-                "Summarize the following text in a concise manner:\n\n"
-                f"{text}"
-                
-            )
-            response = await self.llm.ainvoke([HumanMessage(content=prompt)], max_tokens=10000)
-            return str(response.content) if hasattr(response, "content") else ""
-        raise NotImplementedError(f"summarize not implemented for provider: {self.provider}")
+        prompt = (
+            "Summarize the following text in a concise manner:\n\n"
+            f"{text}"
+        )
+        response = await openai.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=10000,
+        )
+        return response.choices[0].message.content or ""
 
     @staticmethod
     def factory(model: PermittedModelType = "gpt-4o-mini") -> "LLMClient":

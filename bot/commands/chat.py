@@ -7,8 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from typing import List, Optional
-from langchain_core.messages.base import BaseMessage
-from langchain_core.messages import HumanMessage, AIMessage
+
 from bot.core.llm_client import LLMClient, PermittedModelType
 from bot.core.settings.personality_service import get_personality, set_personality
 from bot.core.logger import get_logger
@@ -33,16 +32,15 @@ def sanitize_name(name: str) -> str:
     # Ensure name is not longer than 64 characters
     return sanitized[:64]
 
-def transform_messages_to_base_messages(messages: List[dict[str, str]]) -> List[BaseMessage]:
-    base_messages: List[BaseMessage] = []
+def transform_messages_to_openai(messages: List[dict[str, str]]) -> List[dict[str, str]]:
+    # Passes through message dicts, ensuring OpenAI-compatible keys
+    result = []
     for msg in messages:
-        if msg["role"] == "system":
-            base_messages.append(HumanMessage(content=msg["content"]))
-        elif msg["role"] == "user":
-            base_messages.append(HumanMessage(content=msg["content"], name=msg.get("name")))
-        elif msg["role"] == "assistant":
-            base_messages.append(AIMessage(content=msg["content"], name=msg.get("name")))
-    return base_messages
+        entry = {"role": msg["role"], "content": msg["content"]}
+        if "name" in msg and msg["name"]:
+            entry["name"] = msg["name"]
+        result.append(entry)
+    return result
 
 class ChatCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
@@ -96,19 +94,19 @@ class ChatCog(commands.Cog):
         logger.info(log_payload)
 
         # Retrieve last messages from the channel based on message_count
-        history: List[BaseMessage] = []
+        history: List[dict[str, str]] = []
         if isinstance(interaction.channel, discord.TextChannel):
             async for message in interaction.channel.history(limit=message_count, oldest_first=False):
                 content = str(message.content) if message.content is not None else ""
                 author_name = sanitize_name(message.author.display_name) # Sanitized name
                 if message.author.bot:
-                    history.append(AIMessage(content=content, name=author_name))
+                    history.append({"role": "assistant", "content": content, "name": author_name})
                 else:
-                    history.append(HumanMessage(content=content, name=author_name))
+                    history.append({"role": "user", "content": content, "name": author_name})
         history.reverse()  # Oldest first for LLM context
         # Add the current user input as the last message
         current_user_name = sanitize_name(interaction.user.display_name) # Sanitized name
-        history.append(HumanMessage(content=msg, name=current_user_name))
+        history.append({"role": "user", "content": msg, "name": current_user_name})
 
         # Retrieve current personality
         personality = get_personality()
@@ -119,17 +117,18 @@ class ChatCog(commands.Cog):
         system_prompt = " ".join(system_prompt_parts)
 
         # Convert messages to dicts as expected by LLMClient
+        # Use transform_messages_to_openai(messages) if needed
         messages = [
             {"role": "system", "content": system_prompt}
         ]
 
         for history_message in history:
             current_content_str: str
-            if isinstance(history_message.content, str):
-                current_content_str = history_message.content
-            elif isinstance(history_message.content, list):
+            if isinstance(history_message["content"], str):
+                current_content_str = history_message["content"]
+            elif isinstance(history_message["content"], list):
                 processed_parts = []
-                for part in history_message.content:
+                for part in history_message["content"]:
                     if isinstance(part, str):
                         processed_parts.append(part)
                     elif isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str):
@@ -139,15 +138,10 @@ class ChatCog(commands.Cog):
             else:
                 current_content_str = str(history_message.content) # Fallback
 
-            if isinstance(history_message, HumanMessage):
+            if isinstance(history_message, dict):
                 message_dict = {"role": "user", "content": current_content_str}
-                if history_message.name: # Add name if it exists
-                    message_dict["name"] = history_message.name
-                messages.append(message_dict)
-            elif isinstance(history_message, AIMessage):
-                message_dict = {"role": "assistant", "content": current_content_str}
-                if history_message.name: # Add name if it exists (though less common for assistant role in some APIs)
-                    message_dict["name"] = history_message.name
+                if history_message["name"]: # Add name if it exists
+                    message_dict["name"] = history_message["name"]
                 messages.append(message_dict)
             else:
                 logger.warning({"event": "unexpected_message_type", "type": str(type(history_message))})
@@ -156,11 +150,11 @@ class ChatCog(commands.Cog):
         try:
             # Use the specified model if provided, otherwise use the default
             current_llm = LLMClient.factory(model=model)
-            response = await current_llm.chat(transform_messages_to_base_messages(messages))
+            response = await current_llm.chat(messages)
             model_text = "" if was_default else  "\n_model: " + model +"_"
             formatted_response = f"**{current_user_name}:** {msg}\n**ManchatBot:** {response}{model_text}"
             # Discord message limit is 2000 characters
-            def split_message(text: str, max_length: int = 2000):
+            def split_message(text: str, max_length: int = 2000) -> List[str]:
                 # Split at the last newline before max_length, or hard split if none
                 chunks = []
                 while len(text) > max_length:
