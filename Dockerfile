@@ -22,11 +22,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy code and give ownership in one shot
 COPY --chown=appuser:appuser . .
 
-# Ensure app_state.json exists and has correct permissions
+# Ensure app_state.json and logs directory exist with proper permissions
 RUN mkdir -p /app/bot/core && \
+    mkdir -p /app/logs && \
     touch /app/bot/core/app_state.json && \
     chown -R appuser:appuser /app/bot/core && \
-    chmod 644 /app/bot/core/app_state.json
+    chown -R appuser:appuser /app/logs && \
+    chmod 644 /app/bot/core/app_state.json && \
+    chmod 755 /app/logs
 
 USER appuser
 
