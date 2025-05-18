@@ -14,6 +14,7 @@ logger = get_logger()
 openai = OpenAI()
 
 PermittedImageModelType = str  # OpenAI currently supports 'dall-e-3', 'gpt-image-1', etc.
+PermittedImageSizeType = Literal['auto', '1024x1024', '1536x1024', '1024x1536', '256x256', '512x512', '1792x1024', '1024x1792']
 
 class ImageGenerationClient:
     DEFAULT_MODEL = "gpt-image-1"
@@ -24,7 +25,7 @@ class ImageGenerationClient:
         if not self.api_key:
             raise EnvironmentError("OPENAI_API_KEY environment variable is not set.")
 
-    async def generate_image(self, prompt: str, *, size: Literal['auto', '1024x1024', '1536x1024', '1024x1536', '256x256', '512x512', '1792x1024', '1024x1792'] = "1024x1024", n: int = 1) -> Optional[bytes]:
+    async def generate_image(self, prompt: str, *, size: PermittedImageSizeType = "1024x1024", n: int = 1) -> Optional[tuple[Optional[bytes], str]]:
         """
         Generate an image from a prompt using OpenAI's image API.
         Returns the image bytes if successful, else None.
@@ -44,10 +45,10 @@ class ImageGenerationClient:
 
             image_bytes = base64.b64decode(img.data[0].b64_json)
 
-            return image_bytes
+            return (image_bytes, "")
         except Exception as e:
             logger.error(f"Failed to generate image: {e} \nargs: {locals()}")
-            return None
+            return (None, str(e))
 
     @staticmethod
     def factory(model: PermittedImageModelType = DEFAULT_MODEL) -> "ImageGenerationClient":
