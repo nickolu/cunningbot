@@ -13,6 +13,7 @@ services:
       - ./bot/core:/app/bot/core
       - ./bot/core/app_state.json:/app/bot/core/app_state.json
       - ./logs:/app/logs
+      - ./generated_images:/app/generated_images
     # Note: Using volumes for the core directory allows state persistence
     # between container restarts without rebuilding the image
     # The specific app_state.json mapping ensures personality settings remain intact

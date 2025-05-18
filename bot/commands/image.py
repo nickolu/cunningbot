@@ -43,7 +43,10 @@ class ImageCog(commands.Cog):
             logger.info(f"Generated image: {filepath}")
         except Exception as e:
             logger.error(f"Failed to save image: {e}")
-            await interaction.followup.send("Image generated but failed to save to disk.")
+            await interaction.followup.send(
+                content=f"Image generated for {interaction.user.mention}:\nPrompt: *{prompt}*\n`{filename}`.\n\nFailed to save to disk.\n\n{e}",
+                file=discord.File(fp=file_obj, filename=filename)
+            )
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(ImageCog(bot))
