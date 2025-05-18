@@ -9,7 +9,7 @@ from discord.ext import commands
 from typing import Optional
 
 from bot.core.chat.chat_service import chat_service
-from bot.core.llm_client import LLMClient, PermittedModelType
+from bot.core.chat_completions_client import ChatCompletionsClient, PermittedModelType
 from bot.core.settings.personality_service import get_personality
 from bot.core.logger import get_logger
 from bot.services.openai.utils import sanitize_name
@@ -21,7 +21,7 @@ logger = get_logger()
 class ChatCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
-        self.llm = LLMClient.factory()
+        self.llm = ChatCompletionsClient.factory()
 
     @app_commands.command(name="chat", description="Chat with the ManchatBot LLM")
     @app_commands.describe(msg="Your message for the chatbot", message_count="Number of previous messages to include (default: 20)")

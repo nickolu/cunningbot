@@ -1,5 +1,5 @@
 """
-llm_client.py
+chat_completions_client.py
 Core LLM client logic for the bot.
 """
 
@@ -46,7 +46,7 @@ def transform_history_to_openai(history: List[Dict[str, Any]]) -> Iterable[ChatC
             raise ValueError(f"Unsupported role: {message['role']}")
     
 
-class LLMClient:
+class ChatCompletionsClient:
     PERMITTED_MODELS = {
         "gpt-3.5-turbo": "openai",
         "gpt-4": "openai",
@@ -107,6 +107,6 @@ class LLMClient:
         return response.choices[0].message.content or ""
 
     @staticmethod
-    def factory(model: PermittedModelType = "gpt-4o-mini") -> "LLMClient":
-        return LLMClient(model=model)
+    def factory(model: PermittedModelType = "gpt-4o-mini") -> "ChatCompletionsClient":
+        return ChatCompletionsClient(model=model)
 

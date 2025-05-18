@@ -7,11 +7,8 @@ Service for chat functionality.
 from typing import Dict, List, Optional
 
 from bot.services.openai.utils import sanitize_name
-from bot.core.llm_client import LLMClient, PermittedModelType, transform_history_to_openai
-from bot.core.settings.personality_service import get_personality, set_personality
+from bot.services.openai.chat_completions_client import ChatCompletionsClient, PermittedModelType
 from bot.core.logger import get_logger
-import os
-import re
 
 logger = get_logger()
 
@@ -44,7 +41,7 @@ async def chat_service(
         messages.append({"role": "user", "content": msg, "name": sanitize_name(name)})
 
     try:
-        current_llm = LLMClient.factory(model=model)
+        current_llm = ChatCompletionsClient.factory(model=model)
         response = await current_llm.chat(messages)
         
         return response
