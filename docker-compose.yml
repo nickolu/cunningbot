@@ -1,0 +1,17 @@
+version: '3'
+
+services:
+  manchatbot:
+    build: .
+    restart: unless-stopped
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - CLIENT_ID=${CLIENT_ID}
+      - INVITE_URL=${INVITE_URL}
+    volumes:
+      - ./bot/core:/app/bot/core
+      - ./bot/core/app_state.json:/app/bot/core/app_state.json
+    # Note: Using volumes for the core directory allows state persistence
+    # between container restarts without rebuilding the image
+    # The specific app_state.json mapping ensures personality settings remain intact

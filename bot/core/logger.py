@@ -33,8 +33,11 @@ class JSONSink:
         self._file = open(self.file_path, "a", encoding="utf-8")
 
     def write(self, message: str) -> None:
-        self._file.write(message)
-        self._file.flush()
+        try:
+            self._file.write(message)
+            self._file.flush()
+        except Exception:
+            print(f"Failed to write log message: {message}")
 
     def __del__(self) -> None:
         try:
