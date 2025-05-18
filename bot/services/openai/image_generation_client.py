@@ -31,7 +31,7 @@ class ImageGenerationClient:
         """
         try:
             img = openai.images.generate(
-                model=self.model,
+                model="gpt-image-1",
                 prompt=prompt,
                 n=n,
                 size=size,
@@ -46,7 +46,7 @@ class ImageGenerationClient:
 
             return image_bytes
         except Exception as e:
-            logger.error(f"Failed to generate image: {e}")
+            logger.error(f"Failed to generate image: {e} \nargs: {locals()}")
             return None
 
     @staticmethod

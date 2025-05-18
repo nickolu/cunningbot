@@ -2,3 +2,4 @@
 .env
 logs
 bot/core/app_state.json
+generated_images
