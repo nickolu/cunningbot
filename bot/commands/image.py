@@ -24,9 +24,10 @@ class ImageCog(commands.Cog):
     async def image(self, interaction: discord.Interaction, prompt: str) -> None:
         print("Generating image...")
         await interaction.response.defer()
-        image_bytes = await self.image_client.generate_image(prompt)
+        result = await self.image_client.generate_image(prompt)
+        image_bytes, error_message = result
         if not image_bytes:
-            await interaction.followup.send("Image generation failed.")
+            await interaction.followup.send(f"{interaction.user.mention}: Image generation failed\n\nprompt: *{prompt}*\n\n{error_message}")
             return
         filename = f"generated_{uuid.uuid4().hex[:8]}.png"
         filepath = f"generated_images/{interaction.user.display_name}/{filename}"
@@ -36,7 +37,7 @@ class ImageCog(commands.Cog):
             file_obj.seek(0)
 
             await interaction.followup.send(
-                content=f"Image generated for {interaction.user.mention}:\n{prompt}\n`{filename}`.",
+                content=f"Image generated for {interaction.user.mention}:\nPrompt: *{prompt}*\n`{filename}`.",
                 file=discord.File(fp=file_obj, filename=filename)
             )
             logger.info(f"Generated image: {filepath}")

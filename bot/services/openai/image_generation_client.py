@@ -25,7 +25,7 @@ class ImageGenerationClient:
         if not self.api_key:
             raise EnvironmentError("OPENAI_API_KEY environment variable is not set.")
 
-    async def generate_image(self, prompt: str, *, size: PermittedImageSizeType = "1024x1024", n: int = 1) -> Optional[tuple[Optional[bytes], str]]:
+    async def generate_image(self, prompt: str, *, size: PermittedImageSizeType = "1024x1024", n: int = 1) -> tuple[Optional[bytes], str]:
         """
         Generate an image from a prompt using OpenAI's image API.
         Returns the image bytes if successful, else None.
@@ -38,17 +38,18 @@ class ImageGenerationClient:
                 size=size,
             )
             if img.data is None:
-                return None
+                return (None, "No image data returned.")
 
             if img.data[0].b64_json is None:
-                return None
+                return (None, "No image data base64 returned.")
 
             image_bytes = base64.b64decode(img.data[0].b64_json)
 
             return (image_bytes, "")
         except Exception as e:
             logger.error(f"Failed to generate image: {e} \nargs: {locals()}")
-            return (None, str(e))
+            message = e.message if hasattr(e, "message") else str(e)
+            return (None, message)
 
     @staticmethod
     def factory(model: PermittedImageModelType = DEFAULT_MODEL) -> "ImageGenerationClient":
