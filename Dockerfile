@@ -7,15 +7,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
+# Install dependencies
+RUN pip install --no-cache-dir --upgrade pip
+
+# Create non-root user with UID 1000 (typical first user on Raspberry Pi)
+RUN adduser --disabled-password --uid 1000 appuser
+
+WORKDIR /app
+
 # Copy requirements first for better caching
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY . .
+# Copy code and give ownership in one shot
+COPY --chown=appuser:appuser . .
 
-# Run as non-root user for better security
-RUN useradd -m appuser
+# Ensure app_state.json exists and has correct permissions
+RUN mkdir -p /app/bot/core && \
+    touch /app/bot/core/app_state.json && \
+    chown -R appuser:appuser /app/bot/core && \
+    chmod 644 /app/bot/core/app_state.json
+
 USER appuser
 
 # Run the bot
