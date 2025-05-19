@@ -47,60 +47,76 @@ class ChatCog(commands.Cog):
         ]
     )
     async def chat(self, interaction: discord.Interaction, msg: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 20, private: Optional[int] = 0) -> None:
-        was_default = False
-        if model is None:
-            model = "gpt-4o-mini"
-            was_default = True
-
-        # Acknowledge the interaction immediately to prevent timeouts
-        private = bool(private)
-        await interaction.response.defer(thinking=True, ephemeral=private)
-
-        name = interaction.user.display_name
-        author_id = interaction.user.id
-        channel_id = interaction.channel_id
-        log_payload = {
-            "event": "chat_command_invoked",
-            "author_id": author_id,
-            "channel_id": channel_id,
-            "msg": msg,
-            "model": model,
-            "was_default": was_default,
-            "message_count": message_count,
-            "private": private,
-        }
-        logger.info(log_payload)
-        
-        # Retrieve last messages from the channel based on message_count
-        history = []
-
-        if isinstance(interaction.channel, discord.TextChannel):
-            async for message in interaction.channel.history(limit=message_count, oldest_first=False):
-                content = flatten_discord_message(message)
-                author_name = sanitize_name(message.author.display_name) # Sanitized name
-                if message.author.bot:
-                    history.append({"role": "assistant", "content": content, "name": author_name})
-                else:
-                    history.append({"role": "user", "content": content, "name": author_name})
-        
-        history.reverse()  # Oldest first for LLM context  
-
-        model_text = "\n_model: " + model +"_"
-
-        response = await chat_service(msg, model, interaction.user.display_name, get_personality(), history)
-        
         try:
-            # Handle short messages vs long messages that need splitting
+            # Set defaults and convert types
+            was_default = False
+            if model is None:
+                model = "gpt-4o-mini"
+                was_default = True
+            
+            private = bool(private)
+            
+            # IMPORTANT: Acknowledge the interaction immediately to prevent timeouts
+            await interaction.response.defer(thinking=True, ephemeral=private)
+            
+            # Log the interaction
+            name = interaction.user.display_name
+            author_id = interaction.user.id
+            channel_id = interaction.channel_id
+            log_payload = {
+                "event": "chat_command_invoked",
+                "author_id": author_id,
+                "channel_id": channel_id,
+                "msg": msg,
+                "model": model,
+                "was_default": was_default,
+                "message_count": message_count,
+                "private": private,
+            }
+            logger.info(log_payload)
+            
+            # Retrieve last messages from the channel based on message_count
+            history = []
+
+            if isinstance(interaction.channel, discord.TextChannel):
+                async for message in interaction.channel.history(limit=message_count, oldest_first=False):
+                    content = flatten_discord_message(message)
+                    author_name = sanitize_name(message.author.display_name) # Sanitized name
+                    if message.author.bot:
+                        history.append({"role": "assistant", "content": content, "name": author_name})
+                    else:
+                        history.append({"role": "user", "content": content, "name": author_name})
+            
+            history.reverse()  # Oldest first for LLM context  
+
+            model_text = "\n_model: " + model +"_"
+
+            # Get response from LLM
+            response = await chat_service(msg, model, interaction.user.display_name, get_personality(), history)
+            
+            # Send response via followup
             if len(response) < 2000:
-                response += "\n" + model_text if not was_default else ""
-                await interaction.followup.send(response, ephemeral=private)
+                response_text = response
+                if not was_default:
+                    response_text += "\n" + model_text
+                await interaction.followup.send(response_text, ephemeral=private)
             else:
                 for chunk in split_message(response):
                     await interaction.followup.send(chunk, ephemeral=private)
                 if not was_default:
                     await interaction.followup.send(model_text, ephemeral=private)
-        except Exception:
-            pass
+                    
+        except Exception as e:
+            logger.error(f"Error in chat command: {str(e)}")
+            try:
+                # Try to send an error message if we haven't responded yet
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("Sorry, an error occurred while processing your request.", ephemeral=True)
+                else:
+                    await interaction.followup.send("Sorry, an error occurred while processing your request.", ephemeral=True)
+            except Exception as inner_e:
+                logger.error(f"Failed to send error message: {str(inner_e)}")
+                pass
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(ChatCog(bot))
