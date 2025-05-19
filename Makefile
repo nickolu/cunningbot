@@ -19,6 +19,8 @@ remove:
 
 restart: stop remove start
 
+rebuild: stop remove build start
+
 logs:
 	docker logs -f manchatbot
 
