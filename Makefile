@@ -4,25 +4,31 @@
 run:
 	python3 -m bot.main
 
-# Docker commands
+up:
+	docker-compose up -d
+
+down:
+	docker-compose down
+
+
 build:
-	docker build -t manchatbot-1 .
+	docker-compose build --no-cache
 
 start:
-	docker run -d --name manchatbot-1 --env-file .env -v "$(shell pwd)/bot/core/app_state.json:/app/bot/core/app_state.json" manchatbot-1
+	docker-compose up -d
 
 stop:
-	docker stop manchatbot-1 || true
+	docker-compose down || true
 
 remove:
-	docker rm manchatbot-1 || true
+	docker-compose down || true
 
 restart: stop remove start
 
 rebuild: stop remove build start
 
 logs:
-	docker logs -f manchatbot-1
+	docker-compose logs -f
 
 clean: stop remove
 	@echo "Stopped and removed container"
@@ -31,11 +37,7 @@ clean: stop remove
 install:
 	pip install -r requirements.txt
 
-up:
-	docker-compose up -d
 
-down:
-	docker-compose down
 
 # Help command
 help:
