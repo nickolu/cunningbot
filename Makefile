@@ -6,23 +6,23 @@ run:
 
 # Docker commands
 build:
-	docker build -t manchatbot .
+	docker build -t manchatbot-1 .
 
 start:
-	docker run -d --name manchatbot --env-file .env -v "$(shell pwd)/bot/core/app_state.json:/app/bot/core/app_state.json" manchatbot
+	docker run -d --name manchatbot-1 --env-file .env -v "$(shell pwd)/bot/core/app_state.json:/app/bot/core/app_state.json" manchatbot-1
 
 stop:
-	docker stop manchatbot || true
+	docker stop manchatbot-1 || true
 
 remove:
-	docker rm manchatbot || true
+	docker rm manchatbot-1 || true
 
 restart: stop remove start
 
 rebuild: stop remove build start
 
 logs:
-	docker logs -f manchatbot
+	docker logs -f manchatbot-1
 
 clean: stop remove
 	@echo "Stopped and removed container"
