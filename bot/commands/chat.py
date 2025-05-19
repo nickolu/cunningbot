@@ -52,6 +52,10 @@ class ChatCog(commands.Cog):
             model = "gpt-4o-mini"
             was_default = True
 
+        # Acknowledge the interaction immediately to prevent timeouts
+        private = bool(private)
+        await interaction.response.defer(thinking=True, ephemeral=private)
+
         name = interaction.user.display_name
         author_id = interaction.user.id
         channel_id = interaction.channel_id
@@ -84,21 +88,17 @@ class ChatCog(commands.Cog):
         model_text = "\n_model: " + model +"_"
 
         response = await chat_service(msg, model, interaction.user.display_name, get_personality(), history)
-
-        private = bool(private)
         
-        if len(response) < 2000:
-            response += "\n" + model_text if not was_default else ""
-            await interaction.response.send_message(response, ephemeral=private)
-            return
-
-        await interaction.response.defer(thinking=True, ephemeral=private)
-       
         try:
-            for chunk in split_message(response):
-                await interaction.followup.send(chunk, ephemeral=private)
-            if not was_default:
-                await interaction.followup.send(model_text, ephemeral=private)
+            # Handle short messages vs long messages that need splitting
+            if len(response) < 2000:
+                response += "\n" + model_text if not was_default else ""
+                await interaction.followup.send(response, ephemeral=private)
+            else:
+                for chunk in split_message(response):
+                    await interaction.followup.send(chunk, ephemeral=private)
+                if not was_default:
+                    await interaction.followup.send(model_text, ephemeral=private)
         except Exception:
             pass
 
