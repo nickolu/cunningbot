@@ -28,6 +28,32 @@ PermittedModelType = Literal[
     "o4",
 ]
 
+def transform_arguments_for_model(model: PermittedModelType) -> Dict[str, Any]:
+    if model == "gpt-3.5-turbo":
+        return {"model": "gpt-3.5-turbo", "max_tokens": 10000}
+    elif model == "gpt-4":
+        return {"model": "gpt-4", "max_tokens": 10000}
+    elif model == "gpt-4-turbo":
+        return {"model": "gpt-4-turbo", "max_tokens": 10000}
+    elif model == "gpt-4.1-mini":
+        return {"model": "gpt-4.1-mini", "max_tokens": 10000}
+    elif model == "gpt-4.1-nano":
+        return {"model": "gpt-4.1-nano", "max_tokens": 10000}
+    elif model == "gpt-4.1":
+        return {"model": "gpt-4.1", "max_tokens": 10000}
+    elif model == "gpt-4.5-preview":
+        return {"model": "gpt-4.5-preview", "max_tokens": 10000}
+    elif model == "gpt-4o-mini":
+        return {"model": "gpt-4o-mini", "max_completion_tokens": 10000}
+    elif model == "gpt-4o":
+        return {"model": "gpt-4o", "max_completion_tokens": 10000}
+    elif model == "o3":
+        return {"model": "o3", "max_completion_tokens": 10000}
+    elif model == "o4-mini":
+        return {"model": "o4-mini", "max_completion_tokens": 10000}
+    elif model == "o4":
+        return {"model": "o4", "max_completion_tokens": 10000}
+
 def transform_history_to_openai(history: List[Dict[str, Any]]) -> Iterable[ChatCompletionMessageParam]:
     for message in history:
         if message["role"] == "user":
@@ -85,9 +111,8 @@ class ChatCompletionsClient:
         try:
             openai_history = transform_history_to_openai(history)
             response = await openai.chat.completions.create(
-                model=self.model,
                 messages=openai_history,
-                max_tokens=10000,
+                **transform_arguments_for_model(self.model),
             )
             return response.choices[0].message.content or ""
         except Exception as e:
@@ -100,9 +125,8 @@ class ChatCompletionsClient:
             f"{text}"
         )
         response = await openai.chat.completions.create(
-            model=self.model,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=10000,
+            **transform_arguments_for_model(self.model),
         )
         return response.choices[0].message.content or ""
 
