@@ -47,6 +47,9 @@ class ChatCog(commands.Cog):
         ]
     )
     async def chat(self, interaction: discord.Interaction, msg: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 20, private: Optional[int] = 0) -> None:
+        # Defer the response immediately to prevent interaction timeout
+        await interaction.response.defer(thinking=True, ephemeral=bool(private))
+        
         try:
             # Set defaults and convert types
             was_default = False
@@ -55,9 +58,6 @@ class ChatCog(commands.Cog):
                 was_default = True
             
             private = bool(private)
-            
-            # IMPORTANT: Acknowledge the interaction immediately to prevent timeouts
-            await interaction.response.defer(thinking=True, ephemeral=private)
             
             # Log the interaction
             name = interaction.user.display_name
