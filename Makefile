@@ -31,6 +31,12 @@ clean: stop remove
 install:
 	pip install -r requirements.txt
 
+up:
+	./docker-compose up -d
+
+down:
+	./docker-compose down
+
 # Help command
 help:
 	@echo "Available commands:"
