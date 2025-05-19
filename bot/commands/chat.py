@@ -94,42 +94,34 @@ class ChatCog(commands.Cog):
             # Get response from LLM
             response = await chat_service(msg, model, interaction.user.display_name, get_personality(), history)
             
-            # Send response via followup
+            # Prepare the response text
+            if not was_default:
+                response = f"{response}\n{model_text}"
+            
+            # Split the response into chunks of 2000 characters or less
+            chunks = split_message(response)
+            
+            # Send the first chunk as a follow-up to the deferred interaction
             try:
-                if len(response) < 2000:
-                    response_text = response
-                    if not was_default:
-                        response_text += "\n" + model_text
-                    await interaction.followup.send(response_text, ephemeral=private)
-                else:
-                    # Split the response into chunks of 2000 characters or less
-                    chunks = split_message(response)
-                    for i, chunk in enumerate(chunks):
-                        try:
-                            if i == 0:
-                                await interaction.followup.send(chunk, ephemeral=private)
-                            else:
-                                # If the interaction has expired, send as a regular message
-                                await interaction.followup.send(chunk, ephemeral=private)
-                        except discord.errors.NotFound:
-                            # If interaction is no longer valid, try sending as a regular message
-                            if interaction.channel:
-                                await interaction.channel.send(chunk)
-                    
-                    if not was_default:
-                        try:
-                            await interaction.followup.send(model_text, ephemeral=private)
-                        except discord.errors.NotFound:
-                            if interaction.channel:
-                                await interaction.channel.send(model_text)
-                                
+                await interaction.followup.send(chunks[0], ephemeral=private)
+                
+                # Send remaining chunks as regular messages
+                for chunk in chunks[1:]:
+                    try:
+                        await interaction.followup.send(chunk, ephemeral=private)
+                    except discord.errors.NotFound:
+                        if interaction.channel:
+                            await interaction.channel.send(chunk)
+                            
             except Exception as e:
-                logger.error(f"Error sending response: {str(e)}")
+                logger.error(f"Error sending initial response: {str(e)}")
                 if interaction.channel:
-                    error_msg = "I had trouble sending my response. Here's a shorter version:"
-                    await interaction.channel.send(f"{error_msg}\n{response[:1500]}...")
-                    if not was_default:
-                        await interaction.channel.send(model_text)
+                    # Try to send at least part of the response
+                    try:
+                        error_msg = "I had trouble sending my response. Here's a shorter version:"
+                        await interaction.channel.send(f"{error_msg}\n{response[:1500]}...")
+                    except Exception as e2:
+                        logger.error(f"Failed to send fallback message: {str(e2)}")
                     
         except Exception as e:
             logger.error(f"Error in chat command: {str(e)}")
