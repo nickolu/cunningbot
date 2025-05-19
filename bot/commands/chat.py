@@ -95,16 +95,41 @@ class ChatCog(commands.Cog):
             response = await chat_service(msg, model, interaction.user.display_name, get_personality(), history)
             
             # Send response via followup
-            if len(response) < 2000:
-                response_text = response
-                if not was_default:
-                    response_text += "\n" + model_text
-                await interaction.followup.send(response_text, ephemeral=private)
-            else:
-                for chunk in split_message(response):
-                    await interaction.followup.send(chunk, ephemeral=private)
-                if not was_default:
-                    await interaction.followup.send(model_text, ephemeral=private)
+            try:
+                if len(response) < 2000:
+                    response_text = response
+                    if not was_default:
+                        response_text += "\n" + model_text
+                    await interaction.followup.send(response_text, ephemeral=private)
+                else:
+                    # Split the response into chunks of 2000 characters or less
+                    chunks = split_message(response)
+                    for i, chunk in enumerate(chunks):
+                        try:
+                            if i == 0:
+                                await interaction.followup.send(chunk, ephemeral=private)
+                            else:
+                                # If the interaction has expired, send as a regular message
+                                await interaction.followup.send(chunk, ephemeral=private)
+                        except discord.errors.NotFound:
+                            # If interaction is no longer valid, try sending as a regular message
+                            if interaction.channel:
+                                await interaction.channel.send(chunk)
+                    
+                    if not was_default:
+                        try:
+                            await interaction.followup.send(model_text, ephemeral=private)
+                        except discord.errors.NotFound:
+                            if interaction.channel:
+                                await interaction.channel.send(model_text)
+                                
+            except Exception as e:
+                logger.error(f"Error sending response: {str(e)}")
+                if interaction.channel:
+                    error_msg = "I had trouble sending my response. Here's a shorter version:"
+                    await interaction.channel.send(f"{error_msg}\n{response[:1500]}...")
+                    if not was_default:
+                        await interaction.channel.send(model_text)
                     
         except Exception as e:
             logger.error(f"Error in chat command: {str(e)}")
