@@ -14,3 +14,6 @@ def split_message(text: str, max_length: int = 2000) -> List[str]:
     if text:
         chunks.append(text)
     return chunks
+
+def concat_url_params(**kwargs: str) -> str:
+    return "&".join([f"{key}={value}" for key, value in kwargs.items()])
