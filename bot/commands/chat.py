@@ -109,19 +109,17 @@ class ChatCog(commands.Cog):
                 for chunk in chunks[1:]:
                     try:
                         await interaction.followup.send(chunk, ephemeral=private)
-                    except discord.errors.NotFound:
-                        if interaction.channel:
-                            await interaction.channel.send(chunk)
+                    except discord.errors.NotFound as e:
+                        logger.error(f"Error sending followup response: {str(e)}")
+                        if interaction.channel and isinstance(interaction.channel, discord.TextChannel):
+                            await interaction.channel.send(f"I had trouble sending my response. Here's a shorter version:\n{chunk}")
+                            return
                             
             except Exception as e:
                 logger.error(f"Error sending initial response: {str(e)}")
-                if interaction.channel:
-                    # Try to send at least part of the response
-                    try:
-                        error_msg = "I had trouble sending my response. Here's a shorter version:"
-                        await interaction.channel.send(f"{error_msg}\n{response[:1500]}...")
-                    except Exception as e2:
-                        logger.error(f"Failed to send fallback message: {str(e2)}")
+                if interaction.channel and isinstance(interaction.channel, discord.TextChannel):
+                    await interaction.channel.send(f"{str(e)}\n{response[:1500]}...")
+
                     
         except Exception as e:
             logger.error(f"Error in chat command: {str(e)}")
