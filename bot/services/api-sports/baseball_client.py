@@ -15,13 +15,51 @@ from .baseball_types import (
     StandingsResponseItem,
     StandingsGroupsResponse,
     GamesResponse,
-    GameResponseItem
+    GameResponseItem,
+    GamesH2HResponse,
+    H2HGameResponseItem
 )
 logger = get_logger()
 
 class BaseballClient:
     def __init__(self):
         self.connection = http.client.HTTPSConnection("v1.baseball.api-sports.io")
+
+    def get_games_h2h(
+        self,
+        h2h: str,
+        date: str = None,
+        league: int = None,
+        season: int = None,
+        timezone: str = None
+    ) -> List[H2HGameResponseItem]:
+        """
+        Query the /games/h2h endpoint for head-to-head games between two teams.
+        :param h2h: Required. Team ids in 'id-id' format (e.g., '5-6')
+        :param date: Optional. Date in 'YYYY-MM-DD'
+        :param league: Optional. League id
+        :param season: Optional. Season year (4 digits)
+        :param timezone: Optional. Timezone string
+        :return: List of H2HGameResponseItem
+        """
+        params = {"h2h": h2h}
+        if date:
+            params["date"] = date
+        if league is not None:
+            params["league"] = league
+        if season is not None:
+            params["season"] = season
+        if timezone:
+            params["timezone"] = timezone
+        url = "/games/h2h" + concat_url_params(params)
+        headers = self._get_headers()
+        self.connection.request("GET", url, body=None, headers=headers)
+        res = self.connection.getresponse()
+        data = res.read()
+        parsed: GamesH2HResponse = json.loads(data)
+        if parsed.get("errors"):
+            logger.error(f"API error in get_games_h2h: {parsed['errors']}")
+        return parsed.get("response", [])
 
     def _get_headers(self):
         return {

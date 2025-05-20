@@ -71,6 +71,16 @@ class GameResponseItem(TypedDict):
     teams: GameTeams
     scores: GameScores
 
+class GamesH2HResponse(TypedDict):
+    get: str
+    parameters: Dict[str, Union[str, int]]
+    errors: List[str]
+    results: int
+    response: List[GameResponseItem]
+
+# Alias for a single H2H game (identical to GameResponseItem, but explicit for clarity)
+H2HGameResponseItem = GameResponseItem
+
 class GamesResponse(TypedDict):
     get: str
     parameters: Dict[str, Union[str, int]]
