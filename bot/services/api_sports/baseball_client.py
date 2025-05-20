@@ -1,37 +1,45 @@
 import http.client
-from typing import List
+import os
+from typing import Dict, List, Optional
 from bot.core.logger import get_logger
 from bot.utils import concat_url_params
 import json
 from .baseball_types import (
+    CountriesResponse,
+    LeaguesResponse,
+    OddsBookmakerResponse,
+    OddsBookmakerResponseItem,
+    TeamsResponse,
     TimezonesResponse, 
     SeasonsResponse, 
     CountriesResponseItem, 
     LeaguesResponseItem, 
     TeamsResponseItem, 
-    TeamsStatisticsResponseItem, 
-    TeamsStatisticsResponse,
     StandingsResponse,
     StandingsResponseItem,
     StandingsGroupsResponse,
     GamesResponse,
     GameResponseItem,
     GamesH2HResponse,
-    H2HGameResponseItem
+    H2HGameResponseItem,
+    OddsResponse,
+    OddsResponseItem,
+    OddsBetResponse,
+    OddsBetResponseItem,
 )
 logger = get_logger()
 
 class BaseballClient:
-    def __init__(self):
+    def __init__(self, api_key: str, api_host: str) -> None:
         self.connection = http.client.HTTPSConnection("v1.baseball.api-sports.io")
 
     def get_games_h2h(
         self,
         h2h: str,
-        date: str = None,
-        league: int = None,
-        season: int = None,
-        timezone: str = None
+        date: Optional[str] = None,
+        league: Optional[int] = None,
+        season: Optional[int] = None,
+        timezone: Optional[str] = None
     ) -> List[H2HGameResponseItem]:
         """
         Query the /games/h2h endpoint for head-to-head games between two teams.
@@ -42,18 +50,15 @@ class BaseballClient:
         :param timezone: Optional. Timezone string
         :return: List of H2HGameResponseItem
         """
-        params = {"h2h": h2h}
-        if date:
-            params["date"] = date
-        if league is not None:
-            params["league"] = league
-        if season is not None:
-            params["season"] = season
-        if timezone:
-            params["timezone"] = timezone
-        url = "/games/h2h" + concat_url_params(params)
+        params = concat_url_params(
+            h2h=h2h,
+            date=date or "",
+            league=str(league) if league else "",
+            season=str(season) if season else "",
+            timezone=timezone or ""
+        )
         headers = self._get_headers()
-        self.connection.request("GET", url, body=None, headers=headers)
+        self.connection.request("GET", f"/games/h2h?{params}", body=None, headers=headers)
         res = self.connection.getresponse()
         data = res.read()
         parsed: GamesH2HResponse = json.loads(data)
@@ -61,10 +66,10 @@ class BaseballClient:
             logger.error(f"API error in get_games_h2h: {parsed['errors']}")
         return parsed.get("response", [])
 
-    def _get_headers(self):
+    def _get_headers(self) -> Dict[str, str]:
         return {
-            'x-rapidapi-key': 'XxXxXxXxXxXxXxXxXxXxXxXx',
-            'x-rapidapi-host': 'v1.baseball.api-sports.io'
+            'x-rapidapi-key': os.getenv("API_SPORTS_KEY") or "",
+            'x-rapidapi-host': os.getenv("API_SPORTS_HOST") or ""
         }
     
     def get_timezones(self) -> List[str]:
@@ -101,17 +106,17 @@ class BaseballClient:
     def get_standings(self,
         league: int,
         season: int,
-        team: int = None,
-        stage: str = None,
-        group: str = None
-    ) -> list[list[StandingsResponseItem]]:
+        team: Optional[int] = None,
+        stage: Optional[str] = None,
+        group: Optional[str] = None
+    ) -> List[StandingsResponseItem]:
         try:
             params = concat_url_params(
-                league=league,
-                season=season,
-                team=team,
-                stage=stage,
-                group=group
+                league=str(league),
+                season=str(season),
+                team=str(team) if team else "",
+                stage=str(stage) if stage else "",
+                group=str(group) if group else ""
             )
             
             endpoint = f"/standings?{params}"
@@ -139,9 +144,14 @@ class BaseballClient:
             payload = ''
             headers = self._get_headers()
             def _parse_response(data: CountriesResponse) -> List[CountriesResponseItem]:
-                return data["response"]
-            
-            self.connection.request("GET", f"/countries/?{concat_url_params(id=id, name=name, code=code, search=search)}", payload, headers)
+                return data["response"] or []
+            params = concat_url_params(
+                id=str(id) if id else "",
+                name=str(name) if name else "",
+                code=str(code) if code else "",
+                search=str(search) if search else ""
+            )
+            self.connection.request("GET", f"/countries/?{params}", payload, headers)
             res = self.connection.getresponse()
             data = res.read()
             return _parse_response(json.loads(data))         
@@ -162,16 +172,16 @@ class BaseballClient:
             payload = ''
             headers = self._get_headers()
             def _parse_response(data: LeaguesResponse) -> List[LeaguesResponseItem]:
-                return data["response"]
+                return data["response"] or []
             
             params = concat_url_params(
-                id=id,
-                name=name,
-                country_id=country_id,
-                country=country,
-                type=type,
-                season=season,
-                search=search
+                id=str(id),
+                name=str(name),
+                country_id=str(country_id),
+                country=str(country),
+                type=str(type),
+                season=str(season),
+                search=str(search)
             )
             
             self.connection.request("GET", f"/leagues/?{params}", payload, headers)
@@ -194,16 +204,16 @@ class BaseballClient:
             payload = ''
             headers = self._get_headers()
             def _parse_response(data: TeamsResponse) -> List[TeamsResponseItem]:
-                return data["response"]
+                return data["response"] or []
 
             params = concat_url_params(
-                id=id,
-                name=name,
-                country_id=country_id,
-                country=country,
-                league=league,
-                season=season,
-                search=search
+                id=str(id),
+                name=str(name),
+                country_id=str(country_id),
+                country=str(country),
+                league=str(league),
+                season=str(season),
+                search=str(search)
             )
             
             self.connection.request("GET", f"/teams/?{params}", payload, headers)
@@ -224,8 +234,8 @@ class BaseballClient:
         """
         try:
             params = concat_url_params(
-                league=league,
-                season=season
+                league=str(league),
+                season=str(season)
             )
             endpoint = f"/standings/groups?{params}"
             headers = self._get_headers()
@@ -242,70 +252,40 @@ class BaseballClient:
             logger.error(f"Failed to get standings groups: {e}")
             return []
 
-    def get_team_statistics(self, 
-        league_id: int, 
-        season: str, 
-        team_id: int, 
-        date: Optional[str] = None) -> List[TeamsStatisticsResponseItem]:
-        try:
-            payload = ''
-            headers = self._get_headers()
-            def _parse_response(data: TeamsStatisticsResponse) -> List[TeamsStatisticsResponseItem]:
-                return data["response"]
+    # def get_team_statistics(self, 
+    #     league_id: int, 
+    #     season: str, 
+    #     team_id: int, 
+    #     date: Optional[str] = None) -> List[TeamsStatisticsResponseItem]:
+    #     try:
+    #         payload = ''
+    #         headers = self._get_headers()
+    #         def _parse_response(data: TeamsStatisticsResponse) -> List[TeamsStatisticsResponseItem]:
+    #             return data["response"] or []
             
-            params = concat_url_params(
-                league=league_id,
-                season=season,
-                team=team_id,
-                date=date
-            )
+    #         params = concat_url_params(
+    #             league=str(league_id),
+    #             season=str(season),
+    #             team=str(team_id),
+    #             date=str(date) if date else ""
+    #         )
             
-            self.connection.request("GET", f"/teams/statistics/?{params}", payload, headers)
-            res = self.connection.getresponse()
-            data = res.read()
-            return _parse_response(json.loads(data))         
-        except Exception as e:
-            logger.error(f"Failed to get team statistics: {e}")
-            return []
-        
-    def get_standings(self,
-        league: int,
-        season: int,
-        team: int = None,
-        stage: str = None,
-        group: str = None
-    ) -> List[StandingsResponseItem]:
-        try:
-            payload = ''
-            headers = self._get_headers()
-            def _parse_response(data: StandingsResponse) -> List[StandingsResponseItem]:
-                return data["response"]
-            
-            params = concat_url_params(
-                league=league,
-                season=season,
-                team=team,
-                stage=stage,
-                group=group
-            )
-            
-            self.connection.request("GET", f"/standings/?{params}", payload, headers)
-            res = self.connection.getresponse()
-            data = res.read()
-            return _parse_response(json.loads(data))         
-        except Exception as e:
-            logger.error(f"Failed to get standings: {e}")
-            return []
-
+    #         self.connection.request("GET", f"/teams/statistics/?{params}", payload, headers)
+    #         res = self.connection.getresponse()
+    #         data = res.read()
+    #         return _parse_response(json.loads(data))         
+    #     except Exception as e:
+    #         logger.error(f"Failed to get team statistics: {e}")
+    #         return []
 
     def get_games(
         self,
-        id: int = None,
-        date: str = None,
-        league: int = None,
-        season: int = None,
-        team: int = None,
-        timezone: str = None
+        id: Optional[int] = None,
+        date: Optional[str] = None,
+        league: Optional[int] = None,
+        season: Optional[int] = None,
+        team: Optional[int] = None,
+        timezone: Optional[str] = None
     ) -> list[GameResponseItem]:
         """
         Get games from the API-sports baseball API. At least one parameter must be provided.
@@ -314,11 +294,11 @@ class BaseballClient:
             payload = ''
             headers = self._get_headers()
             params = concat_url_params(
-                id=id,
+                id=str(id) if id else "",
                 date=date,
-                league=league,
-                season=season,
-                team=team,
+                league=str(league) if league else "",
+                season=str(season) if season else "",
+                team=str(team) if team else "",
                 timezone=timezone
             )
             if not params:
@@ -335,27 +315,86 @@ class BaseballClient:
         except Exception as e:
             logger.error(f"Failed to get games: {e}")
             return []
-
-    def get_standings_stages(self,
-        league: int,
-        season: int
-    ) -> List[StandingsStagesResponseItem]:
+            
+    def get_odds(self,
+        id: Optional[int] = None,
+        league: Optional[int] = None,
+        season: Optional[int] = None,
+        team: Optional[int] = None,
+        date: Optional[str] = None,
+        timezone: Optional[str] = None
+    ) -> List[OddsResponseItem]:
         try:
             payload = ''
             headers = self._get_headers()
-            def _parse_response(data: StandingsStagesResponse) -> List[StandingsStagesResponseItem]:
+            def _parse_response(data: OddsResponse) -> List[OddsResponseItem]:
                 return data["response"]
             
             params = concat_url_params(
-                league=league,
-                season=season
+                id=str(id) if id else "",
+                league=str(league) if league else "",
+                season=str(season) if season else "",
+                team=str(team) if team else "",
+                date=str(date) if date else "",
+                timezone=str(timezone) if timezone else ""
             )
             
-            self.connection.request("GET", f"/standings/stages/?{params}", payload, headers)
+            self.connection.request("GET", f"/odds/?{params}", payload, headers)
             res = self.connection.getresponse()
             data = res.read()
             return _parse_response(json.loads(data))         
         except Exception as e:
-            logger.error(f"Failed to get standings stages: {e}")
+            logger.error(f"Failed to get odds: {e}")
             return []
+        
+    def get_odds_bets(self,
+        id: Optional[int] = None,
+        name: Optional[str] = None,
+        timezone: Optional[str] = None
+    ) -> List[OddsBetResponseItem]:
+        try:
+            payload = ''
+            headers = self._get_headers()
+            def _parse_response(data: OddsBetResponse) -> List[OddsBetResponseItem]:
+                return data["response"]
             
+            params = concat_url_params(
+                id=str(id) if id else "",
+                name=name,
+                timezone=timezone
+            )
+            
+            self.connection.request("GET", f"/odds/bets/?{params}", payload, headers)
+            res = self.connection.getresponse()
+            data = res.read()
+            return _parse_response(json.loads(data))         
+        except Exception as e:
+            logger.error(f"Failed to get odds bets: {e}")
+            return []
+        
+
+    def get_odds_bookmakers(self,
+        id: Optional[int] = None,
+        name: Optional[str] = None,
+        timezone: Optional[str] = None
+    ) -> List[OddsBookmakerResponseItem]:
+        try:
+            payload = ''
+            headers = self._get_headers()
+            def _parse_response(data: OddsBookmakerResponse) -> List[OddsBookmakerResponseItem]:
+                return data["response"] or []
+            
+            params = concat_url_params(
+                id=str(id) if id else "",
+                name=name,
+                timezone=timezone
+            )
+            
+            self.connection.request("GET", f"/odds/bookmakers/?{params}", payload, headers)
+            res = self.connection.getresponse()
+            data = res.read()
+            return _parse_response(json.loads(data))         
+        except Exception as e:
+            logger.error(f"Failed to get odds bookmakers: {e}")
+            return []
+        

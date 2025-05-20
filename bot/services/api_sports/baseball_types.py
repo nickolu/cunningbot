@@ -120,15 +120,15 @@ class CountriesResponseItem(TypedDict):
     name: str
     flag: str
 
+class CountriesResponseParameters(TypedDict):
+    code: str
+
 class CountriesResponse(TypedDict):
     get: str
-    parameters: List[str]
+    parameters: CountriesResponseParameters
     errors: List[str]
     results: int
     response: List[CountriesResponseItem]
-    parameters: {
-        "code": str
-    }
 
 class LeagueSeasonsResponseItem(TypedDict):
     season: int
@@ -234,7 +234,7 @@ class StandingsResponse(TypedDict):
     parameters: Dict[str, str]
     errors: List[str]
     results: int
-    response: List[List[StandingsResponseItem]]
+    response: List[StandingsResponseItem]
 
 class StandingsStagesParameters(TypedDict):
     league: str
@@ -246,3 +246,40 @@ class StandingsStagesResponse(TypedDict):
     errors: List[str]
     results: int
     response: List[str]
+
+
+class OddsResponseItem(TypedDict, total=False):
+    league: Optional[Dict[str, str]]
+    game: Optional[Dict[str, str]]
+    bookmakers: Optional[List[Dict[str, str]]]
+
+class OddsResponse(TypedDict):
+    get: str
+    parameters: Dict[str, str]
+    errors: List[str]
+    results: int
+    response: List[OddsResponseItem]
+
+
+class OddsBetResponseItem(TypedDict, total=False):
+    id: int
+    name: str
+
+class OddsBetResponse(TypedDict):
+    get: str
+    parameters: Dict[str, str]
+    errors: List[str]
+    results: int
+    response: List[OddsBetResponseItem]
+
+
+class OddsBookmakerResponseItem(TypedDict, total=False):
+    id: int
+    name: str
+
+class OddsBookmakerResponse(TypedDict):
+    get: str
+    parameters: Dict[str, str]
+    errors: List[str]
+    results: int
+    response: List[OddsBookmakerResponseItem]

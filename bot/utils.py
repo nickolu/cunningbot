@@ -1,5 +1,5 @@
 
-from typing import List
+from typing import List, Optional
 
 
 def split_message(text: str, max_length: int = 2000) -> List[str]:
@@ -15,5 +15,5 @@ def split_message(text: str, max_length: int = 2000) -> List[str]:
         chunks.append(text)
     return chunks
 
-def concat_url_params(**kwargs: str) -> str:
+def concat_url_params(**kwargs: Optional[str]) -> str:
     return "&".join([f"{key}={value}" for key, value in kwargs.items()])
