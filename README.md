@@ -32,7 +32,6 @@ Additional helper utilities include message splitting to respect Discord’s 2 0
 ├── docker-compose.yml       # 1-click local deployment
 ├── requirements.txt         # Python dependencies (locked versions)
 ├── Makefile                 # Common dev & ops tasks
-└── RASPBERRY_PI_SETUP.md    # Extra steps for ARM devices (optional)
 ```
 
 ## Installation
