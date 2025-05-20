@@ -1,5 +1,15 @@
 from typing import TypedDict, List, Optional, Dict
 
+class StandingsGroupsParameters(TypedDict):
+    league: str
+    season: str
+
+class StandingsGroupsResponse(TypedDict):
+    get: str
+    parameters: StandingsGroupsParameters
+    errors: List[str]
+    results: int
+    response: List[str]
 
 
 class TimezonesResponse(TypedDict):
@@ -9,7 +19,6 @@ class TimezonesResponse(TypedDict):
     results: int
     response: List[str]
 
-
 class SeasonsResponse(TypedDict):
     get: str
     parameters: List[str]
@@ -17,13 +26,11 @@ class SeasonsResponse(TypedDict):
     results: int
     response: List[int]
 
-
 class CountriesResponseItem(TypedDict):
     id: int
     code: str
     name: str
     flag: str
-
 
 class CountriesResponse(TypedDict):
     get: str
@@ -35,13 +42,11 @@ class CountriesResponse(TypedDict):
         "code": str
     }
 
-
 class LeagueSeasonsResponseItem(TypedDict):
     season: int
     current: bool
     start: str
     end: str
-
 
 class LeaguesResponseItem(TypedDict):
     id: int
@@ -61,7 +66,6 @@ class LeaguesResponse(TypedDict):
     errors: List[str]
     results: int
     response: List[LeaguesResponseItem]
-
 
 class TeamsResponseItem(TypedDict):
     id: int
@@ -84,7 +88,6 @@ class TeamsStatisticsResponseParams(TypedDict):
     team: str
     season: str
     
-
 class TeamsStatisticsResponseItem(TypedDict):
     get: str
     parameters: TeamsStatisticsResponseParams
@@ -144,3 +147,14 @@ class StandingsResponse(TypedDict):
     errors: List[str]
     results: int
     response: List[List[StandingsResponseItem]]
+
+class StandingsStagesParameters(TypedDict):
+    league: str
+    season: str
+
+class StandingsStagesResponse(TypedDict):
+    get: str
+    parameters: StandingsStagesParameters
+    errors: List[str]
+    results: int
+    response: List[str]

@@ -12,7 +12,8 @@ from .baseball_types import (
     TeamsStatisticsResponseItem, 
     TeamsStatisticsResponse,
     StandingsResponse,
-    StandingsResponseItem
+    StandingsResponseItem,
+    StandingsGroupsResponse
 )
 logger = get_logger()
 
@@ -174,6 +175,33 @@ class BaseballClient:
             return []
 
 
+    def get_standings_groups(self, league: int, season: int) -> list[str]:
+        """
+        Get the list of available groups for a league to be used in the standings endpoint.
+        :param league: The id of the league
+        :param season: The season of the league (4-digit year)
+        :return: List of group names (strings)
+        """
+        try:
+            params = concat_url_params(
+                league=league,
+                season=season
+            )
+            endpoint = f"/standings/groups?{params}"
+            headers = self._get_headers()
+            payload = ''
+            self.connection.request("GET", endpoint, payload, headers)
+            res = self.connection.getresponse()
+            data = res.read()
+            json_data: StandingsGroupsResponse = json.loads(data)
+            if json_data.get("errors"):
+                logger.error(f"Standings groups API errors: {json_data['errors']}")
+                return []
+            return json_data.get("response", [])
+        except Exception as e:
+            logger.error(f"Failed to get standings groups: {e}")
+            return []
+
     def get_team_statistics(self, 
         league_id: int, 
         season: str, 
@@ -200,11 +228,56 @@ class BaseballClient:
             logger.error(f"Failed to get team statistics: {e}")
             return []
         
-        
+    def get_standings(self,
+        league: int,
+        season: int,
+        team: int = None,
+        stage: str = None,
+        group: str = None
+    ) -> List[StandingsResponseItem]:
+        try:
+            payload = ''
+            headers = self._get_headers()
+            def _parse_response(data: StandingsResponse) -> List[StandingsResponseItem]:
+                return data["response"]
+            
+            params = concat_url_params(
+                league=league,
+                season=season,
+                team=team,
+                stage=stage,
+                group=group
+            )
+            
+            self.connection.request("GET", f"/standings/?{params}", payload, headers)
+            res = self.connection.getresponse()
+            data = res.read()
+            return _parse_response(json.loads(data))         
+        except Exception as e:
+            logger.error(f"Failed to get standings: {e}")
+            return []
 
-    
-        
-        
 
-
-    
+    def get_standings_stages(self,
+        league: int,
+        season: int
+    ) -> List[StandingsStagesResponseItem]:
+        try:
+            payload = ''
+            headers = self._get_headers()
+            def _parse_response(data: StandingsStagesResponse) -> List[StandingsStagesResponseItem]:
+                return data["response"]
+            
+            params = concat_url_params(
+                league=league,
+                season=season
+            )
+            
+            self.connection.request("GET", f"/standings/stages/?{params}", payload, headers)
+            res = self.connection.getresponse()
+            data = res.read()
+            return _parse_response(json.loads(data))         
+        except Exception as e:
+            logger.error(f"Failed to get standings stages: {e}")
+            return []
+            
