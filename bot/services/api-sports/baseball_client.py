@@ -13,7 +13,9 @@ from .baseball_types import (
     TeamsStatisticsResponse,
     StandingsResponse,
     StandingsResponseItem,
-    StandingsGroupsResponse
+    StandingsGroupsResponse,
+    GamesResponse,
+    GameResponseItem
 )
 logger = get_logger()
 
@@ -257,6 +259,44 @@ class BaseballClient:
             logger.error(f"Failed to get standings: {e}")
             return []
 
+
+    def get_games(
+        self,
+        id: int = None,
+        date: str = None,
+        league: int = None,
+        season: int = None,
+        team: int = None,
+        timezone: str = None
+    ) -> list[GameResponseItem]:
+        """
+        Get games from the API-sports baseball API. At least one parameter must be provided.
+        """
+        try:
+            payload = ''
+            headers = self._get_headers()
+            params = concat_url_params(
+                id=id,
+                date=date,
+                league=league,
+                season=season,
+                team=team,
+                timezone=timezone
+            )
+            if not params:
+                raise ValueError("At least one parameter must be provided to get_games.")
+            endpoint = f"/games?{params}"
+            self.connection.request("GET", endpoint, payload, headers)
+            res = self.connection.getresponse()
+            data = res.read()
+            json_data: GamesResponse = json.loads(data)
+            if json_data.get("errors"):
+                logger.error(f"Games API errors: {json_data['errors']}")
+                return []
+            return json_data.get("response", [])
+        except Exception as e:
+            logger.error(f"Failed to get games: {e}")
+            return []
 
     def get_standings_stages(self,
         league: int,

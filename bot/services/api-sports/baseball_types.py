@@ -1,4 +1,82 @@
-from typing import TypedDict, List, Optional, Dict
+from typing import TypedDict, List, Optional, Dict, Union
+
+
+class GameStatus(TypedDict):
+    long: str
+    short: str
+
+class GameCountry(TypedDict):
+    id: int
+    name: str
+    code: str
+    flag: str
+
+class GameLeague(TypedDict):
+    id: int
+    name: str
+    type: str
+    logo: str
+    season: int
+
+class GameTeam(TypedDict):
+    id: int
+    name: str
+    logo: str
+
+class GameTeams(TypedDict):
+    home: GameTeam
+    away: GameTeam
+
+class GameInnings(TypedDict, total=False):
+    # innings 1-9, extra are all optional and can be null
+    # Use Union[int, None] so null is supported
+    # The keys are string numbers ('1', '2', ...) and 'extra'
+    # API sample: {"1": 0, ..., "extra": null}
+    # Use str keys to match JSON
+    # TypedDict can't do arbitrary keys, so we list common ones
+    # (Python 3.11+ supports NotRequired, but for max compatibility, use total=False)
+    # If you use Python 3.11+, can use NotRequired
+    # Here, all are optional
+    _1: Optional[int]
+    _2: Optional[int]
+    _3: Optional[int]
+    _4: Optional[int]
+    _5: Optional[int]
+    _6: Optional[int]
+    _7: Optional[int]
+    _8: Optional[int]
+    _9: Optional[int]
+    extra: Optional[int]
+
+class GameScoreSide(TypedDict):
+    hits: int
+    errors: int
+    innings: Dict[str, Optional[int]]
+    total: int
+
+class GameScores(TypedDict):
+    home: GameScoreSide
+    away: GameScoreSide
+
+class GameResponseItem(TypedDict):
+    id: int
+    date: str
+    time: str
+    timestamp: int
+    timezone: str
+    week: Optional[Union[int, str]]
+    status: GameStatus
+    country: GameCountry
+    league: GameLeague
+    teams: GameTeams
+    scores: GameScores
+
+class GamesResponse(TypedDict):
+    get: str
+    parameters: Dict[str, Union[str, int]]
+    errors: List[str]
+    results: int
+    response: List[GameResponseItem]
 
 class StandingsGroupsParameters(TypedDict):
     league: str
