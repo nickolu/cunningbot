@@ -92,10 +92,12 @@ class ChatCog(commands.Cog):
             model_text = "\n_model: " + model +"_"
 
             # Get response from LLM
-            response = await chat_service(msg, model, interaction.user.display_name, get_personality(), history)
+            personality = get_personality()
+            personality_prefix = f"[Personality: {personality}]\n" if personality else ""
+            msg_with_personality = f"{personality_prefix}{msg}"
+            response = await chat_service(msg_with_personality, model, interaction.user.display_name, personality, history)
             
-            response = f"{interaction.user.mention}: \n> {msg}\n\n{response}"
-            # Prepare the response text
+            response = f"{interaction.user.mention}: \n> {msg_with_personality}\n\n{response}"
             if not was_default:
                 response = f"{response}\n{model_text}"
             
