@@ -30,7 +30,7 @@ from .baseball_types import (
 logger = get_logger()
 
 class BaseballClient:
-    def __init__(self, api_key: str, api_host: str) -> None:
+    def __init__(self) -> None:
         self.connection = http.client.HTTPSConnection("v1.baseball.api-sports.io")
 
     def get_games_h2h(

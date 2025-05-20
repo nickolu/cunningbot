@@ -175,13 +175,6 @@ class TeamsStatisticsResponseParams(TypedDict):
     league: str
     team: str
     season: str
-    
-class TeamsStatisticsResponseItem(TypedDict):
-    get: str
-    parameters: TeamsStatisticsResponseParams
-    errors: List[str]
-    results: int
-    response: List[TeamsStatisticsResponseItem]
 
 class StandingsGroup(TypedDict):
     name: str
