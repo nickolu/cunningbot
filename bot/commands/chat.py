@@ -94,6 +94,7 @@ class ChatCog(commands.Cog):
             # Get response from LLM
             response = await chat_service(msg, model, interaction.user.display_name, get_personality(), history)
             
+            response = f"{interaction.user.mention} asked: {msg}\n\n{response}"
             # Prepare the response text
             if not was_default:
                 response = f"{response}\n{model_text}"
