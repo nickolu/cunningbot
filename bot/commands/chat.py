@@ -90,16 +90,19 @@ class ChatCog(commands.Cog):
             history.reverse()  # Oldest first for LLM context  
 
             model_text = "\n_model: " + model +"_"
+            personality = get_personality()
 
             # Get response from LLM
-            personality = get_personality()
-            personality_prefix = f"[Personality: {personality}]\n" if personality else ""
-            msg_with_personality = f"{personality_prefix}{msg}"
-            response = await chat_service(msg_with_personality, model, interaction.user.display_name, personality, history)
+            response = await chat_service(msg, model, interaction.user.display_name, personality, history)
             
-            response = f"{interaction.user.mention}: \n> {msg_with_personality}\n\n{response}"
+            response = f"{interaction.user.mention}: \n> {msg}\n\n{response}"
+            # Prepare the response text
+            
             if not was_default:
-                response = f"{response}\n{model_text}"
+                response = f"{response}\n{model_text}\n{personality}"
+
+            if personality:
+                response = f"{response}\n\n_personality: {personality}_"
             
             # Split the response into chunks of 2000 characters or less
             chunks = split_message(response)
