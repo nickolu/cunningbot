@@ -5,9 +5,9 @@ Command for generating images using OpenAI and saving them to disk.
 
 from discord import app_commands
 from discord.ext import commands
-from bot.services.openai.image_generation_client import ImageGenerationClient
-from bot.services.os.file_service import FileService
-from bot.core.logger import get_logger
+from bot.api.openai.image_generation_client import ImageGenerationClient
+from bot.api.os.file_service import FileService
+from bot.domain.logger import get_logger
 import uuid
 import discord
 from io import BytesIO

@@ -2,7 +2,7 @@ from datetime import datetime
 from pathlib import Path
 import pytest
 from loguru import logger as _loguru_logger
-from bot.core.logger import get_logger, JSONSink, BaseSink
+from bot.domain.logger import get_logger, JSONSink, BaseSink
 
 def test_get_logger_returns_singleton() -> None:
     logger1 = get_logger()
@@ -12,7 +12,7 @@ def test_get_logger_returns_singleton() -> None:
 
 def test_jsonsink_writes_jsonl(tmp_path: Path) -> None:
     # Patch the logger to use a temp directory for JSONSink
-    from bot.core import logger as logger_mod
+    from bot.domain import logger as logger_mod
     original_jsonsink = logger_mod.JSONSink
     logger_mod._logger_instance = None  # Reset singleton so new sink is used
     today = datetime.now().date()
@@ -52,6 +52,6 @@ def test_basesink_protocol() -> None:
 
 @pytest.mark.skip(reason="MongoSink is a stub")
 def test_mongosink_stub() -> None:
-    from bot.core.logger import MongoSink
+    from bot.domain.logger import MongoSink
     sink = MongoSink()
     assert hasattr(sink, "write")

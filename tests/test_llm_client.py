@@ -2,7 +2,7 @@ from typing import Dict, List
 import pytest
 from unittest.mock import AsyncMock, patch
 from types import SimpleNamespace
-from bot.core.chat_completions_client import ChatCompletionsClient
+from bot.domain.chat_completions_client import ChatCompletionsClient
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 
 @pytest.fixture
@@ -14,7 +14,7 @@ def chat_history() -> List[BaseMessage]:
     ]
 
 @pytest.mark.asyncio
-@patch("bot.core.chat_completions_client.RunnableWithMessageHistory")
+@patch("bot.domain.chat_completions_client.RunnableWithMessageHistory")
 async def test_chat_openai(mock_runnable: AsyncMock, chat_history: List[BaseMessage]) -> None:
     mock_llm = AsyncMock()
     mock_llm.ainvoke.return_value = SimpleNamespace(content="I can chat with you.")
@@ -27,7 +27,7 @@ async def test_chat_openai(mock_runnable: AsyncMock, chat_history: List[BaseMess
     mock_llm.ainvoke.assert_awaited()
 
 @pytest.mark.asyncio
-@patch("bot.core.chat_completions_client.ChatOpenAI")
+@patch("bot.domain.chat_completions_client.ChatOpenAI")
 async def test_summarize_openai(mock_chatopenai: AsyncMock) -> None:
     mock_llm = AsyncMock()
     mock_llm.ainvoke.return_value = SimpleNamespace(content="This is a summary.")
@@ -52,7 +52,7 @@ def test_invalid_model() -> None:
 @pytest.mark.asyncio
 async def test_live_chat_openai() -> None:
     """Live integration test: requires OPENAI_API_KEY in env and network access."""
-    from bot.core.chat_completions_client import ChatCompletionsClient
+    from bot.domain.chat_completions_client import ChatCompletionsClient
     client = ChatCompletionsClient(model="gpt-3.5-turbo")
     history = [
         BaseMessage(content="What is the capital of France?"),

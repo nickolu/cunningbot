@@ -1,7 +1,7 @@
 
 from typing import List
 
-from bot.core.logger import get_logger
+from bot.domain.logger import get_logger
 import re
 
 logger = get_logger()

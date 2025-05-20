@@ -1,7 +1,7 @@
 import http.client
 import os
 from typing import Dict, List, Optional
-from bot.core.logger import get_logger
+from bot.domain.logger import get_logger
 from bot.utils import concat_url_params
 import json
 from .baseball_types import (

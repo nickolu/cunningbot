@@ -4,7 +4,7 @@ from discord.ext import commands
 from discord import app_commands
 from typing import Optional
 
-from bot.core.settings.personality_service import get_personality, set_personality
+from bot.domain.settings.personality_service import get_personality, set_personality
 
 class SettingsCog(commands.Cog):
     """Cog for managing bot settings."""

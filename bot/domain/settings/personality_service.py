@@ -1,6 +1,6 @@
 # bot/core/settings/personality_service.py
 from typing import Optional
-from bot.core.app_state import get_state_value, set_state_value
+from bot.domain.app_state import get_state_value, set_state_value
 
 PERSONALITY_KEY = "current_personality"
 MAX_PERSONALITY_LENGTH = 200

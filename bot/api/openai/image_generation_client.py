@@ -8,7 +8,7 @@ import os
 from openai import OpenAI
 
 from typing import Literal, Optional
-from bot.core.logger import get_logger
+from bot.domain.logger import get_logger
 
 logger = get_logger()
 openai = OpenAI()

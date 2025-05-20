@@ -8,7 +8,7 @@ from openai import AsyncOpenAI
 import os
 
 from openai.types.chat import ChatCompletionUserMessageParam, ChatCompletionAssistantMessageParam, ChatCompletionSystemMessageParam, ChatCompletionDeveloperMessageParam, ChatCompletionFunctionMessageParam, ChatCompletionToolMessageParam, ChatCompletionMessageParam, ChatCompletionFunctionMessageParam
-from bot.core.logger import get_logger
+from bot.domain.logger import get_logger
 logger = get_logger()
 
 openai = AsyncOpenAI()

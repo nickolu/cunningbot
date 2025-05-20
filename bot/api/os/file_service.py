@@ -5,7 +5,7 @@ Service for writing binary or text data to files.
 
 from typing import Union
 from pathlib import Path
-from bot.core.logger import get_logger
+from bot.domain.logger import get_logger
 
 logger = get_logger()
 
