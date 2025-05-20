@@ -1,131 +1,96 @@
+from typing import TypedDict, List, Optional, Dict
 
-TimezonesResponse = {
-    "get": str,
-    "parameters": List[str],
-    "errors": List[str],
-    "results": int,
-    "response": List[str]
-}
 
-SeasonsResponse = {
-    "get": str,
-    "parameters": List[str],
-    "errors": List[str],
-    "results": int,
-    "response": List[int]
-}
 
-CountriesResponseItem = {
-    "id": int,
-    "code": str,
-    "name": str,
-    "flag": str
-}
+class TimezonesResponse(TypedDict):
+    get: str
+    parameters: List[str]
+    errors: List[str]
+    results: int
+    response: List[str]
 
-CountriesResponse = {
-    "get": str,
-    "parameters": List[str],
-    "errors": List[str],
-    "results": int,
-    "response": List[CountriesResponseItem],
-    "parameters": {
+
+class SeasonsResponse(TypedDict):
+    get: str
+    parameters: List[str]
+    errors: List[str]
+    results: int
+    response: List[int]
+
+
+class CountriesResponseItem(TypedDict):
+    id: int
+    code: str
+    name: str
+    flag: str
+
+
+class CountriesResponse(TypedDict):
+    get: str
+    parameters: List[str]
+    errors: List[str]
+    results: int
+    response: List[CountriesResponseItem]
+    parameters: {
         "code": str
     }
-}
 
-LeagueSeasonsResponseItem = {
-    "season": int,
-    "current": bool,
-    "start": str,
-    "end": str
-}
 
-LeaguesResponseItem = {
-    "id": int,
-    "name": str,
-    "type": str,
-    "logo": str,
-    "country": CountriesResponseItem,
-    "seasons": List[LeagueSeasonsResponseItem]
-}
+class LeagueSeasonsResponseItem(TypedDict):
+    season: int
+    current: bool
+    start: str
+    end: str
 
-LeaguesResponse = {
-    "get": str,
-    "parameters": {
-        "id": str,
-        "season": str
-    },
-    "errors": List[str],
-    "results": int,
-    "response": List[str]
-}
 
-TeamsResponseItem = {
-    "id": int,
-    "name": str,
-    "logo": str,
-    "country": CountriesResponseItem
-}
+class LeaguesResponseItem(TypedDict):
+    id: int
+    name: str
+    type: str
+    logo: str
+    country: CountriesResponseItem
+    seasons: List[LeagueSeasonsResponseItem]
 
-TeamsResponse = {
-    "get": str,
-    "parameters": {
-        "league": str,
-        "season": str
-    },
-    "errors": List[str],
-    "results": int,
-    "response": List[TeamsResponseItem]
-}
+class LeaguesReponseParameters(TypedDict):
+    id: str
+    season: str
 
-TeamStatisticsTeamResponseTeam = {
-    "id": int,
-    "name": str,
-    "logo": str,
-}
+class LeaguesResponse(TypedDict):
+    get: str
+    parameters: LeaguesReponseParameters
+    errors: List[str]
+    results: int
+    response: List[LeaguesResponseItem]
 
-TeamStatisticsPlayedGameResponseItem = {
-    "home": int,
-    "away": int,
-    "all": int,
-}
 
-TeamStatisticsGameResponseItem = {
-    "played": List[TeamStatisticsPlayedGameResponseItem],
-    "wins": List[TeamStatisticsPlayedGameResponseItem],
-    "losses": List[TeamStatisticsPlayedGameResponseItem],
-}
+class TeamsResponseItem(TypedDict):
+    id: int
+    name: str
+    logo: str
+    country: CountriesResponseItem
 
-TeamStatisticsPointsResponseItem = {
-    "total": int,
-    "average": int,
-}
+class TeamsResponseParams(TypedDict):
+    id: str
 
-TeamStatisticsPointsResponse = {
-    "for": TeamStatisticsPointsResponseItem,
-    "against": TeamStatisticsPointsResponseItem,
-}
+class TeamsResponse(TypedDict):
+    get: str
+    parameters: Dict[str, str]
+    errors: List[str]
+    results: int
+    response: List[TeamsResponseItem]
 
-TeamsStatisticsResponseItem = {
-    "country": CountriesResponseItem,
-    "league": LeaguesResponseItem,
-    "team": TeamStatisticsTeamResponseTeam,
-    "games": TeamStatisticsGameResponseItem,
-    "points": TeamStatisticsPointsResponse,
-}
+class TeamsStatisticsResponseParams(TypedDict):
+    league: str
+    team: str
+    season: str
+    
 
-TeamsStatisticsResponse = {
-    "get": str,
-    "parameters": {
-        "id": str,
-        "season": str
-    },
-    "errors": List[str],
-    "results": int,
-    "response": List[TeamsStatisticsResponseItem]
-}
-
-from typing import TypedDict, List, Optional, Dict
+class TeamsStatisticsResponseItem(TypedDict):
+    get: str
+    parameters: TeamsStatisticsResponseParams
+    errors: List[str]
+    results: int
+    response: List[TeamsStatisticsResponseItem]
 
 class StandingsGroup(TypedDict):
     name: str
@@ -140,7 +105,7 @@ class StandingsGames(TypedDict):
     lose: StandingsWinLose
 
 class StandingsPoints(TypedDict):
-    for_: int  # 'for' is a reserved word in Python, use 'for_' in code
+    for_: int
     against: int
 
 class StandingsTeam(TypedDict):
