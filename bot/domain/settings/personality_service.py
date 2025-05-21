@@ -7,7 +7,7 @@ MAX_PERSONALITY_LENGTH = 200
 
 def get_personality() -> Optional[str]:
     """Retrieves the current personality from the app state."""
-    return get_state_value(PERSONALITY_KEY)
+    return get_state_value(PERSONALITY_KEY) or ""
 
 def set_personality(personality_text: Optional[str]) -> None:
     """Sets the current personality in the app state.

@@ -1,5 +1,17 @@
 import discord
 
+_SUPERSCRIPT_MAP = str.maketrans(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.;",
+    "ᵃᵇᶜᵈᵉᶠᵍʰᶦʲᵏˡᵐⁿᵒᵖᑫʳˢᵗᵘᵛʷˣʸᶻᴬᴮᶜᴰᴱᶠᴳᴴᴵᴶᴷᴸᴹᴺᴼᴾQᴿˢᵀᵁⱽᵂˣʸᶻ⁰¹²³⁴⁵⁶⁷⁸⁹⁻ˑˡ"
+)
+
+def to_tiny_text(text: str) -> str:
+    """
+    Convert text to Unicode tiny/superscript text where possible.
+    Characters without superscript equivalents are left unchanged.
+    """
+    return text.translate(_SUPERSCRIPT_MAP)
+
 def flatten_discord_message(message: discord.Message) -> str:
     content = ""
     if isinstance(message.content, str):
