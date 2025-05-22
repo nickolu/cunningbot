@@ -29,15 +29,31 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 async def load_cogs_from_dir(directory: str) -> None:
+    print(f"Loading cogs from {directory}")
     base = os.path.dirname(__file__)
     path = os.path.join(base, directory)
     if not os.path.isdir(path):
         logger.warning(f"Cog directory not found: {path}")
         return
-    for filename in os.listdir(path):
-        if filename.endswith(".py") and not filename.startswith("__"):
-            ext = f"bot.{directory}.{filename[:-3]}"
-            print('loading cog from '+ext)
+    for entry in os.listdir(path):
+        entry_path = os.path.join(path, entry)
+        if os.path.isdir(entry_path) and not entry.startswith("__"):
+            # load python modules in command subdirectory
+            for filename in os.listdir(entry_path):
+                if filename.endswith(".py") and not filename.startswith("__"):
+                    module_name = filename[:-3]
+                    ext = f"bot.{directory}.{entry}.{module_name}"
+                    print(f'loading cog from {ext}')
+                    try:
+                        await bot.load_extension(ext)
+                        logger.info(f"Loaded extension: {ext}")
+                    except Exception as e:
+                        logger.error(f"Failed to load extension {ext}: {e}")
+        elif entry.endswith(".py") and not entry.startswith("__"):
+            # legacy: load python modules directly in directory
+            module_name = entry[:-3]
+            ext = f"bot.{directory}.{module_name}"
+            print(f'loading cog from {ext}')
             try:
                 await bot.load_extension(ext)
                 logger.info(f"Loaded extension: {ext}")
