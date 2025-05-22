@@ -3,8 +3,9 @@ file_service.py
 Service for writing binary or text data to files.
 """
 
-from typing import Union
 from pathlib import Path
+from typing import Union
+
 from bot.domain.logger import get_logger
 
 logger = get_logger()

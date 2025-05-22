@@ -3,14 +3,15 @@ main.py
 Entry point for the bot application.
 """
 
-import os
-import sys
 import asyncio
 import logging
+import os
 import signal
+import sys
 from typing import Any, Callable
-from discord.ext import commands
+
 import discord
+from discord.ext import commands
 from dotenv import load_dotenv
 
 # Load environment variables from .env

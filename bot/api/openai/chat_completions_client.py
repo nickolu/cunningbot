@@ -3,12 +3,20 @@ chat_completions_client.py
 Core LLM client logic for the bot.
 """
 
-from typing import List, Literal, Dict, Any, Iterable
-from openai import AsyncOpenAI
 import os
+from typing import Any, Dict, Iterable, List, Literal
 
-from openai.types.chat import ChatCompletionUserMessageParam, ChatCompletionAssistantMessageParam, ChatCompletionSystemMessageParam, ChatCompletionDeveloperMessageParam, ChatCompletionFunctionMessageParam, ChatCompletionToolMessageParam, ChatCompletionMessageParam, ChatCompletionFunctionMessageParam
+from openai import AsyncOpenAI
+from openai.types.chat import (ChatCompletionAssistantMessageParam,
+                               ChatCompletionDeveloperMessageParam,
+                               ChatCompletionFunctionMessageParam,
+                               ChatCompletionMessageParam,
+                               ChatCompletionSystemMessageParam,
+                               ChatCompletionToolMessageParam,
+                               ChatCompletionUserMessageParam)
+
 from bot.domain.logger import get_logger
+
 logger = get_logger()
 
 openai = AsyncOpenAI()

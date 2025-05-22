@@ -1,5 +1,6 @@
 # bot/core/settings/personality_service.py
 from typing import Optional
+
 from bot.domain.app_state import get_state_value, set_state_value
 
 PERSONALITY_KEY = "current_personality"

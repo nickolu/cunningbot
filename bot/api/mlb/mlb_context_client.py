@@ -1,6 +1,7 @@
-from typing import Optional, Dict, Any, List, cast
+from typing import Any, Dict, List, Optional, cast
 
 from mlbstatsapi import Mlb, mlb_api
+
 
 class MlbClient:
     """
@@ -243,17 +244,11 @@ class MlbClient:
     def lookup_player(
         self,
         lookup_value: str,
-        game_type: str = "R",
-        season: Optional[int] = None,
-        sport_id: int = 1,
     ) -> str:
         """
         Retrieve player data by lookup value as plain text.
         """
-        params: Dict[str, Any] = {"game_type": game_type, "sport_id": sport_id}
-        if season is not None:
-            params["season"] = str(season)
-        data = cast(mlb_api.Person, self.mlb.get_person(lookup_value, **params))
+        data = cast(mlb_api.Person, self.mlb.lookup_player(lookup_value))
         if not data:
             return "No player found."
         player = data

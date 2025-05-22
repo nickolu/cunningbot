@@ -7,7 +7,9 @@ import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Protocol
+
 from loguru import logger as _loguru_logger
+
 
 # Sinks
 class BaseSink(Protocol):

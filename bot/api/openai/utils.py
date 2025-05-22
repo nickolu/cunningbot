@@ -1,8 +1,8 @@
 
+import re
 from typing import List
 
 from bot.domain.logger import get_logger
-import re
 
 logger = get_logger()
 

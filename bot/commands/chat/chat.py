@@ -3,18 +3,22 @@ Chat.py
 Command handler for chat functionality.
 """
 
+from typing import Optional
+
 import discord
 from discord import app_commands
 from discord.ext import commands
-from typing import Optional
 
-from bot.domain.chat.chat_service import chat_service
-from bot.api.openai.chat_completions_client import ChatCompletionsClient, PermittedModelType
-from bot.domain.settings.personality_service import get_personality
+from bot.api.discord.utils import (
+    flatten_discord_message, format_response_with_interaction_user_message,
+    to_tiny_text)
+from bot.api.openai.chat_completions_client import (ChatCompletionsClient,
+                                                    PermittedModelType)
+
+from bot.api.openai.services.chat_service import chat_service
 from bot.domain.logger import get_logger
-from bot.api.openai.utils import sanitize_name
+from bot.domain.settings.personality_service import get_personality
 from bot.utils import split_message
-from bot.api.discord.utils import flatten_discord_message, format_response_with_interaction_user_message, to_tiny_text
 
 logger = get_logger()
 
@@ -81,7 +85,8 @@ class ChatCog(commands.Cog):
             if isinstance(interaction.channel, discord.TextChannel):
                 async for message in interaction.channel.history(limit=message_count, oldest_first=False):
                     content = flatten_discord_message(message)
-                    author_name = sanitize_name(message.author.display_name) # Sanitized name
+                    # author_name = 
+                    author_name = "test"
                     if message.author.bot:
                         history.append({"role": "assistant", "content": content, "name": author_name})
                     else:

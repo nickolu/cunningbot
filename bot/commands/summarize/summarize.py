@@ -3,17 +3,19 @@ Chat.py
 Command handler for chat functionality.
 """
 
+from typing import Optional
+
 import discord
 from discord import app_commands
 from discord.ext import commands
-from typing import Optional
 
-from bot.domain.chat.chat_service import chat_service
+from bot.api.discord.utils import flatten_discord_message
+from bot.api.openai.chat_completions_client import (ChatCompletionsClient,
+                                                    PermittedModelType)
+from bot.api.openai.utils import sanitize_name
+from bot.api.openai.services.chat_service import chat_service
 from bot.domain.logger import get_logger
 from bot.domain.settings.personality_service import get_personality
-from bot.api.discord.utils import flatten_discord_message
-from bot.api.openai.chat_completions_client import ChatCompletionsClient, PermittedModelType
-from bot.api.openai.utils import sanitize_name
 from bot.utils import split_message
 
 logger = get_logger()

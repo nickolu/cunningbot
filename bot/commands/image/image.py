@@ -3,14 +3,16 @@ image.py
 Command for generating images using OpenAI and saving them to disk.
 """
 
+import uuid
+from io import BytesIO
+
+import discord
 from discord import app_commands
 from discord.ext import commands
+
 from bot.api.openai.image_generation_client import ImageGenerationClient
 from bot.api.os.file_service import FileService
 from bot.domain.logger import get_logger
-import uuid
-import discord
-from io import BytesIO
 
 logger = get_logger()
 
