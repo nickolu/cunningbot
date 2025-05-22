@@ -14,7 +14,7 @@ from bot.domain.settings.personality_service import get_personality
 from bot.domain.logger import get_logger
 from bot.api.openai.utils import sanitize_name
 from bot.utils import split_message
-from bot.api.discord.utils import flatten_discord_message, to_tiny_text
+from bot.api.discord.utils import flatten_discord_message, format_response_with_interaction_user_message, to_tiny_text
 
 logger = get_logger()
 
@@ -99,7 +99,7 @@ class ChatCog(commands.Cog):
 
             # Get response from LLM
             response = await chat_service(msg, model, interaction.user.display_name, personality, history)
-            response = f"{interaction.user.mention}: \n> {msg}\n\n{response}\n\n{' • '.join(meta_data)}"
+            response = format_response_with_interaction_user_message(response + "\n\n" + ' • '.join(meta_data), interaction, msg)
             
             # Split the response into chunks of 2000 characters or less
             chunks = split_message(response)
