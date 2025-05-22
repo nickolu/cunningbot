@@ -5,9 +5,10 @@ OpenAI image generation client for the bot.
 
 import base64
 import os
+from typing import Literal, Optional
+
 from openai import OpenAI
 
-from typing import Literal, Optional
 from bot.domain.logger import get_logger
 
 logger = get_logger()

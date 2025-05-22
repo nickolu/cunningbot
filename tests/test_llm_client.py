@@ -1,9 +1,12 @@
-from typing import Dict, List
-import pytest
-from unittest.mock import AsyncMock, patch
 from types import SimpleNamespace
+from typing import Dict, List
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+
 from bot.domain.chat_completions_client import ChatCompletionsClient
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+
 
 @pytest.fixture
 def chat_history() -> List[BaseMessage]:

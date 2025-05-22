@@ -1,11 +1,12 @@
 import json
 from typing import List, Any
 from agents import FunctionTool, Tool, RunContextWrapper
-from bot.agents.baseball_agent_context import team_id_context, league_id_context
-from bot.api.api_sports.mlb_context_client import MlbClient
+from bot.api.mlb.mlb_context_client import MlbClient
 from bot.api.openai.agent_client import AgentClient
 from bot.utils import logging_decorator
 from datetime import datetime
+
+from .context import team_id_context, league_id_context
 
 class BaseBallAgentTools:
     def __init__(self) -> None:
@@ -19,8 +20,8 @@ class BaseBallAgentTools:
             self.get_leagues(),
             self.get_standings(),
             self.get_schedule(),
-            self.get_team_info(),
-            self.get_player_info(),
+            self.get_team_info_by_id(),
+            self.get_player_info_by_id(),
             self.get_boxscore(),
             self.get_game_plays(),
             self.get_game_pace(),
@@ -47,8 +48,8 @@ class BaseBallAgentTools:
             args = json.loads(args_json)
             return self.mlb_context_client.get_leagues(sport_id=args["sport_id"])
         return FunctionTool(
-            name="leagues",
-            description="Get leagues for a league and season",
+            name="get_leagues_by_sport_id",
+            description="Retrieves a list of baseball leagues based on a given sport ID. Useful for discovering available leagues.",
             params_json_schema=schema,
             on_invoke_tool=invoke
         )
@@ -68,8 +69,8 @@ class BaseBallAgentTools:
             args = json.loads(args_json)
             return self.mlb_context_client.get_standings(league_id=args["league_id"], season=args["season"])
         return FunctionTool(
-            name="standings",
-            description="Get standings for a league and season",
+            name="get_league_standings_by_season",
+            description="Fetches the current standings for a specific league and season. Provides team rankings, wins, losses, and other relevant statistics.",
             params_json_schema=schema,
             on_invoke_tool=invoke
         )
@@ -98,14 +99,14 @@ class BaseBallAgentTools:
                 team_id=args.get("team_id")
             )
         return FunctionTool(
-            name="schedule",
-            description="Get game schedule by date, date range, sport, or team",
+            name="get_game_schedule",
+            description="Retrieves the game schedule. Can be filtered by a specific date, a date range, sport ID, or team ID. Essential for finding out when games are played.",
             params_json_schema=schema,
             on_invoke_tool=invoke
         )
 
     @logging_decorator
-    def get_team_info(self) -> FunctionTool:
+    def get_team_info_by_id(self) -> FunctionTool:
         schema = {
             "type": "object",
             "properties": {
@@ -128,14 +129,14 @@ class BaseBallAgentTools:
                 fields=args.get("fields")
             )
         return FunctionTool(
-            name="team_info",
-            description="Get information for a specific team",
+            name="get_team_information_by_id",
+            description="Provides detailed information about a specific baseball team using its unique ID. Optional parameters include season, sport ID, hydration options for related data, and specific fields to return.",
             params_json_schema=schema,
             on_invoke_tool=invoke
         )
 
     @logging_decorator
-    def get_player_info(self) -> FunctionTool:
+    def get_player_info_by_id(self) -> FunctionTool:
         schema = {
             "type": "object",
             "properties": {
@@ -146,10 +147,10 @@ class BaseBallAgentTools:
         }
         async def invoke(run_context: RunContextWrapper[Any], args_json: str) -> Any:
             args = json.loads(args_json)
-            return self.mlb_context_client.get_player_info(player_id=args["player_id"])
+            return self.mlb_context_client.get_player_info_by_id(player_id=args["player_id"])
         return FunctionTool(
-            name="player_info",
-            description="Get information for a specific player",
+            name="get_player_information_by_id",
+            description="Fetches detailed information for a specific baseball player using their unique ID. Includes biographical data, career stats, and current team affiliation.",
             params_json_schema=schema,
             on_invoke_tool=invoke
         )
@@ -174,8 +175,8 @@ class BaseBallAgentTools:
                 fields=args.get("fields")
             )
         return FunctionTool(
-            name="boxscore",
-            description="Get boxscore for a specific game",
+            name="get_game_boxscore_by_id",
+            description="Retrieves the boxscore for a specific game using its unique ID. Includes detailed statistics for both teams and individual players, such as hits, runs, errors, and pitching/batting performance. Optional timecode and fields parameters allow for more specific data retrieval.",
             params_json_schema=schema,
             on_invoke_tool=invoke
         )
@@ -194,8 +195,8 @@ class BaseBallAgentTools:
             args = json.loads(args_json)
             return self.mlb_context_client.get_game_plays(game_id=args["game_id"])
         return FunctionTool(
-            name="game_plays",
-            description="Get play-by-play for a specific game",
+            name="get_game_play_by_play_by_id",
+            description="Fetches the play-by-play data for a specific game using its unique ID. Provides a detailed account of every play that occurred during the game.",
             params_json_schema=schema,
             on_invoke_tool=invoke
         )
@@ -215,8 +216,8 @@ class BaseBallAgentTools:
             args = json.loads(args_json)
             return self.mlb_context_client.get_game_pace(season=args["season"], sport_id=args.get("sport_id", 1))
         return FunctionTool(
-            name="game_pace",
-            description="Get game pace statistics for a season",
+            name="get_game_pace_stats_by_season",
+            description="Retrieves game pace statistics for a given season and sport ID. Useful for analyzing the average length and flow of games.",
             params_json_schema=schema,
             on_invoke_tool=invoke
         )
@@ -243,8 +244,8 @@ class BaseBallAgentTools:
                 fields=args.get("fields")
             )
         return FunctionTool(
-            name="scoring_plays",
-            description="Get play-by-play scoring events for a game",
+            name="get_game_scoring_plays_by_id",
+            description="Fetches all scoring plays for a specific game using its unique ID. Can be filtered by event type, timecode, and specific fields to return.",
             params_json_schema=schema,
             on_invoke_tool=invoke
         )
@@ -263,8 +264,8 @@ class BaseBallAgentTools:
             args = json.loads(args_json)
             return self.mlb_context_client.get_linescore(game_id=args["game_id"])
         return FunctionTool(
-            name="linescore",
-            description="Get line score for a specific game",
+            name="get_game_linescore_by_id",
+            description="Retrieves the linescore for a specific game using its unique ID. Shows runs scored by each team per inning.",
             params_json_schema=schema,
             on_invoke_tool=invoke
         )
@@ -283,12 +284,13 @@ class BaseBallAgentTools:
             args = json.loads(args_json)
             return self.mlb_context_client.get_latest_season(sport_id=args.get("sport_id", 1))
         return FunctionTool(
-            name="latest_season",
-            description="Get the latest season for a sport",
+            name="get_latest_sport_season",
+            description="Determines the most recent or current season for a given sport ID.",
             params_json_schema=schema,
             on_invoke_tool=invoke
         )
 
+    @logging_decorator
     def lookup_player(self) -> FunctionTool:
         schema = {
             "type": "object",
@@ -310,12 +312,13 @@ class BaseBallAgentTools:
                 sport_id=args.get("sport_id", 1)
             )
         return FunctionTool(
-            name="lookup_player",
-            description="Lookup player data by value",
+            name="lookup_player_by_name_or_id",
+            description="Searches for a player using a lookup value (e.g., name or ID). Can be filtered by game type, season, and sport ID.",
             params_json_schema=schema,
             on_invoke_tool=invoke
         )
 
+    @logging_decorator
     def lookup_team(self) -> FunctionTool:
         schema = {
             "type": "object",
@@ -333,8 +336,8 @@ class BaseBallAgentTools:
                 sport_id=args.get("sport_id", 1)
             )
         return FunctionTool(
-            name="lookup_team",
-            description="Lookup team data by value",
+            name="lookup_team_by_name_or_id",
+            description="Searches for a team using a lookup value (e.g., name or ID). Can be filtered by sport ID.",
             params_json_schema=schema,
             on_invoke_tool=invoke
         )
@@ -359,8 +362,8 @@ class BaseBallAgentTools:
                 active_status=args.get("active_status")
             )
         return FunctionTool(
-            name="teams",
-            description="Get team info for a sport/season",
+            name="get_teams_by_sport_season_status",
+            description="Retrieves a list of teams. Can be filtered by sport ID, season, and active status (e.g., 'Y' for active, 'N' for inactive).",
             params_json_schema=schema,
             on_invoke_tool=invoke
         )

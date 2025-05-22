@@ -27,7 +27,7 @@ client = MlbClient()
 
 # print(client.get_latest_season(sport_id=2))
 
-# print(client.lookup_player("544756"))
+print(client.lookup_player("Nola"))
 
 # print(client.get_player_stat_data(person_id=544756, group="hitting", type="season", season=2025))
 

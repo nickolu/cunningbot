@@ -1,8 +1,11 @@
 from datetime import datetime
 from pathlib import Path
+
 import pytest
 from loguru import logger as _loguru_logger
-from bot.domain.logger import get_logger, JSONSink, BaseSink
+
+from bot.domain.logger import BaseSink, JSONSink, get_logger
+
 
 def test_get_logger_returns_singleton() -> None:
     logger1 = get_logger()

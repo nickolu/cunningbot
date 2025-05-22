@@ -1,7 +1,7 @@
 
-from typing import List, Optional, Any, Callable
 import functools
 import logging
+from typing import Any, Callable, List, Optional
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ManchatBot")

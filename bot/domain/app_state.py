@@ -1,7 +1,7 @@
 # bot/core/app_state.py
-from typing import Optional, Any, Dict
 import json
 import os
+from typing import Any, Dict, Optional
 
 # Define the path for the state file
 STATE_FILE_PATH = os.path.join(os.path.dirname(__file__), "app_state.json")

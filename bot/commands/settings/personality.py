@@ -1,10 +1,13 @@
 # bot/commands/settings.py
-import discord
-from discord.ext import commands
-from discord import app_commands
 from typing import Optional
 
-from bot.domain.settings.personality_service import get_personality, set_personality
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+from bot.domain.settings.personality_service import (get_personality,
+                                                     set_personality)
+
 
 class SettingsCog(commands.Cog):
     """Cog for managing bot settings."""
