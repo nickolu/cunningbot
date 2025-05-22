@@ -28,4 +28,7 @@ def flatten_discord_message(message: discord.Message) -> str:
     else:
         content = str(message.content) # Fallback
     return content
-    
+
+
+def format_response_with_interaction_user_message(response: str, interaction: discord.Interaction, message: str) -> str:
+    return f"{interaction.user.mention}: \n> {message}\n\n{response}"

@@ -1,5 +1,7 @@
 .venv
+.venv310
 .env
 logs
 bot/core/app_state.json
 generated_images
+**.pyc
