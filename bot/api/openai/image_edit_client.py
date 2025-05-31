@@ -153,14 +153,31 @@ class ImageEditClient:
         except FileNotFoundError as e:
             logger.error(f"Image edit failed: File not found - {e.filename}")
             return None, f"File not found: {e.filename}"
-        except openai.APIError as e:
+        except openai.APIStatusError as e:
+            logger.error(f"OpenAI API HTTP error during image edit: {e.status_code} - {e.response.text if e.response else 'No response text'}")
+            error_detail = ""
+            try:
+                if e.response and e.response.content:
+                    error_data = e.response.json()
+                    error_detail = error_data.get("error", {}).get("message", str(e.response.json()))
+                else:
+                    error_detail = str(e)
+            except Exception as json_ex:
+                logger.warning(f"Could not parse JSON from APIStatusError response: {json_ex}")
+                error_detail = e.response.text if e.response else str(e)
+            
+            error_message_str = f"OpenAI API Error ({e.status_code}): {error_detail if error_detail else 'See logs for details.'}"
+            return None, error_message_str
+        except openai.APIError as e:  # General OpenAI API errors
             logger.error(f"OpenAI API error during image edit: {e}")
-            error_message = str(e)
-            if e.body and isinstance(e.body, dict) and "message" in e.body:
-                 error_message = e.body["message"]
+            error_message_detail = ""
+            if hasattr(e, 'body') and e.body and isinstance(e.body, dict) and "message" in e.body:
+                error_message_detail = e.body["message"]
             elif hasattr(e, 'message') and e.message:
-                 error_message = e.message
-            return None, f"OpenAI API Error: {error_message}"
+                error_message_detail = e.message
+            
+            error_message_str = f"OpenAI API Error: {error_message_detail}" if error_message_detail else f"OpenAI API Error: {str(e)}"
+            return None, error_message_str
         except Exception as e:
             logger.error(f"Unexpected error during image edit: {e}")
             return None, f"An unexpected error occurred: {str(e)}"

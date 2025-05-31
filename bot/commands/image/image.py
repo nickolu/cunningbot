@@ -3,6 +3,8 @@ image.py
 Command for generating images using OpenAI and saving them to disk.
 """
 
+import asyncio
+
 from typing import Optional
 from discord import app_commands
 from discord.ext import commands
@@ -43,7 +45,11 @@ class ImageCog(commands.Cog):
                 await interaction.followup.send(f"{interaction.user.mention}: Failed to read the attached image.\n\nError: {e}")
                 return
 
-            image_list_or_none, error_msg_edit = self.image_edit_client.edit_image(image=image_to_edit_bytes, prompt=prompt)
+            image_list_or_none, error_msg_edit = await asyncio.to_thread(
+                self.image_edit_client.edit_image,
+                image=image_to_edit_bytes,
+                prompt=prompt
+            )
             final_error_message = error_msg_edit
             if image_list_or_none and len(image_list_or_none) > 0:
                 final_image_bytes = image_list_or_none[0] # Use the first image
@@ -60,40 +66,49 @@ class ImageCog(commands.Cog):
         else:
             print("Generating image...")
             action_type = "generated"
+            filename_prefix = "generated"
             generated_bytes_or_none, error_msg_gen = await self.image_generation_client.generate_image(prompt)
             final_error_message = error_msg_gen
             final_image_bytes = generated_bytes_or_none
 
             if not final_image_bytes:
-                # Ensure there's an error message if no image was produced
-                if not final_error_message: final_error_message = "Image generation resulted in no image data."
-                await interaction.followup.send(f"{interaction.user.mention}: Image generation failed\n\nprompt: *{prompt}*\n\n{final_error_message}")
+                logger.error(f"Image operation resulted in None for final_image_bytes. Action: {action_type}, Prompt: {prompt}")
+                await interaction.followup.send(f"{interaction.user.mention}: An unexpected error occurred while {action_type}ing the image.")
                 return
-            
-            filename = f"generated_{uuid.uuid4().hex[:8]}.png"
-            filepath = f"generated_images/{interaction.user.display_name}/{filename}"
+        
+        filename = f"{filename_prefix}_{uuid.uuid4().hex[:8]}.png"
+        # Using relative paths, ensure the base directory ('generated_images', 'edited_images')
+        # is writable by the application user in the Docker container.
+        base_dir = "edited_images" if attachment else "generated_images"
+        filepath = f"{base_dir}/{interaction.user.display_name}/{filename}"
+
+        discord_file_attachment = None
+        # Prepare BytesIO object for Discord message from final_image_bytes.
+        # This is done before attempting to save, so it's available even if saving fails.
+        image_stream = BytesIO(final_image_bytes)
+        image_stream.seek(0)
+        discord_file_attachment = discord.File(fp=image_stream, filename=filename)
+
+        save_status_message = ""
         try:
-            # At this point, final_image_bytes should be bytes, not None, due to the checks above.
-            if final_image_bytes is None: # Should not happen if logic above is correct, but as a safeguard
-                logger.error(f"Internal error: final_image_bytes is None before saving. Action: {action_type}, Prompt: {prompt}")
-                await interaction.followup.send(f"{interaction.user.mention}: An unexpected internal error occurred before saving the image.")
-                return
-
             FileService.write_bytes(filepath, final_image_bytes)
-            file_obj = BytesIO(final_image_bytes)
-            file_obj.seek(0)
-
-            await interaction.followup.send(
-                content=f"Image {action_type} for {interaction.user.mention}:\nPrompt: *{prompt}*\n`{filename}`.",
-                file=discord.File(fp=file_obj, filename=filename)
-            )
             logger.info(f"Image {action_type} and saved: {filepath}")
+            # Positive confirmation of saving can be part of the message if desired.
+            # For example: save_status_message = f"\nImage saved as `{filepath}`."
         except Exception as e:
-            logger.error(f"Failed to save image: {e}")
-            await interaction.followup.send(
-                content=f"Image {action_type} for {interaction.user.mention}:\nPrompt: *{prompt}*\n`{filename}`.\n\nFailed to save to disk.\n\n{e}",
-                file=discord.File(fp=file_obj, filename=filename)
-            )
+            # This 'e' will be the PermissionError from the traceback in your case.
+            logger.error(f"Failed to save image to {filepath}: {e}", exc_info=True) # Log with traceback
+            error_type = type(e).__name__
+            save_status_message = f"\n\n**Warning:** Failed to save image to disk ({error_type}: {e}). The image is still attached to this message."
+
+
+        base_message_content = f"Image {action_type} for {interaction.user.mention}:\nPrompt: *{prompt}*"
+        full_message_content = f"{base_message_content}{save_status_message}"
+
+        await interaction.followup.send(
+            content=full_message_content,
+            file=discord_file_attachment  # This will now always be defined if final_image_bytes was valid
+        )
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(ImageCog(bot))
