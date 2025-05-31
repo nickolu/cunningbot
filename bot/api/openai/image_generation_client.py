@@ -38,8 +38,7 @@ class ImageGenerationClient:
                 model="gpt-image-1",  # Preserving original hardcoded model
                 prompt=prompt,
                 n=n,
-                size=size,
-                response_format="b64_json"  # Explicitly request b64_json as it's expected by subsequent code
+                size=size 
             )
 
             if not img.data or not img.data[0].b64_json:
