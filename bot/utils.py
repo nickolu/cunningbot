@@ -4,7 +4,7 @@ import functools
 import logging
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("ManchatBot")
+logger = logging.getLogger("CunningBot")
 
 def split_message(text: str, max_length: int = 2000) -> List[str]:
     # Split at the last newline before max_length, or hard split if none

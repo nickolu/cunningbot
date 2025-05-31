@@ -23,7 +23,7 @@ class ChatCog(commands.Cog):
         self.bot = bot
         self.llm = ChatCompletionsClient.factory()
 
-    @app_commands.command(name="chat", description="Chat with the ManchatBot LLM")
+    @app_commands.command(name="chat", description="Chat with the CunningBot LLM")
     @app_commands.describe(msg="Your message for the chatbot", message_count="Number of previous messages to include (default: 20)")
     @app_commands.choices(
         private=[

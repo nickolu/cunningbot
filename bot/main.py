@@ -18,7 +18,7 @@ load_dotenv()
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("ManchatBot")
+logger = logging.getLogger("CunningBot")
 
 # Intents
 intents = discord.Intents.none()

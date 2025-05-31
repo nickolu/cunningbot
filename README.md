@@ -1,6 +1,6 @@
-# ManchatBot
+# CunningBot
 
-ManchatBot is a full-featured Discord bot powered by OpenAI.  It provides natural-language chat, image generation, and summarisation commands while allowing the guild owner to customise the bot’s **personality** at runtime.  The project is designed to be easy to run locally or inside Docker and is ready for deployment to Raspberry Pi or any Linux host.
+CunningBot is a full-featured Discord bot powered by OpenAI.  It provides natural-language chat, image generation, and summarisation commands while allowing the guild owner to customise the bot’s **personality** at runtime.  The project is designed to be easy to run locally or inside Docker and is ready for deployment to Raspberry Pi or any Linux host.
 
 ---
 
@@ -113,7 +113,7 @@ Pass `get` to the command to see the current setting or leave the argument empty
 
 ## Logging
 
-Structured JSON logs are written to *logs/manchatbot-YYYY-MM-DD.json* (date-rotated).  Adjust verbosity or format by editing *bot/domain/logger.py*.
+Structured JSON logs are written to *logs/cunningbot-YYYY-MM-DD.json* (date-rotated).  Adjust verbosity or format by editing *bot/domain/logger.py*.
 
 ## Testing
 
