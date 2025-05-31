@@ -66,31 +66,17 @@ async def on_ready() -> None:
     # Log local commands before sync
     local_cmds = [cmd.name for cmd in bot.tree.walk_commands()]
     logger.info(f"Local commands before sync: {local_cmds}")
-    guild_id = os.getenv("GUILD_ID")
-    if guild_id:
-        try:
-            guild = discord.Object(id=int(guild_id))
-            synced = await bot.tree.sync(guild=guild)
-            synced = await bot.tree.sync()
-            logger.info(f"Synced commands list: {[cmd.name for cmd in synced]}")
-            logger.info(f"Command tree synced to guild {guild_id}")
-            # Log all registered app commands for this guild
-            cmds = await bot.tree.fetch_commands(guild=guild)
-            for cmd in cmds:
-                logger.info(f"Registered command: {cmd.name} (type: {cmd.type})")
-        except Exception as e:
-            logger.error(f"Failed to sync command tree to guild {guild_id}: {e}")
-    else:
-        try:
-            synced = await bot.tree.sync()
-            logger.info(f"Synced global commands: {[cmd.name for cmd in synced]}")
-            logger.info("Command tree synced globally")
-            # Log all registered global app commands
-            cmds = await bot.tree.fetch_commands()
-            for cmd in cmds:
-                logger.info(f"Registered command: {cmd.name} (type: {cmd.type})")
-        except Exception as e:
-            logger.error(f"Failed to sync command tree globally: {e}")
+
+    try:
+        synced = await bot.tree.sync()
+        logger.info(f"Synced global commands: {[cmd.name for cmd in synced]}")
+        logger.info("Command tree synced globally")
+        # Log all registered global app commands
+        cmds = await bot.tree.fetch_commands()
+        for cmd in cmds:
+            logger.info(f"Registered command: {cmd.name} (type: {cmd.type})")
+    except Exception as e:
+        logger.error(f"Failed to sync command tree globally: {e}")
 
 def handle_shutdown(loop: asyncio.AbstractEventLoop) -> Callable[[], asyncio.Task[Any]]:
     async def shutdown() -> None:
