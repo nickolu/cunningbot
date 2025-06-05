@@ -159,6 +159,10 @@ class ChatCog(commands.Cog):
                     ephemeral=True
                 )
                 already_responded = True
+            else:
+                # If no queue, defer immediately to avoid "application did not respond"
+                await interaction.response.defer(thinking=True, ephemeral=bool(private))
+                already_responded = True
             
             # Enqueue the actual chat processing task
             task_id = await task_queue.enqueue_task(
@@ -170,16 +174,17 @@ class ChatCog(commands.Cog):
             
         except Exception as e:
             logger.error(f"Error queuing chat command: {str(e)}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "Sorry, I'm currently overwhelmed with requests. Please try again in a moment.",
-                    ephemeral=True
-                )
+            
+            # Check if it's a queue full error
+            if "queue is full" in str(e).lower():
+                error_message = "🚫 I'm currently at maximum capacity (10 tasks queued). Please wait a moment for some tasks to complete before trying again."
             else:
-                await interaction.followup.send(
-                    "Sorry, I'm currently overwhelmed with requests. Please try again in a moment.",
-                    ephemeral=True
-                )
+                error_message = "Sorry, I'm currently overwhelmed with requests. Please try again in a moment."
+            
+            if not interaction.response.is_done():
+                await interaction.response.send_message(error_message, ephemeral=True)
+            else:
+                await interaction.followup.send(error_message, ephemeral=True)
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(ChatCog(bot))

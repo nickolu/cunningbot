@@ -43,7 +43,7 @@ class Task:
 class TaskQueue:
     """Manages a queue of tasks and processes them sequentially"""
     
-    def __init__(self, max_queue_size: int = 100):
+    def __init__(self, max_queue_size: int = 10):
         self.queue: asyncio.Queue = asyncio.Queue(maxsize=max_queue_size)
         self.active_tasks: Dict[str, Task] = {}
         self.completed_tasks: Dict[str, Task] = {}
