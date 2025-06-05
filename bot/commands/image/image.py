@@ -25,7 +25,15 @@ class ImageCog(commands.Cog):
         self.image_generation_client = ImageGenerationClient.factory()
         self.image_edit_client = ImageEditClient.factory()
 
-    async def _image_handler(self, interaction: discord.Interaction, prompt: str, attachment: Optional[discord.Attachment] = None) -> None:
+    async def _image_handler(
+        self, 
+        interaction: discord.Interaction, 
+        prompt: str, 
+        attachment: Optional[discord.Attachment] = None,
+        size: Optional[str] = None,
+        quality: Optional[str] = None,
+        background: Optional[str] = None
+    ) -> None:
         """Internal image handler that processes the actual image generation/editing request"""
         await interaction.response.defer()
 
@@ -161,7 +169,15 @@ class ImageCog(commands.Cog):
             app_commands.Choice(name="Opaque", value="opaque"),
         ]
     )
-    async def image(self, interaction: discord.Interaction, prompt: str, attachment: Optional[discord.Attachment] = None) -> None:
+    async def image(
+        self, 
+        interaction: discord.Interaction, 
+        prompt: str, 
+        attachment: Optional[discord.Attachment] = None,
+        size: Optional[str] = None,
+        quality: Optional[str] = None,
+        background: Optional[str] = None
+    ) -> None:
         """Queue an image generation/editing request for processing"""
         try:
             # Get the task queue and enqueue the image handler
@@ -180,7 +196,7 @@ class ImageCog(commands.Cog):
             # Enqueue the actual image processing task
             task_id = await task_queue.enqueue_task(
                 self._image_handler, 
-                interaction, prompt, attachment
+                interaction, prompt, attachment, size, quality, background
             )
             
             logger.info(f"Image command queued with task ID: {task_id}")
