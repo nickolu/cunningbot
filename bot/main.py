@@ -63,6 +63,13 @@ async def load_cogs_from_dir(directory: str) -> None:
 @bot.event
 async def on_ready() -> None:
     logger.info(f"Bot ready as {bot.user}")
+    
+    # Initialize task queue
+    from bot.core.task_queue import get_task_queue
+    task_queue = get_task_queue()
+    await task_queue.start_worker()
+    logger.info("Task queue initialized and worker started")
+    
     # Log local commands before sync
     local_cmds = [cmd.name for cmd in bot.tree.walk_commands()]
     logger.info(f"Local commands before sync: {local_cmds}")
@@ -81,6 +88,16 @@ async def on_ready() -> None:
 def handle_shutdown(loop: asyncio.AbstractEventLoop) -> Callable[[], asyncio.Task[Any]]:
     async def shutdown() -> None:
         logger.info("Shutting down gracefully...")
+        
+        # Stop task queue worker
+        try:
+            from bot.core.task_queue import get_task_queue
+            task_queue = get_task_queue()
+            await task_queue.stop_worker()
+            logger.info("Task queue worker stopped")
+        except Exception as e:
+            logger.error(f"Error stopping task queue: {e}")
+        
         await bot.close()
         for handler in logging.root.handlers:
             handler.flush()

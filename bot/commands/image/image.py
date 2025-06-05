@@ -12,6 +12,7 @@ from bot.api.openai.image_generation_client import ImageGenerationClient
 from bot.api.openai.image_edit_client import ImageEditClient
 from bot.api.os.file_service import FileService
 from bot.domain.logger import get_logger
+from bot.core.task_queue import get_task_queue
 import uuid
 import discord
 from io import BytesIO
@@ -24,43 +25,20 @@ class ImageCog(commands.Cog):
         self.image_generation_client = ImageGenerationClient.factory()
         self.image_edit_client = ImageEditClient.factory()
 
-    @app_commands.command(name="image", description="Generate or edit an image with OpenAI.")
-    @app_commands.describe(
-        prompt="Describe the image you want to generate or the edit you want to make.", 
-        attachment="Optional: The image to edit.", 
-        size="Size of the generated image", 
-        quality="Quality of the generated image (editing only)", 
-        background="Background setting for the generated image (editing only)"
-    )
-    @app_commands.choices(
-        size=[
-            app_commands.Choice(name="Auto", value="auto"),
-            app_commands.Choice(name="1024x1024 (Square)", value="1024x1024"),
-            app_commands.Choice(name="1536x1024 (Landscape)", value="1536x1024"),
-            app_commands.Choice(name="1024x1536 (Portrait)", value="1024x1536"),
-            app_commands.Choice(name="256x256 (Small Square)", value="256x256"),
-            app_commands.Choice(name="512x512 (Medium Square)", value="512x512"),
-            app_commands.Choice(name="1792x1024 (Wide Landscape)", value="1792x1024"),
-            app_commands.Choice(name="1024x1792 (Tall Portrait)", value="1024x1792"),
-        ]
-    )
-    @app_commands.choices(
-        quality=[
-            app_commands.Choice(name="Auto", value="auto"),
-            app_commands.Choice(name="High", value="high"),
-            app_commands.Choice(name="Medium", value="medium"),
-            app_commands.Choice(name="Low", value="low"),
-        ]
-    )
-    @app_commands.choices(
-        background=[
-            app_commands.Choice(name="Auto", value="auto"),
-            app_commands.Choice(name="Transparent", value="transparent"),
-            app_commands.Choice(name="Opaque", value="opaque"),
-        ]
-    )
-    async def image(self, interaction: discord.Interaction, prompt: str, attachment: Optional[discord.Attachment] = None, size: Optional[str] = None, quality: Optional[str] = None, background: Optional[str] = None) -> None:
-        await interaction.response.defer()
+    async def _image_handler(
+        self, 
+        interaction: discord.Interaction, 
+        prompt: str, 
+        attachment: Optional[discord.Attachment] = None,
+        size: Optional[str] = None,
+        quality: Optional[str] = None,
+        background: Optional[str] = None,
+        already_responded: bool = False
+    ) -> None:
+        """Internal image handler that processes the actual image generation/editing request"""
+        # Only defer if we haven't already responded to the interaction
+        if not already_responded and not interaction.response.is_done():
+            await interaction.response.defer()
 
         # Set defaults
         size = size or "1024x1024"
@@ -80,7 +58,11 @@ class ImageCog(commands.Cog):
                 image_to_edit_bytes = await attachment.read()
             except Exception as e:
                 logger.error(f"Failed to read attachment: {e}")
-                await interaction.followup.send(f"{interaction.user.mention}: Failed to read the attached image.\n\nError: {e}")
+                error_msg = f"{interaction.user.mention}: Failed to read the attached image.\n\nError: {e}"
+                if interaction.response.is_done():
+                    await interaction.followup.send(error_msg)
+                else:
+                    await interaction.response.send_message(error_msg)
                 return
 
             image_list_or_none, error_msg_edit = await asyncio.to_thread(
@@ -98,7 +80,11 @@ class ImageCog(commands.Cog):
             if not final_image_bytes:
                 # Ensure there's an error message if no image was produced
                 if not final_error_message: final_error_message = "Image editing resulted in no image data."
-                await interaction.followup.send(f"{interaction.user.mention}: Image editing failed\n\nprompt: *{prompt}*\nattachment: *{attachment.filename}*\n\n{final_error_message}")
+                error_msg = f"{interaction.user.mention}: Image editing failed\n\nprompt: *{prompt}*\nattachment: *{attachment.filename}*\n\n{final_error_message}"
+                if interaction.response.is_done():
+                    await interaction.followup.send(error_msg)
+                else:
+                    await interaction.response.send_message(error_msg)
                 return
             
             filename = f"edited_{attachment.filename}_{uuid.uuid4().hex[:8]}.png"
@@ -113,9 +99,13 @@ class ImageCog(commands.Cog):
 
             if not final_image_bytes:
                 logger.error(f"Image operation resulted in None for final_image_bytes. Action: {action_type}, Prompt: {prompt}")
-                await interaction.followup.send(f"{interaction.user.mention}: An unexpected error occurred while {action_type}ing the image.")
+                error_msg = f"{interaction.user.mention}: An unexpected error occurred while {action_type}ing the image."
+                if interaction.response.is_done():
+                    await interaction.followup.send(error_msg)
+                else:
+                    await interaction.response.send_message(error_msg)
                 return
-            
+        
             filename = f"generated_{uuid.uuid4().hex[:8]}.png"
             # Using relative paths, ensure the base directory ('generated_images', 'edited_images')
             # is writable by the application user in the Docker container.
@@ -154,10 +144,105 @@ class ImageCog(commands.Cog):
         base_message_content = f"Image {action_type} for {interaction.user.mention}:\nPrompt: *{prompt}*{params_text}"
         full_message_content = f"{base_message_content}{save_status_message}"
 
-        await interaction.followup.send(
-            content=full_message_content,
-            file=discord_file_attachment  # This will now always be defined if final_image_bytes was valid
-        )
+        # Send the result using the appropriate method
+        if interaction.response.is_done():
+            await interaction.followup.send(
+                content=full_message_content,
+                file=discord_file_attachment
+            )
+        else:
+            await interaction.response.send_message(
+                content=full_message_content,
+                file=discord_file_attachment
+            )
+
+    @app_commands.command(name="image", description="Generate or edit an image with OpenAI.")
+    @app_commands.describe(
+        prompt="Describe the image you want to generate or the edit you want to make.", 
+        attachment="Optional: The image to edit.", 
+        size="Size of the generated image", 
+        quality="Quality of the generated image (editing only)", 
+        background="Background setting for the generated image (editing only)"
+    )
+    @app_commands.choices(
+        size=[
+            app_commands.Choice(name="Auto", value="auto"),
+            app_commands.Choice(name="1024x1024 (Square)", value="1024x1024"),
+            app_commands.Choice(name="1536x1024 (Landscape)", value="1536x1024"),
+            app_commands.Choice(name="1024x1536 (Portrait)", value="1024x1536"),
+            app_commands.Choice(name="256x256 (Small Square)", value="256x256"),
+            app_commands.Choice(name="512x512 (Medium Square)", value="512x512"),
+            app_commands.Choice(name="1792x1024 (Wide Landscape)", value="1792x1024"),
+            app_commands.Choice(name="1024x1792 (Tall Portrait)", value="1024x1792"),
+        ]
+    )
+    @app_commands.choices(
+        quality=[
+            app_commands.Choice(name="Auto", value="auto"),
+            app_commands.Choice(name="High", value="high"),
+            app_commands.Choice(name="Medium", value="medium"),
+            app_commands.Choice(name="Low", value="low"),
+        ]
+    )
+    @app_commands.choices(
+        background=[
+            app_commands.Choice(name="Auto", value="auto"),
+            app_commands.Choice(name="Transparent", value="transparent"),
+            app_commands.Choice(name="Opaque", value="opaque"),
+        ]
+    )
+    async def image(
+        self, 
+        interaction: discord.Interaction, 
+        prompt: str, 
+        attachment: Optional[discord.Attachment] = None,
+        size: Optional[str] = None,
+        quality: Optional[str] = None,
+        background: Optional[str] = None
+    ) -> None:
+        """Queue an image generation/editing request for processing"""
+        try:
+            # Get the task queue and enqueue the image handler
+            task_queue = get_task_queue()
+            queue_status = task_queue.get_queue_status()
+            
+            already_responded = False
+            
+            # If there are tasks in queue, inform the user
+            if queue_status["queue_size"] > 0:
+                action = "edit" if attachment else "generate"
+                await interaction.response.send_message(
+                    f"🎨 Your image {action} request has been queued! There are {queue_status['queue_size']} tasks ahead of you. "
+                    f"I'll start working on your image as soon as I finish the current requests.",
+                    ephemeral=True
+                )
+                already_responded = True
+            else:
+                # If no queue, defer immediately to avoid "application did not respond"
+                await interaction.response.defer()
+                already_responded = True
+            
+            # Enqueue the actual image processing task
+            task_id = await task_queue.enqueue_task(
+                self._image_handler, 
+                interaction, prompt, attachment, size, quality, background, already_responded
+            )
+            
+            logger.info(f"Image command queued with task ID: {task_id}")
+            
+        except Exception as e:
+            logger.error(f"Error queuing image command: {str(e)}")
+            
+            # Check if it's a queue full error
+            if "queue is full" in str(e).lower():
+                error_message = "🚫 I'm currently at maximum capacity (10 tasks queued). Please wait a moment for some tasks to complete before trying again."
+            else:
+                error_message = "Sorry, I'm currently overwhelmed with requests. Please try again in a moment."
+            
+            if not interaction.response.is_done():
+                await interaction.response.send_message(error_message, ephemeral=True)
+            else:
+                await interaction.followup.send(error_message, ephemeral=True)
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(ImageCog(bot))

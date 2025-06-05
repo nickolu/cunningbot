@@ -15,6 +15,7 @@ from bot.domain.logger import get_logger
 from bot.api.openai.utils import sanitize_name
 from bot.utils import split_message
 from bot.api.discord.utils import flatten_discord_message, format_response_with_interaction_user_message, to_tiny_text
+from bot.core.task_queue import get_task_queue
 
 logger = get_logger()
 
@@ -23,32 +24,11 @@ class ChatCog(commands.Cog):
         self.bot = bot
         self.llm = ChatCompletionsClient.factory()
 
-    @app_commands.command(name="chat", description="Chat with the CunningBot LLM")
-    @app_commands.describe(msg="Your message for the chatbot", message_count="Number of previous messages to include (default: 20)")
-    @app_commands.choices(
-        private=[
-            app_commands.Choice(name="True", value=1),
-            app_commands.Choice(name="False", value=0),
-        ]
-    )
-    @app_commands.choices(  
-        model=[
-            app_commands.Choice(name="gpt-3.5-turbo (cheapest)", value="gpt-3.5-turbo"),
-            app_commands.Choice(name="gpt-4.1-nano", value="gpt-4.1-nano"),
-            app_commands.Choice(name="gpt-4o-mini (default)", value="gpt-4o-mini"),
-            app_commands.Choice(name="gpt-4.1-mini", value="gpt-4.1-mini"),
-            app_commands.Choice(name="o4-mini", value="o4-mini"),
-            app_commands.Choice(name="gpt-4.1", value="gpt-4.1"),
-            app_commands.Choice(name="gpt-4o", value="gpt-4o"),
-            app_commands.Choice(name="gpt-4-turbo", value="gpt-4-turbo"),
-            app_commands.Choice(name="gpt-4", value="gpt-4"),
-            app_commands.Choice(name="gpt-4.5-preview (most expensive)", value="gpt-4.5-preview"),
-            
-        ]
-    )
-    async def chat(self, interaction: discord.Interaction, msg: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 20, private: Optional[int] = 0) -> None:
-        # Defer the response immediately to prevent interaction timeout
-        await interaction.response.defer(thinking=True, ephemeral=bool(private))
+    async def _chat_handler(self, interaction: discord.Interaction, msg: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 20, private: Optional[int] = 0, already_responded: bool = False) -> None:
+        """Internal chat handler that processes the actual chat request"""
+        # Only defer if we haven't already responded to the interaction
+        if not already_responded and not interaction.response.is_done():
+            await interaction.response.defer(thinking=True, ephemeral=bool(private))
         
         try:
             # Set defaults and convert types
@@ -106,7 +86,10 @@ class ChatCog(commands.Cog):
             
             # Send the first chunk as a follow-up to the deferred interaction
             try:
-                await interaction.followup.send(chunks[0], ephemeral=private)
+                if interaction.response.is_done():
+                    await interaction.followup.send(chunks[0], ephemeral=private)
+                else:
+                    await interaction.response.send_message(chunks[0], ephemeral=private)
                 
                 # Send remaining chunks as regular messages
                 for chunk in chunks[1:]:
@@ -135,6 +118,73 @@ class ChatCog(commands.Cog):
             except Exception as inner_e:
                 logger.error(f"Failed to send error message: {str(inner_e)}")
                 pass
+
+    @app_commands.command(name="chat", description="Chat with the CunningBot LLM")
+    @app_commands.describe(msg="Your message for the chatbot", message_count="Number of previous messages to include (default: 20)")
+    @app_commands.choices(
+        private=[
+            app_commands.Choice(name="True", value=1),
+            app_commands.Choice(name="False", value=0),
+        ]
+    )
+    @app_commands.choices(  
+        model=[
+            app_commands.Choice(name="gpt-3.5-turbo (cheapest)", value="gpt-3.5-turbo"),
+            app_commands.Choice(name="gpt-4.1-nano", value="gpt-4.1-nano"),
+            app_commands.Choice(name="gpt-4o-mini (default)", value="gpt-4o-mini"),
+            app_commands.Choice(name="gpt-4.1-mini", value="gpt-4.1-mini"),
+            app_commands.Choice(name="o4-mini", value="o4-mini"),
+            app_commands.Choice(name="gpt-4.1", value="gpt-4.1"),
+            app_commands.Choice(name="gpt-4o", value="gpt-4o"),
+            app_commands.Choice(name="gpt-4-turbo", value="gpt-4-turbo"),
+            app_commands.Choice(name="gpt-4", value="gpt-4"),
+            app_commands.Choice(name="gpt-4.5-preview (most expensive)", value="gpt-4.5-preview"),
+            
+        ]
+    )
+    async def chat(self, interaction: discord.Interaction, msg: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 20, private: Optional[int] = 0) -> None:
+        """Queue a chat request for processing"""
+        try:
+            # Get the task queue and enqueue the chat handler
+            task_queue = get_task_queue()
+            queue_status = task_queue.get_queue_status()
+            
+            already_responded = False
+            
+            # If there are tasks in queue, inform the user
+            if queue_status["queue_size"] > 0:
+                await interaction.response.send_message(
+                    f"🕐 Your request has been queued! There are {queue_status['queue_size']} tasks ahead of you. "
+                    f"I'll respond as soon as I finish processing the current requests.",
+                    ephemeral=True
+                )
+                already_responded = True
+            else:
+                # If no queue, defer immediately to avoid "application did not respond"
+                await interaction.response.defer(thinking=True, ephemeral=bool(private))
+                already_responded = True
+            
+            # Enqueue the actual chat processing task
+            task_id = await task_queue.enqueue_task(
+                self._chat_handler, 
+                interaction, msg, model, message_count, private, already_responded
+            )
+            
+            logger.info(f"Chat command queued with task ID: {task_id}")
+            
+        except Exception as e:
+            logger.error(f"Error queuing chat command: {str(e)}")
+            
+            # Check if it's a queue full error
+            if "queue is full" in str(e).lower():
+                error_message = "🚫 I'm currently at maximum capacity (10 tasks queued). Please wait a moment for some tasks to complete before trying again."
+            else:
+                error_message = "Sorry, I'm currently overwhelmed with requests. Please try again in a moment."
+            
+            if not interaction.response.is_done():
+                await interaction.response.send_message(error_message, ephemeral=True)
+            else:
+                await interaction.followup.send(error_message, ephemeral=True)
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(ChatCog(bot))
