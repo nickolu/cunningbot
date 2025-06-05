@@ -66,7 +66,6 @@ class ImageCog(commands.Cog):
         else:
             print("Generating image...")
             action_type = "generated"
-            filename_prefix = "generated"
             generated_bytes_or_none, error_msg_gen = await self.image_generation_client.generate_image(prompt)
             final_error_message = error_msg_gen
             final_image_bytes = generated_bytes_or_none
@@ -75,12 +74,12 @@ class ImageCog(commands.Cog):
                 logger.error(f"Image operation resulted in None for final_image_bytes. Action: {action_type}, Prompt: {prompt}")
                 await interaction.followup.send(f"{interaction.user.mention}: An unexpected error occurred while {action_type}ing the image.")
                 return
-        
-        filename = f"{filename_prefix}_{uuid.uuid4().hex[:8]}.png"
-        # Using relative paths, ensure the base directory ('generated_images', 'edited_images')
-        # is writable by the application user in the Docker container.
-        base_dir = "edited_images" if attachment else "generated_images"
-        filepath = f"{base_dir}/{interaction.user.display_name}/{filename}"
+            
+            filename = f"generated_{uuid.uuid4().hex[:8]}.png"
+            # Using relative paths, ensure the base directory ('generated_images', 'edited_images')
+            # is writable by the application user in the Docker container.
+            base_dir = "generated_images"
+            filepath = f"{base_dir}/{interaction.user.display_name}/{filename}"
 
         discord_file_attachment = None
         # Prepare BytesIO object for Discord message from final_image_bytes.
