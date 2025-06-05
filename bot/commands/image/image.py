@@ -12,6 +12,7 @@ from bot.api.openai.image_generation_client import ImageGenerationClient
 from bot.api.openai.image_edit_client import ImageEditClient
 from bot.api.os.file_service import FileService
 from bot.domain.logger import get_logger
+from bot.core.task_queue import get_task_queue
 import uuid
 import discord
 from io import BytesIO
@@ -24,9 +25,8 @@ class ImageCog(commands.Cog):
         self.image_generation_client = ImageGenerationClient.factory()
         self.image_edit_client = ImageEditClient.factory()
 
-    @app_commands.command(name="image", description="Generate or edit an image with OpenAI.")
-    @app_commands.describe(prompt="Describe the image you want to generate or the edit you want to make.", attachment="Optional: The image to edit.")
-    async def image(self, interaction: discord.Interaction, prompt: str, attachment: Optional[discord.Attachment] = None) -> None:
+    async def _image_handler(self, interaction: discord.Interaction, prompt: str, attachment: Optional[discord.Attachment] = None) -> None:
+        """Internal image handler that processes the actual image generation/editing request"""
         await interaction.response.defer()
 
         final_image_bytes: Optional[bytes] = None
@@ -109,6 +109,39 @@ class ImageCog(commands.Cog):
             content=full_message_content,
             file=discord_file_attachment  # This will now always be defined if final_image_bytes was valid
         )
+
+    @app_commands.command(name="image", description="Generate or edit an image with OpenAI.")
+    @app_commands.describe(prompt="Describe the image you want to generate or the edit you want to make.", attachment="Optional: The image to edit.")
+    async def image(self, interaction: discord.Interaction, prompt: str, attachment: Optional[discord.Attachment] = None) -> None:
+        """Queue an image generation/editing request for processing"""
+        try:
+            # Get the task queue and enqueue the image handler
+            task_queue = get_task_queue()
+            queue_status = task_queue.get_queue_status()
+            
+            # If there are tasks in queue, inform the user
+            if queue_status["queue_size"] > 0:
+                action = "edit" if attachment else "generate"
+                await interaction.response.send_message(
+                    f"🎨 Your image {action} request has been queued! There are {queue_status['queue_size']} tasks ahead of you. "
+                    f"I'll start working on your image as soon as I finish the current requests.",
+                    ephemeral=True
+                )
+            
+            # Enqueue the actual image processing task
+            task_id = await task_queue.enqueue_task(
+                self._image_handler, 
+                interaction, prompt, attachment
+            )
+            
+            logger.info(f"Image command queued with task ID: {task_id}")
+            
+        except Exception as e:
+            logger.error(f"Error queuing image command: {str(e)}")
+            await interaction.response.send_message(
+                "Sorry, I'm currently overwhelmed with requests. Please try again in a moment.",
+                ephemeral=True
+            )
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(ImageCog(bot))
