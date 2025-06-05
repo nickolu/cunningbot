@@ -24,10 +24,11 @@ class ChatCog(commands.Cog):
         self.bot = bot
         self.llm = ChatCompletionsClient.factory()
 
-    async def _chat_handler(self, interaction: discord.Interaction, msg: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 20, private: Optional[int] = 0) -> None:
+    async def _chat_handler(self, interaction: discord.Interaction, msg: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 20, private: Optional[int] = 0, already_responded: bool = False) -> None:
         """Internal chat handler that processes the actual chat request"""
-        # Defer the response immediately to prevent interaction timeout
-        await interaction.response.defer(thinking=True, ephemeral=bool(private))
+        # Only defer if we haven't already responded to the interaction
+        if not already_responded and not interaction.response.is_done():
+            await interaction.response.defer(thinking=True, ephemeral=bool(private))
         
         try:
             # Set defaults and convert types
@@ -85,7 +86,10 @@ class ChatCog(commands.Cog):
             
             # Send the first chunk as a follow-up to the deferred interaction
             try:
-                await interaction.followup.send(chunks[0], ephemeral=private)
+                if interaction.response.is_done():
+                    await interaction.followup.send(chunks[0], ephemeral=private)
+                else:
+                    await interaction.response.send_message(chunks[0], ephemeral=private)
                 
                 # Send remaining chunks as regular messages
                 for chunk in chunks[1:]:
@@ -145,6 +149,8 @@ class ChatCog(commands.Cog):
             task_queue = get_task_queue()
             queue_status = task_queue.get_queue_status()
             
+            already_responded = False
+            
             # If there are tasks in queue, inform the user
             if queue_status["queue_size"] > 0:
                 await interaction.response.send_message(
@@ -152,21 +158,28 @@ class ChatCog(commands.Cog):
                     f"I'll respond as soon as I finish processing the current requests.",
                     ephemeral=True
                 )
+                already_responded = True
             
             # Enqueue the actual chat processing task
             task_id = await task_queue.enqueue_task(
                 self._chat_handler, 
-                interaction, msg, model, message_count, private
+                interaction, msg, model, message_count, private, already_responded
             )
             
             logger.info(f"Chat command queued with task ID: {task_id}")
             
         except Exception as e:
             logger.error(f"Error queuing chat command: {str(e)}")
-            await interaction.response.send_message(
-                "Sorry, I'm currently overwhelmed with requests. Please try again in a moment.",
-                ephemeral=True
-            )
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "Sorry, I'm currently overwhelmed with requests. Please try again in a moment.",
+                    ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
+                    "Sorry, I'm currently overwhelmed with requests. Please try again in a moment.",
+                    ephemeral=True
+                )
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(ChatCog(bot))
