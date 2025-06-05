@@ -29,6 +29,11 @@ class ImageCog(commands.Cog):
         """Internal image handler that processes the actual image generation/editing request"""
         await interaction.response.defer()
 
+        # Set defaults
+        size = size or "1024x1024"
+        quality = quality or "auto"
+        background = background or "auto"
+
         final_image_bytes: Optional[bytes] = None
         final_error_message: str = ""
         filename: str = ""
@@ -48,7 +53,10 @@ class ImageCog(commands.Cog):
             image_list_or_none, error_msg_edit = await asyncio.to_thread(
                 self.image_edit_client.edit_image,
                 image=image_to_edit_bytes,
-                prompt=prompt
+                prompt=prompt,
+                size=size,
+                quality=quality,
+                background=background
             )
             final_error_message = error_msg_edit
             if image_list_or_none and len(image_list_or_none) > 0:
@@ -66,8 +74,7 @@ class ImageCog(commands.Cog):
         else:
             print("Generating image...")
             action_type = "generated"
-            filename_prefix = "generated"
-            generated_bytes_or_none, error_msg_gen = await self.image_generation_client.generate_image(prompt)
+            generated_bytes_or_none, error_msg_gen = await self.image_generation_client.generate_image(prompt, size=size)
             final_error_message = error_msg_gen
             final_image_bytes = generated_bytes_or_none
 
@@ -75,12 +82,12 @@ class ImageCog(commands.Cog):
                 logger.error(f"Image operation resulted in None for final_image_bytes. Action: {action_type}, Prompt: {prompt}")
                 await interaction.followup.send(f"{interaction.user.mention}: An unexpected error occurred while {action_type}ing the image.")
                 return
-        
-        filename = f"{filename_prefix}_{uuid.uuid4().hex[:8]}.png"
-        # Using relative paths, ensure the base directory ('generated_images', 'edited_images')
-        # is writable by the application user in the Docker container.
-        base_dir = "edited_images" if attachment else "generated_images"
-        filepath = f"{base_dir}/{interaction.user.display_name}/{filename}"
+            
+            filename = f"generated_{uuid.uuid4().hex[:8]}.png"
+            # Using relative paths, ensure the base directory ('generated_images', 'edited_images')
+            # is writable by the application user in the Docker container.
+            base_dir = "generated_images"
+            filepath = f"{base_dir}/{interaction.user.display_name}/{filename}"
 
         discord_file_attachment = None
         # Prepare BytesIO object for Discord message from final_image_bytes.
@@ -101,8 +108,17 @@ class ImageCog(commands.Cog):
             error_type = type(e).__name__
             save_status_message = f"\n\n**Warning:** Failed to save image to disk ({error_type}: {e}). The image is still attached to this message."
 
-
-        base_message_content = f"Image {action_type} for {interaction.user.mention}:\nPrompt: *{prompt}*"
+        # Build message with parameters used
+        params_used = []
+        if size != "1024x1024":
+            params_used.append(f"Size: {size}")
+        if quality != "auto":
+            params_used.append(f"Quality: {quality}")
+        if background != "auto":
+            params_used.append(f"Background: {background}")
+        
+        params_text = f" ({', '.join(params_used)})" if params_used else ""
+        base_message_content = f"Image {action_type} for {interaction.user.mention}:\nPrompt: *{prompt}*{params_text}"
         full_message_content = f"{base_message_content}{save_status_message}"
 
         await interaction.followup.send(
@@ -111,7 +127,40 @@ class ImageCog(commands.Cog):
         )
 
     @app_commands.command(name="image", description="Generate or edit an image with OpenAI.")
-    @app_commands.describe(prompt="Describe the image you want to generate or the edit you want to make.", attachment="Optional: The image to edit.")
+    @app_commands.describe(
+        prompt="Describe the image you want to generate or the edit you want to make.", 
+        attachment="Optional: The image to edit.", 
+        size="Size of the generated image", 
+        quality="Quality of the generated image (editing only)", 
+        background="Background setting for the generated image (editing only)"
+    )
+    @app_commands.choices(
+        size=[
+            app_commands.Choice(name="Auto", value="auto"),
+            app_commands.Choice(name="1024x1024 (Square)", value="1024x1024"),
+            app_commands.Choice(name="1536x1024 (Landscape)", value="1536x1024"),
+            app_commands.Choice(name="1024x1536 (Portrait)", value="1024x1536"),
+            app_commands.Choice(name="256x256 (Small Square)", value="256x256"),
+            app_commands.Choice(name="512x512 (Medium Square)", value="512x512"),
+            app_commands.Choice(name="1792x1024 (Wide Landscape)", value="1792x1024"),
+            app_commands.Choice(name="1024x1792 (Tall Portrait)", value="1024x1792"),
+        ]
+    )
+    @app_commands.choices(
+        quality=[
+            app_commands.Choice(name="Auto", value="auto"),
+            app_commands.Choice(name="High", value="high"),
+            app_commands.Choice(name="Medium", value="medium"),
+            app_commands.Choice(name="Low", value="low"),
+        ]
+    )
+    @app_commands.choices(
+        background=[
+            app_commands.Choice(name="Auto", value="auto"),
+            app_commands.Choice(name="Transparent", value="transparent"),
+            app_commands.Choice(name="Opaque", value="opaque"),
+        ]
+    )
     async def image(self, interaction: discord.Interaction, prompt: str, attachment: Optional[discord.Attachment] = None) -> None:
         """Queue an image generation/editing request for processing"""
         try:
