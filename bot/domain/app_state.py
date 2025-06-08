@@ -5,11 +5,33 @@ import os
 
 # Define the path for the state file
 STATE_FILE_PATH = os.path.join(os.path.dirname(__file__), "app_state.json")
+GUILD_CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".guild_config.json")
 
-# Initialize the application state (default)
-_app_state: Dict[str, Any] = {
-    "current_personality": None, # Retain for initial state setup
+# Initialize the application state (default structure)
+_app_state: Dict[str, Dict[str, Any]] = {
+    "global": {
+        "current_personality": None,  # Global default personality
+    }
 }
+
+def _load_guild_config() -> Dict[str, Any]:
+    """Load guild configuration from .guild_config.json"""
+    try:
+        if os.path.exists(GUILD_CONFIG_PATH):
+            with open(GUILD_CONFIG_PATH, 'r') as f:
+                return json.load(f)
+        else:
+            print(f"Guild config file {GUILD_CONFIG_PATH} not found. Using default global only.")
+            return {"global": {"guild_id": "global", "guild_name": "Global (no guild)"}}
+    except (IOError, json.JSONDecodeError) as e:
+        print(f"Error loading guild config from {GUILD_CONFIG_PATH}: {e}. Using default global only.")
+        return {"global": {"guild_id": "global", "guild_name": "Global (no guild)"}}
+
+def _get_guild_id_from_interaction_guild_id(interaction_guild_id: Optional[int]) -> str:
+    """Convert Discord interaction guild_id to string format used in our config"""
+    if interaction_guild_id is None:
+        return "global"
+    return str(interaction_guild_id)
 
 def _save_state_to_file() -> None:
     """Saves the current application state to the JSON file."""
@@ -18,7 +40,6 @@ def _save_state_to_file() -> None:
             json.dump(_app_state, f, indent=4)
     except IOError as e:
         print(f"Error saving app state to {STATE_FILE_PATH}: {e}")
-        # Optionally, add more robust error handling or logging
 
 def _load_state_from_file() -> None:
     """Loads the application state from the JSON file if it exists."""
@@ -27,29 +48,130 @@ def _load_state_from_file() -> None:
         try:
             with open(STATE_FILE_PATH, 'r') as f:
                 loaded_state = json.load(f)
-                # Ensure default keys exist if not in loaded_state
-                for key, default_value in _app_state.items():
-                    if key not in loaded_state:
-                        loaded_state[key] = default_value
-                _app_state = loaded_state # Replace _app_state with loaded, ensuring defaults are present
-        except (IOError, json.JSONDecodeError) as e:
+                
+                # Ensure the loaded state has the proper structure
+                if not isinstance(loaded_state, dict):
+                    raise ValueError("State file must contain a dictionary")
+                
+                # Initialize with default structure if needed
+                if "global" not in loaded_state:
+                    loaded_state["global"] = {"current_personality": None}
+                
+                # Ensure each guild state has required default keys
+                for guild_id, guild_state in loaded_state.items():
+                    if not isinstance(guild_state, dict):
+                        loaded_state[guild_id] = {"current_personality": None}
+                
+                _app_state = loaded_state
+                
+        except (IOError, json.JSONDecodeError, ValueError) as e:
             print(f"Error loading app state from {STATE_FILE_PATH}: {e}. Using default state and attempting to save.")
-            # If loading fails, initialize with defaults and save
-            _app_state = { "current_personality": None } # Reset to known good default
+            # Reset to known good default
+            _app_state = {"global": {"current_personality": None}}
             _save_state_to_file()
     else:
         print(f"State file {STATE_FILE_PATH} not found. Initializing with default state.")
-        # If the file doesn't exist, save the initial default state
-        _save_state_to_file() 
+        _save_state_to_file()
 
-def get_state_value(key: str) -> Optional[Any]:
-    """Retrieves a generic value from the app state."""
-    return _app_state.get(key)
+def _ensure_guild_state_exists(guild_id: str) -> None:
+    """Ensure that a guild's state dictionary exists"""
+    if guild_id not in _app_state:
+        _app_state[guild_id] = {}
 
-def set_state_value(key: str, value: Any) -> None:
-    """Sets a generic value in the app state and saves to file."""
-    _app_state[key] = value
-    _save_state_to_file() # Auto-save after changing state
+def _is_valid_guild(guild_id: str) -> bool:
+    """Check if a guild ID is valid according to guild config"""
+    guild_config = _load_guild_config()
+    return guild_id == "global" or guild_id in guild_config
+
+def get_state_value(key: str, guild_id: Optional[str] = None) -> Optional[Any]:
+    """
+    Retrieves a value from the app state.
+    
+    Args:
+        key: The state key to retrieve
+        guild_id: The guild ID. If None, uses global state.
+                 If provided, checks guild state first, then falls back to global.
+    
+    Returns:
+        The value from guild state, global state (if not found in guild), or None
+    """
+    # Default to global if no guild_id provided
+    if guild_id is None:
+        guild_id = "global"
+    
+    # Validate guild
+    if not _is_valid_guild(guild_id):
+        print(f"Warning: Unknown guild ID '{guild_id}', falling back to global state")
+        guild_id = "global"
+    
+    # Check if guild state exists and has the key
+    if guild_id in _app_state and key in _app_state[guild_id]:
+        return _app_state[guild_id][key]
+    
+    # Fall back to global state if not found in guild state (and not already global)
+    if guild_id != "global" and "global" in _app_state and key in _app_state["global"]:
+        return _app_state["global"][key]
+    
+    return None
+
+def set_state_value(key: str, value: Any, guild_id: Optional[str] = None) -> None:
+    """
+    Sets a value in the app state.
+    
+    Args:
+        key: The state key to set
+        value: The value to set
+        guild_id: The guild ID. If None, uses global state.
+                 Guilds cannot write to global state directly.
+    
+    Raises:
+        ValueError: If trying to write to global state from a non-global guild
+    """
+    # Default to global if no guild_id provided
+    if guild_id is None:
+        guild_id = "global"
+    
+    # Validate guild
+    if not _is_valid_guild(guild_id):
+        raise ValueError(f"No app state configured for guild: {guild_id}")
+    
+    # Prevent non-global guilds from writing to global state
+    if guild_id != "global":
+        # Ensure the guild state exists
+        _ensure_guild_state_exists(guild_id)
+        _app_state[guild_id][key] = value
+    else:
+        # Only allow writing to global state if explicitly global
+        _ensure_guild_state_exists("global")
+        _app_state["global"][key] = value
+    
+    _save_state_to_file()  # Auto-save after changing state
+
+def get_state_value_from_interaction(key: str, interaction_guild_id: Optional[int]) -> Optional[Any]:
+    """
+    Convenience function to get state value from a Discord interaction's guild_id.
+    
+    Args:
+        key: The state key to retrieve
+        interaction_guild_id: The guild_id from a Discord interaction (can be None for DMs)
+    
+    Returns:
+        The value from appropriate guild state with global fallback
+    """
+    guild_id = _get_guild_id_from_interaction_guild_id(interaction_guild_id)
+    return get_state_value(key, guild_id)
+
+def set_state_value_from_interaction(key: str, value: Any, interaction_guild_id: Optional[int]) -> None:
+    """
+    Convenience function to set state value from a Discord interaction's guild_id.
+    
+    Args:
+        key: The state key to set
+        value: The value to set
+        interaction_guild_id: The guild_id from a Discord interaction (can be None for DMs)
+    """
+    guild_id = _get_guild_id_from_interaction_guild_id(interaction_guild_id)
+    set_state_value(key, value, guild_id)
 
 # Load the state from file when the module is first imported
 _load_state_from_file()

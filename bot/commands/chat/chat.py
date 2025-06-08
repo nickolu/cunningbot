@@ -73,7 +73,7 @@ class ChatCog(commands.Cog):
             if not was_default:
                 meta_data.append(to_tiny_text(model))
             
-            personality = get_personality()
+            personality = get_personality(interaction.guild_id)
             if personality:
                 meta_data.append(to_tiny_text(personality))
 

@@ -87,7 +87,7 @@ class SummarizeCog(commands.Cog):
             "You are summarizing a conversation in a discord channel. Please summarize the conversation, making sure to mention each user in the thread. Here is the content of the conversation: \n\n" + history_text,
             model,
             interaction.user.display_name,
-            get_personality(),
+            get_personality(interaction.guild_id),
             []
         )
 
