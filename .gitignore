@@ -6,3 +6,4 @@ bot/core/app_state.json
 generated_images
 edited_images
 **.pyc
+.guild_config.json
