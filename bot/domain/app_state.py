@@ -11,6 +11,7 @@ GUILD_CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname
 _app_state: Dict[str, Dict[str, Any]] = {
     "global": {
         "current_personality": None,  # Global default personality
+        "default_persona": "discord_user",  # Global default persona
     }
 }
 
@@ -55,19 +56,22 @@ def _load_state_from_file() -> None:
                 
                 # Initialize with default structure if needed
                 if "global" not in loaded_state:
-                    loaded_state["global"] = {"current_personality": None}
+                    loaded_state["global"] = {"current_personality": None, "default_persona": "discord_user"}
                 
                 # Ensure each guild state has required default keys
                 for guild_id, guild_state in loaded_state.items():
                     if not isinstance(guild_state, dict):
                         loaded_state[guild_id] = {"current_personality": None}
+                    # Ensure global state has default_persona
+                    if guild_id == "global" and "default_persona" not in guild_state:
+                        guild_state["default_persona"] = "discord_user"
                 
                 _app_state = loaded_state
                 
         except (IOError, json.JSONDecodeError, ValueError) as e:
             print(f"Error loading app state from {STATE_FILE_PATH}: {e}. Using default state and attempting to save.")
             # Reset to known good default
-            _app_state = {"global": {"current_personality": None}}
+            _app_state = {"global": {"current_personality": None, "default_persona": "discord_user"}}
             _save_state_to_file()
     else:
         print(f"State file {STATE_FILE_PATH} not found. Initializing with default state.")
@@ -172,6 +176,28 @@ def set_state_value_from_interaction(key: str, value: Any, interaction_guild_id:
     """
     guild_id = _get_guild_id_from_interaction_guild_id(interaction_guild_id)
     set_state_value(key, value, guild_id)
+
+def get_default_persona(interaction_guild_id: Optional[int] = None) -> str:
+    """
+    Gets the default persona for the specified guild, falling back to global default.
+    
+    Args:
+        interaction_guild_id: The guild_id from a Discord interaction (can be None for DMs)
+    
+    Returns:
+        The default persona key (defaults to "discord_user")
+    """
+    return get_state_value_from_interaction("default_persona", interaction_guild_id) or "discord_user"
+
+def set_default_persona(persona_key: str, interaction_guild_id: Optional[int] = None) -> None:
+    """
+    Sets the default persona for the specified guild.
+    
+    Args:
+        persona_key: The persona key to set as default
+        interaction_guild_id: The guild_id from a Discord interaction (can be None for DMs)
+    """
+    set_state_value_from_interaction("default_persona", persona_key, interaction_guild_id)
 
 # Load the state from file when the module is first imported
 _load_state_from_file()

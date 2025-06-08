@@ -10,7 +10,8 @@ from typing import Optional
 
 from bot.domain.chat.chat_service import chat_service
 from bot.api.openai.chat_completions_client import ChatCompletionsClient, PermittedModelType
-from bot.domain.settings.personality_service import get_personality
+from bot.domain.app_state import get_default_persona
+from bot.domain.chat.chat_personas import CHAT_PERSONAS
 from bot.domain.logger import get_logger
 from bot.api.openai.utils import sanitize_name
 from bot.utils import split_message
@@ -24,7 +25,7 @@ class ChatCog(commands.Cog):
         self.bot = bot
         self.llm = ChatCompletionsClient.factory()
 
-    async def _chat_handler(self, interaction: discord.Interaction, msg: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 20, private: Optional[int] = 0, already_responded: bool = False) -> None:
+    async def _chat_handler(self, interaction: discord.Interaction, msg: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 20, private: Optional[int] = 0, persona: Optional[str] = None, already_responded: bool = False) -> None:
         """Internal chat handler that processes the actual chat request"""
         # Only defer if we haven't already responded to the interaction
         if not already_responded and not interaction.response.is_done():
@@ -52,6 +53,7 @@ class ChatCog(commands.Cog):
                 "was_default": was_default,
                 "message_count": message_count,
                 "private": private,
+                "persona": persona,
             }
             logger.info(log_payload)
             
@@ -73,12 +75,24 @@ class ChatCog(commands.Cog):
             if not was_default:
                 meta_data.append(to_tiny_text(model))
             
-            personality = get_personality(interaction.guild_id)
-            if personality:
-                meta_data.append(to_tiny_text(personality))
+            # Handle persona selection - if persona is provided, use it; otherwise use default persona
+            personality_to_use = None
+            if persona and persona in CHAT_PERSONAS:
+                # Get instructions or personality from the selected persona
+                persona_data = CHAT_PERSONAS[persona]
+                personality_to_use = persona_data.get("instructions") or persona_data.get("personality")
+            else:
+                # Use default persona from global settings
+                default_persona = get_default_persona(interaction.guild_id)
+                if default_persona and default_persona in CHAT_PERSONAS:
+                    persona_data = CHAT_PERSONAS[default_persona]
+                    personality_to_use = persona_data.get("instructions") or persona_data.get("personality")
+                elif default_persona:
+                    # Fallback for backward compatibility if default_persona is not in CHAT_PERSONAS
+                    personality_to_use = default_persona
 
             # Get response from LLM
-            response = await chat_service(msg, model, interaction.user.display_name, personality, history)
+            response = await chat_service(msg, model, interaction.user.display_name, personality_to_use, history)
             response = format_response_with_interaction_user_message(response + "\n\n" + ' • '.join(meta_data), interaction, msg)
             
             # Split the response into chunks of 2000 characters or less
@@ -120,7 +134,11 @@ class ChatCog(commands.Cog):
                 pass
 
     @app_commands.command(name="chat", description="Chat with the CunningBot LLM")
-    @app_commands.describe(msg="Your message for the chatbot", message_count="Number of previous messages to include (default: 20)")
+    @app_commands.describe(
+        msg="Your message for the chatbot", 
+        message_count="Number of previous messages to include (default: 20)",
+        persona="Choose a persona for the chatbot (optional)"
+    )
     @app_commands.choices(
         private=[
             app_commands.Choice(name="True", value=1),
@@ -142,7 +160,13 @@ class ChatCog(commands.Cog):
             
         ]
     )
-    async def chat(self, interaction: discord.Interaction, msg: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 20, private: Optional[int] = 0) -> None:
+    @app_commands.choices(
+        persona=[
+            app_commands.Choice(name=CHAT_PERSONAS[key]["name"], value=key) 
+            for key in CHAT_PERSONAS.keys()
+        ]
+    )
+    async def chat(self, interaction: discord.Interaction, msg: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 20, private: Optional[int] = 0, persona: Optional[str] = None) -> None:
         """Queue a chat request for processing"""
         try:
             # Get the task queue and enqueue the chat handler
@@ -167,7 +191,7 @@ class ChatCog(commands.Cog):
             # Enqueue the actual chat processing task
             task_id = await task_queue.enqueue_task(
                 self._chat_handler, 
-                interaction, msg, model, message_count, private, already_responded
+                interaction, msg, model, message_count, private, persona, already_responded
             )
             
             logger.info(f"Chat command queued with task ID: {task_id}")
