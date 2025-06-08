@@ -1,6 +1,6 @@
 # CunningBot
 
-CunningBot is a full-featured Discord bot powered by OpenAI.  It provides natural-language chat, image generation, and summarisation commands while allowing the guild owner to customise the bot’s **personality** at runtime.  The project is designed to be easy to run locally or inside Docker and is ready for deployment to Raspberry Pi or any Linux host.
+CunningBot is a full-featured Discord bot powered by OpenAI.  It provides natural-language chat, image generation, and summarisation commands while allowing guild administrators to customize the bot's **default persona** at runtime.  The project is designed to be easy to run locally or inside Docker and is ready for deployment to Raspberry Pi or any Linux host.
 
 ---
 
@@ -8,12 +8,44 @@ CunningBot is a full-featured Discord bot powered by OpenAI.  It provides natura
 
 | Slash Command | Description |
 |---------------|-------------|
-| `/chat` | Chat with the LLM about anything.  Supports model selection, message-history window size, and private replies. |
+| `/chat` | Chat with the LLM about anything.  Supports model selection, message-history window size, persona selection, and private replies. |
 | `/summarize` | Generate a concise summary of the last *n* messages in the channel, mentioning each participant. |
-| `/image` | Create an image from a text prompt using OpenAI’s DALL-E API. |
-| `/settings personality` | Get, set, or clear the bot’s personality.  The personality text is persisted across restarts. |
+| `/image` | Create an image from a text prompt using OpenAI's DALL-E API. |
+| `/persona default [persona]` | Set or view the default persona for this guild. |
+| `/persona list` | List all available personas with descriptions. |
+| `/baseball agent` | Ask factual questions about baseball. |
 
-Additional helper utilities include message splitting to respect Discord’s 2 000-character limit and rich structured logging.
+## Available Personas
+
+The bot supports multiple personas that change its behavior and response style:
+
+| Persona | Description |
+|---------|-------------|
+| **A discord user** (`discord_user`) | *Default* - Casual, friendly chat style suitable for Discord conversations |
+| **Cat** (`cat`) | Responds like a literal cat with meows, purrs, and cat-like behavior |
+| **Helpful Assistant** (`helpful_assistant`) | Professional, informative assistance style |
+| **Sarcastic Jerk** (`sarcastic_jerk`) | Responds with sarcasm and attitude |
+| **Homer Simpson** (`homer_simpson`) | Method actor playing Homer Simpson character |
+
+### Persona System
+
+- **Global Default**: All guilds use "A discord user" persona by default
+- **Guild-Specific**: Configured guilds can set their own default persona
+- **Per-Chat Override**: Individual `/chat` commands can specify a different persona
+- **Access Control**: Only properly configured guilds can change default personas
+
+## Guild Configuration
+
+CunningBot uses a guild configuration system to control which Discord servers can modify bot settings:
+
+- **Configured Guilds**: Can use `/persona default` to set custom default personas
+- **Unconfigured Guilds**: Use the global default persona ("A discord user") and cannot change settings
+- **Configuration File**: Guild access is controlled via `.guild_config.json` (see setup instructions)
+- **Error Handling**: Unconfigured guilds receive clear error messages when attempting to change settings
+
+This system ensures that only authorized servers can modify the bot's behavior while maintaining a consistent default experience.
+
+Additional helper utilities include message splitting to respect Discord's 2 000-character limit and rich structured logging.
 
 ## Project Layout
 
@@ -101,15 +133,6 @@ async def setup(bot):
 
 The bot auto-loads every `*.py` file in that directory when starting.
 
-## Personality Service
-
-The personality is stored in *bot/domain/app_state.json* and accessed through the `personality_service`.  It is automatically loaded on startup and saved every time you call `/settings personality`.
-
-```bash
-/settings personality "a sarcastic but helpful assistant"
-```
-
-Pass `get` to the command to see the current setting or leave the argument empty to clear it.
 
 ## Logging
 
