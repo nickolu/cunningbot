@@ -7,7 +7,7 @@ from typing import Optional
 from bot.domain.app_state import get_default_persona, set_default_persona
 from bot.domain.chat.chat_personas import CHAT_PERSONAS
 
-class PersonalityDefaultCog(commands.Cog):
+class PersonaCog(commands.Cog):
     """Cog for managing bot settings."""
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -121,4 +121,4 @@ class PersonalityDefaultCog(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=False)
 
 async def setup(bot: commands.Bot) -> None:
-    await bot.add_cog(PersonalityDefaultCog(bot))
+    await bot.add_cog(PersonaCog(bot))
