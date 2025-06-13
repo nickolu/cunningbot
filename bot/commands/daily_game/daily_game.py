@@ -132,6 +132,35 @@ class DailyGameCog(commands.Cog):
             f"🚫 The game '{name}' has been disabled.", ephemeral=True
         )
 
+    @daily_game.command(name="delete", description="Delete a registered daily game completely.")
+    @app_commands.describe(name="The name of the registered game to delete")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def delete_game(self, interaction: discord.Interaction, name: str) -> None:
+        games = get_state_value_from_interaction("daily_games", interaction.guild_id) or {}
+
+        if name not in games:
+            await interaction.response.send_message(
+                f"No registered game named '{name}' found for this guild.", ephemeral=True
+            )
+            return
+
+        # Store game info for confirmation message
+        game_info = games[name]
+        channel_id = game_info.get("channel_id")
+        
+        # Delete the game from the dictionary
+        del games[name]
+        
+        # Save back to state
+        set_state_value_from_interaction("daily_games", games, interaction.guild_id)
+        
+        # Confirmation message
+        channel_mention = f"<#{channel_id}>" if channel_id else "Unknown channel"
+        await interaction.response.send_message(
+            f"🗑️ Daily game **{name}** has been deleted completely. It will no longer post to {channel_mention}.",
+            ephemeral=True
+        )
+
     @daily_game.command(name="list", description="List all registered daily games for this guild.")
     async def list_games(self, interaction: discord.Interaction) -> None:
         games = get_state_value_from_interaction("daily_games", interaction.guild_id) or {}
@@ -169,6 +198,58 @@ class DailyGameCog(commands.Cog):
         )
         
         embed.set_footer(text=f"Total games: {len(games)}")
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @daily_game.command(name="preview", description="Preview what a daily game message will look like.")
+    @app_commands.describe(name="The name of the registered game to preview")
+    async def preview_game(self, interaction: discord.Interaction, name: str) -> None:
+        games = get_state_value_from_interaction("daily_games", interaction.guild_id) or {}
+
+        if name not in games:
+            await interaction.response.send_message(
+                f"No registered game named '{name}' found for this guild.", ephemeral=True
+            )
+            return
+
+        game = games[name]
+        
+        # Generate the same message format that the poster will use
+        preview_msg = f"It's time for your daily **{game['name']}**! Play here: <{game['link']}>"
+        
+        # Create an embed to show the preview
+        embed = discord.Embed(
+            title="🔍 Daily Game Message Preview",
+            description=f"Here's what the message will look like when posted:",
+            color=0x0099ff
+        )
+        
+        # Add the preview message as a field
+        embed.add_field(
+            name="Message Content",
+            value=preview_msg,
+            inline=False
+        )
+        
+        # Add game details
+        status = "✅ Enabled" if game.get("enabled", True) else "🚫 Disabled"
+        channel_id = game.get("channel_id")
+        channel_mention = f"<#{channel_id}>" if channel_id else "Unknown channel"
+        hour = game.get("hour", 0)
+        minute = game.get("minute", 0)
+        
+        embed.add_field(
+            name="Game Details",
+            value=(
+                f"**Status:** {status}\n"
+                f"**Channel:** {channel_mention}\n"
+                f"**Time:** {hour:02d}:{minute:02d} Pacific\n"
+                f"**Thread:** A new thread will be created for this message"
+            ),
+            inline=False
+        )
+        
+        embed.set_footer(text="This is just a preview - no actual message will be posted.")
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
 

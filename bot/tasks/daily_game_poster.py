@@ -49,12 +49,14 @@ async def post_games() -> None:
         logger.info("App state empty – nothing to post.")
         return
 
-    # Determine current time slot in Pacific time (HH:MM where MM in {0,10,20,...})
+    # Determine current time slot in Pacific time (round to nearest 10-minute interval)
     now_pt = dt.datetime.now(PACIFIC_TZ)
     current_hour = now_pt.hour
-    current_minute = now_pt.minute
+    # Round to the nearest 10-minute interval to handle slight cron timing variations
+    current_minute = (now_pt.minute // 10) * 10
 
-    logger.info("Current Pacific time: %02d:%02d", current_hour, current_minute)
+    logger.info("Current Pacific time: %02d:%02d (rounded to %02d:%02d)", 
+                now_pt.hour, now_pt.minute, current_hour, current_minute)
 
     # Build a mapping channel_id -> list[dict] of games to post so we can batch
     to_post: Dict[int, List[Dict[str, Any]]] = {}
