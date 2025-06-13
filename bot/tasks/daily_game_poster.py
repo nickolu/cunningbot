@@ -26,6 +26,7 @@ from typing import Any, Dict, List
 
 import discord
 from zoneinfo import ZoneInfo
+from bot.domain import app_state as _domain_state
 
 logger = logging.getLogger("DailyGamePoster")
 logging.basicConfig(level=logging.INFO)
@@ -34,10 +35,8 @@ logging.basicConfig(level=logging.INFO)
 # Helpers for state loading
 # ---------------------------------------------------------------------------
 
-# The app_state.json lives alongside bot/domain/app_state.py, but we resolve it
-STATE_FILE_PATH = (
-    Path(__file__).resolve().parent.parent / "core" / "app_state.json"
-)
+# Reuse the same state file path defined in bot.domain.app_state to avoid drift.
+STATE_FILE_PATH = Path(_domain_state.STATE_FILE_PATH)
 
 if not STATE_FILE_PATH.exists():
     logger.warning("State file %s not found – no games to post", STATE_FILE_PATH)
