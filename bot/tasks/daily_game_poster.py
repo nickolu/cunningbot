@@ -120,8 +120,36 @@ async def post_games() -> None:
                     continue
                 for game in games:
                     msg = f"It's time for your daily **{game['name']}**! Play here: <{game['link']}>"
-                    await channel.send(msg)
+                    # Send the message and capture the resulting Message object so we can
+                    # immediately spin it off into its own thread (if the target is a
+                    # standard text channel). Posting directly into an existing thread
+                    # is also supported – in that case we skip thread creation.
+                    message = await channel.send(msg)
                     logger.info("Posted game '%s' to channel %s", game["name"], channel.id)
+
+                    # If we're in a normal text channel, create a public thread anchored
+                    # to the message we just sent. This keeps daily games from cluttering
+                    # the main chat while still notifying interested members.
+                    if isinstance(channel, discord.TextChannel):
+                        thread_name = f"{game['name']} – {now_pt:%Y-%m-%d}"  # e.g. Wordle – 2025-06-13
+                        try:
+                            await message.create_thread(
+                                name=thread_name,
+                                auto_archive_duration=1440,  # archive after 24 h of inactivity
+                            )
+                            logger.info(
+                                "Created thread '%s' for game '%s' in channel %s",
+                                thread_name,
+                                game["name"],
+                                channel.id,
+                            )
+                        except discord.HTTPException as exc:
+                            logger.error(
+                                "Failed to create thread for game '%s' in channel %s: %s",
+                                game["name"],
+                                channel.id,
+                                exc,
+                            )
             except discord.Forbidden:
                 logger.error("Missing permissions to post in channel %s", channel_id)
             except discord.HTTPException as exc:
