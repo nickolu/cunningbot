@@ -132,6 +132,46 @@ class DailyGameCog(commands.Cog):
             f"🚫 The game '{name}' has been disabled.", ephemeral=True
         )
 
+    @daily_game.command(name="list", description="List all registered daily games for this guild.")
+    async def list_games(self, interaction: discord.Interaction) -> None:
+        games = get_state_value_from_interaction("daily_games", interaction.guild_id) or {}
+
+        if not games:
+            await interaction.response.send_message(
+                "No daily games are currently registered for this guild.", ephemeral=True
+            )
+            return
+
+        # Build a formatted list of games
+        game_list = []
+        for name, game_info in games.items():
+            status = "✅ Enabled" if game_info.get("enabled", True) else "🚫 Disabled"
+            channel_id = game_info.get("channel_id")
+            channel_mention = f"<#{channel_id}>" if channel_id else "Unknown channel"
+            hour = game_info.get("hour", 0)
+            minute = game_info.get("minute", 0)
+            link = game_info.get("link", "No link")
+            
+            game_entry = (
+                f"**{name}**\n"
+                f"  • Status: {status}\n"
+                f"  • Channel: {channel_mention}\n"
+                f"  • Time: {hour:02d}:{minute:02d} Pacific\n"
+                f"  • Link: <{link}>\n"
+            )
+            game_list.append(game_entry)
+
+        # Create embed for better formatting
+        embed = discord.Embed(
+            title="📅 Registered Daily Games",
+            description="\n".join(game_list),
+            color=0x00ff00 if any(g.get("enabled", True) for g in games.values()) else 0xff0000
+        )
+        
+        embed.set_footer(text=f"Total games: {len(games)}")
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(DailyGameCog(bot)) 
