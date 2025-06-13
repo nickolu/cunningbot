@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
-import json
 import os
 import logging
 from pathlib import Path
@@ -26,30 +25,10 @@ from typing import Any, Dict, List
 
 import discord
 from zoneinfo import ZoneInfo
-from bot.domain import app_state as _domain_state
+from bot.domain.app_state import get_all_guild_states
 
 logger = logging.getLogger("DailyGamePoster")
 logging.basicConfig(level=logging.INFO)
-
-# ---------------------------------------------------------------------------
-# Helpers for state loading
-# ---------------------------------------------------------------------------
-
-# Reuse the same state file path defined in bot.domain.app_state to avoid drift.
-STATE_FILE_PATH = Path(_domain_state.STATE_FILE_PATH)
-
-if not STATE_FILE_PATH.exists():
-    logger.warning("State file %s not found – no games to post", STATE_FILE_PATH)
-
-
-def _load_state() -> Dict[str, Any]:
-    try:
-        with STATE_FILE_PATH.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as exc:
-        logger.error("Failed to load state: %s", exc)
-        return {}
-
 
 # ---------------------------------------------------------------------------
 # Discord posting logic
@@ -65,8 +44,8 @@ async def post_games() -> None:
         logger.error("DISCORD_TOKEN environment variable not set – aborting.")
         return
 
-    state = _load_state()
-    if not state:
+    all_guild_states = get_all_guild_states()
+    if not all_guild_states:
         logger.info("App state empty – nothing to post.")
         return
 
@@ -80,7 +59,7 @@ async def post_games() -> None:
     # Build a mapping channel_id -> list[dict] of games to post so we can batch
     to_post: Dict[int, List[Dict[str, Any]]] = {}
 
-    for guild_id_str, guild_state in state.items():
+    for guild_id_str, guild_state in all_guild_states.items():
         if guild_id_str == "global":
             continue  # skip global state
 

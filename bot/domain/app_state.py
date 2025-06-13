@@ -199,5 +199,14 @@ def set_default_persona(persona_key: str, interaction_guild_id: Optional[int] = 
     """
     set_state_value_from_interaction("default_persona", persona_key, interaction_guild_id)
 
+def get_all_guild_states() -> Dict[str, Dict[str, Any]]:
+    """
+    Returns a copy of all guild states for read-only access.
+    
+    Returns:
+        Dictionary mapping guild_id -> guild_state
+    """
+    return _app_state.copy()
+
 # Load the state from file when the module is first imported
 _load_state_from_file()
