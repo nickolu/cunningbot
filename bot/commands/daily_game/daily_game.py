@@ -4,7 +4,10 @@ from discord.ext import commands
 from typing import Any
 from urllib.parse import urlparse
 
-from bot.domain.app_state import set_state_value_from_interaction
+from bot.domain.app_state import (
+    set_state_value_from_interaction,
+    get_state_value_from_interaction,
+)
 
 MINUTE_CHOICES = [0, 10, 20, 30, 40, 50]
 
@@ -58,21 +61,75 @@ class DailyGameCog(commands.Cog):
             )
             return
 
-        # Build game info dict to store in state
+        # Fetch current games dict
+        games: dict[str, Any] | None = get_state_value_from_interaction(
+            "daily_games", interaction.guild_id
+        )
+        if games is None:
+            games = {}
+
+        # Ensure uniqueness: if game exists in another channel, error
+        if name in games and games[name]["channel_id"] != interaction.channel_id:
+            await interaction.response.send_message(
+                f"⚠️ A game with the name '{name}' is already registered in another channel. Please choose a different name or unregister the existing one first.",
+                ephemeral=True,
+            )
+            return
+
+        # Build/overwrite game info
         game_info: dict[str, Any] = {
             "name": name,
             "link": link,
             "hour": int(hour),
             "minute": int(minute),
             "channel_id": interaction.channel_id,
+            "enabled": True,
         }
 
-        # Store under single key so future features can read whole object
-        set_state_value_from_interaction("daily_game", game_info, interaction.guild_id)
+        games[name] = game_info
+
+        # Save back to state
+        set_state_value_from_interaction("daily_games", games, interaction.guild_id)
 
         await interaction.response.send_message(
             f"✅ Daily game **{name}** registered! I will post the link <{link}> to {interaction.channel.mention} every day at {int(hour):02d}:{int(minute):02d}.",
             ephemeral=True,
+        )
+
+    @daily_game.command(name="enable", description="Enable a registered daily game.")
+    @app_commands.describe(name="The name of the registered game to enable")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def enable_game(self, interaction: discord.Interaction, name: str) -> None:
+        games = get_state_value_from_interaction("daily_games", interaction.guild_id) or {}
+
+        if name not in games:
+            await interaction.response.send_message(
+                f"No registered game named '{name}' found for this guild.", ephemeral=True
+            )
+            return
+
+        games[name]["enabled"] = True
+        set_state_value_from_interaction("daily_games", games, interaction.guild_id)
+        await interaction.response.send_message(
+            f"✅ The game '{name}' has been enabled.", ephemeral=True
+        )
+
+    @daily_game.command(name="disable", description="Disable a registered daily game.")
+    @app_commands.describe(name="The name of the registered game to disable")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def disable_game(self, interaction: discord.Interaction, name: str) -> None:
+        games = get_state_value_from_interaction("daily_games", interaction.guild_id) or {}
+
+        if name not in games:
+            await interaction.response.send_message(
+                f"No registered game named '{name}' found for this guild.", ephemeral=True
+            )
+            return
+
+        games[name]["enabled"] = False
+        set_state_value_from_interaction("daily_games", games, interaction.guild_id)
+        await interaction.response.send_message(
+            f"🚫 The game '{name}' has been disabled.", ephemeral=True
         )
 
 
