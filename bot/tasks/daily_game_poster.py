@@ -84,6 +84,11 @@ async def post_games() -> None:
     for guild_id_str, guild_state in state.items():
         if guild_id_str == "global":
             continue  # skip global state
+
+        if not isinstance(guild_state, dict):
+            logger.warning("Guild state for %s is not a dict (got %s) – skipping", guild_id_str, type(guild_state))
+            continue
+
         games = guild_state.get("daily_games", {})
         for game_name, game in games.items():
             if not game.get("enabled", True):
