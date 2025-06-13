@@ -8,8 +8,7 @@ services:
       - CLIENT_ID=${CLIENT_ID}
       - INVITE_URL=${INVITE_URL}
     volumes:
-      - ./bot/core:/app/bot/core
-      - ./bot/core/app_state.json:/app/bot/core/app_state.json
+      - ./bot/domain:/app/bot/domain
       - ./logs:/app/logs
       - ./generated_images:/app/generated_images
     # Note: Using volumes for the core directory allows state persistence
@@ -21,6 +20,5 @@ services:
     environment:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
     volumes:
-      - ./bot/core:/app/bot/core
-      - ./bot/core/app_state.json:/app/bot/core/app_state.json
+      - ./bot/domain:/app/bot/domain
     command: bash -c "while true; do python -m bot.tasks.daily_game_poster; sleep 600; done"
