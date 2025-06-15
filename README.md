@@ -10,7 +10,8 @@ CunningBot is a full-featured Discord bot powered by OpenAI.  It provides natura
 |---------------|-------------|
 | `/chat` | Chat with the LLM about anything.  Supports model selection, message-history window size, persona selection, and private replies. |
 | `/image` | Create an image from a text prompt using OpenAI's DALL-E API. |
-| `/persona default [persona]` | Set or view the default persona for this guild. |
+| `/roll` | Roll dice using expressions like `4d6`, `1d20+5`, or `d20`. Defaults to 1d20 if no expression provided. |
+| `/persona default [persona]` | Set or view the default persona for the chat in this guild. |
 | `/persona list` | List all available personas with descriptions. |
 | `/baseball agent` | Ask factual questions about baseball. |
 | `/daily-game` | Manage automated daily game reminders and view participation statistics (see [Daily Game System](#daily-game-system)). |
@@ -194,7 +195,7 @@ mypy bot        # static type checks
 
 ### Adding New Slash Commands
 
-Create a new Cog under *bot/commands/*.  Register your command with `@app_commands.command` and add the cog in its own `setup` coroutine.
+Create a new Cog under *bot/app/commands/*.  Register your command with `@app_commands.command` and add the cog in its own `setup` coroutine.
 
 ```python
 class HelloCog(commands.Cog):
@@ -211,7 +212,7 @@ The bot auto-loads every `*.py` file in that directory when starting.
 
 ## Logging
 
-Structured JSON logs are written to *logs/cunningbot-YYYY-MM-DD.json* (date-rotated).  Adjust verbosity or format by editing *bot/domain/logger.py*.
+Structured JSON logs are written to *logs/cunningbot-YYYY-MM-DD.json* (date-rotated).  Adjust verbosity or format by editing *bot/app/logger.py*.
 
 ## Testing
 
