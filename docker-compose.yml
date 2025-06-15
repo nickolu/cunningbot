@@ -21,4 +21,4 @@ services:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
     volumes:
       - ./bot/domain:/app/bot/domain
-    command: bash -c "while true; do python -m bot.tasks.daily_game_poster; sleep 600; done"
+    command: bash -c "while true; do python -m bot.app.tasks.daily_game_poster; sleep 600; done"

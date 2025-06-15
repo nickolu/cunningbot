@@ -104,8 +104,8 @@ def handle_shutdown(loop: asyncio.AbstractEventLoop) -> Callable[[], asyncio.Tas
     return lambda *args: asyncio.ensure_future(shutdown(), loop=loop)
 
 async def main() -> None:
-    await load_cogs_from_dir("app.commands")
-    await load_cogs_from_dir("app.listeners")
+    await load_cogs_from_dir("app/commands")
+    await load_cogs_from_dir("app/listeners")
     token = os.getenv("DISCORD_TOKEN")
     if not token:
         logger.error("DISCORD_TOKEN environment variable not set.")
