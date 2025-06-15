@@ -115,9 +115,14 @@ class ThreadAnalyzer:
         threads = []
         
         # Active threads
-        async for thread in channel.guild.active_threads():
-            if thread.parent_id == channel.id:
-                threads.append(thread)
+        try:
+            active_threads = await channel.guild.active_threads()
+            for thread in active_threads:
+                if thread.parent_id == channel.id:
+                    threads.append(thread)
+        except discord.Forbidden:
+            # Bot might not have permission to view active threads
+            pass
         
         # Archived threads - we need to paginate through them
         try:
