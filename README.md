@@ -9,12 +9,11 @@ CunningBot is a full-featured Discord bot powered by OpenAI.  It provides natura
 | Slash Command | Description |
 |---------------|-------------|
 | `/chat` | Chat with the LLM about anything.  Supports model selection, message-history window size, persona selection, and private replies. |
-| `/summarize` | Generate a concise summary of the last *n* messages in the channel, mentioning each participant. |
 | `/image` | Create an image from a text prompt using OpenAI's DALL-E API. |
 | `/persona default [persona]` | Set or view the default persona for this guild. |
 | `/persona list` | List all available personas with descriptions. |
 | `/baseball agent` | Ask factual questions about baseball. |
-| `/daily-game` | Manage automated daily game reminders (see [Daily Game System](#daily-game-system)). |
+| `/daily-game` | Manage automated daily game reminders and view participation statistics (see [Daily Game System](#daily-game-system)). |
 
 ## Daily Game System
 
@@ -30,6 +29,7 @@ CunningBot can automatically post daily game reminders to Discord channels at sc
 | `/daily-game disable` | Temporarily disable a daily game without deleting it | Administrator |
 | `/daily-game delete` | Permanently delete a registered daily game | Administrator |
 | `/daily-game preview` | Preview what a daily game message will look like | None |
+| `/daily-game stats` | Show participation statistics for a daily game | None |
 
 ### Usage Examples
 
@@ -53,6 +53,18 @@ CunningBot can automatically post daily game reminders to Discord channels at sc
 /daily-game delete name:Wordle
 ```
 
+**View participation statistics:**
+```
+/daily-game stats name:Wordle
+/daily-game stats name:"My Game" start_date:"2024-01-01T00:00:00Z" end_date:"2024-01-31T23:59:59Z"
+```
+
+The stats command shows:
+- Overall participation rates for each player (e.g., "played 25/30 days (83%)")
+- Day-by-day breakdown showing which users participated each day
+- Defaults to the last 30 days if no date range is specified
+- Accepts UTC timestamps or ISO format dates for custom ranges
+
 ### How It Works
 
 1. **Registration**: Administrators can register games with a name, URL, and Pacific time schedule
@@ -69,6 +81,7 @@ CunningBot can automatically post daily game reminders to Discord channels at sc
 - **Duplicate handling**: Games with the same name in the same channel will update the existing game
 - **Cross-channel protection**: Prevents duplicate game names across different channels
 - **Enable/disable**: Games can be temporarily disabled without losing settings
+- **Participation statistics**: Track and analyze player participation over time with flexible date ranges
 
 ### Technical Details
 

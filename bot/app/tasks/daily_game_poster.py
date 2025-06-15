@@ -25,7 +25,7 @@ from typing import Any, Dict, List
 
 import discord
 from zoneinfo import ZoneInfo
-from bot.domain.app_state import get_all_guild_states
+from bot.app.app_state import get_all_guild_states
 
 logger = logging.getLogger("DailyGamePoster")
 logging.basicConfig(level=logging.INFO)
