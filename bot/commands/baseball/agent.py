@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from bot.agents.baseball_agent import BaseballAgent
+from bot.agents.baseball.baseball_agent import BaseballAgent
 from bot.api.discord.utils import format_response_with_interaction_user_message
 
 class BaseballAgentCog(commands.Cog):
