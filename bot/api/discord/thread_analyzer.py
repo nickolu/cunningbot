@@ -65,9 +65,6 @@ class ThreadAnalyzer:
         Returns:
             GameStatsResult containing participation data
         """
-        # Calculate total days in range
-        total_days = (end_date.date() - start_date.date()).days + 1
-        
         # Find matching threads
         matching_threads = await self._find_daily_game_threads(
             channel, game_name, start_date, end_date
@@ -84,12 +81,15 @@ class ThreadAnalyzer:
         # Sort by date
         daily_participation.sort(key=lambda x: x.date)
         
+        # Calculate total days based on actual threads found (not full date range)
+        total_days_with_threads = len(daily_participation)
+        
         return GameStatsResult(
             game_name=game_name,
             start_date=start_date,
             end_date=end_date,
             daily_participation=daily_participation,
-            total_days_in_range=total_days
+            total_days_in_range=total_days_with_threads
         )
     
     async def _find_daily_game_threads(
