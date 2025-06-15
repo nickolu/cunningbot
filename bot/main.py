@@ -42,7 +42,7 @@ async def load_cogs_from_dir(directory: str) -> None:
             for filename in os.listdir(entry_path):
                 if filename.endswith(".py") and not filename.startswith("__"):
                     module_name = filename[:-3]
-                    ext = f"bot.{directory}.{entry}.{module_name}"
+                    ext = f"bot.{directory.replace('/', '.')}.{entry}.{module_name}"
                     print(f'loading cog from {ext}')
                     try:
                         await bot.load_extension(ext)
@@ -52,7 +52,7 @@ async def load_cogs_from_dir(directory: str) -> None:
         elif entry.endswith(".py") and not entry.startswith("__"):
             # legacy: load python modules directly in directory
             module_name = entry[:-3]
-            ext = f"bot.{directory}.{module_name}"
+            ext = f"bot.{directory.replace('/', '.')}.{module_name}"
             print(f'loading cog from {ext}')
             try:
                 await bot.load_extension(ext)
