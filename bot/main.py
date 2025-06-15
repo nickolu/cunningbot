@@ -42,7 +42,7 @@ async def load_cogs_from_dir(directory: str) -> None:
             for filename in os.listdir(entry_path):
                 if filename.endswith(".py") and not filename.startswith("__"):
                     module_name = filename[:-3]
-                    ext = f"bot.{directory}.{entry}.{module_name}"
+                    ext = f"bot.{directory.replace('/', '.')}.{entry}.{module_name}"
                     print(f'loading cog from {ext}')
                     try:
                         await bot.load_extension(ext)
@@ -52,7 +52,7 @@ async def load_cogs_from_dir(directory: str) -> None:
         elif entry.endswith(".py") and not entry.startswith("__"):
             # legacy: load python modules directly in directory
             module_name = entry[:-3]
-            ext = f"bot.{directory}.{module_name}"
+            ext = f"bot.{directory.replace('/', '.')}.{module_name}"
             print(f'loading cog from {ext}')
             try:
                 await bot.load_extension(ext)
@@ -65,7 +65,7 @@ async def on_ready() -> None:
     logger.info(f"Bot ready as {bot.user}")
     
     # Initialize task queue
-    from bot.core.task_queue import get_task_queue
+    from bot.app.task_queue import get_task_queue
     task_queue = get_task_queue()
     await task_queue.start_worker()
     logger.info("Task queue initialized and worker started")
@@ -91,7 +91,7 @@ def handle_shutdown(loop: asyncio.AbstractEventLoop) -> Callable[[], asyncio.Tas
         
         # Stop task queue worker
         try:
-            from bot.core.task_queue import get_task_queue
+            from bot.app.task_queue import get_task_queue
             task_queue = get_task_queue()
             await task_queue.stop_worker()
             logger.info("Task queue worker stopped")
@@ -104,8 +104,8 @@ def handle_shutdown(loop: asyncio.AbstractEventLoop) -> Callable[[], asyncio.Tas
     return lambda *args: asyncio.ensure_future(shutdown(), loop=loop)
 
 async def main() -> None:
-    await load_cogs_from_dir("commands")
-    await load_cogs_from_dir("listeners")
+    await load_cogs_from_dir("app/commands")
+    await load_cogs_from_dir("app/listeners")
     token = os.getenv("DISCORD_TOKEN")
     if not token:
         logger.error("DISCORD_TOKEN environment variable not set.")

@@ -1,7 +1,7 @@
 import json
 from typing import List, Any
 from agents import FunctionTool, Tool, RunContextWrapper
-from bot.agents.baseball_agent_context import team_id_context, league_id_context
+from bot.agents.baseball.baseball_agent_context import team_id_context, league_id_context
 from bot.api.api_sports.mlb_context_client import MlbClient
 from bot.api.openai.agent_client import AgentClient
 from bot.utils import logging_decorator

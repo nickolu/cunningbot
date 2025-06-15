@@ -1,13 +1,15 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import urlparse
 
-from bot.domain.app_state import (
+from bot.app.app_state import (
     set_state_value_from_interaction,
     get_state_value_from_interaction,
 )
+from bot.api.discord.thread_analyzer import ThreadAnalyzer
+from bot.domain.daily_game.daily_game_stats_service import DailyGameStatsService
 
 MINUTE_CHOICES = [0, 10, 20, 30, 40, 50]
 
@@ -23,6 +25,7 @@ class DailyGameCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.thread_analyzer = ThreadAnalyzer(bot)
 
     daily_game = app_commands.Group(
         name="daily-game", description="Manage daily scheduled game reminders."
@@ -252,6 +255,128 @@ class DailyGameCog(commands.Cog):
         embed.set_footer(text="This is just a preview - no actual message will be posted.")
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @daily_game.command(name="stats", description="Show participation statistics for a daily game.")
+    @app_commands.describe(
+        name="The name of the registered game to analyze",
+        start_date="Start date (UTC timestamp or ISO format, optional - defaults to 30 days ago)",
+        end_date="End date (UTC timestamp or ISO format, optional - defaults to today)"
+    )
+    async def stats(
+        self, 
+        interaction: discord.Interaction, 
+        name: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
+    ) -> None:
+        """Generate participation statistics for a daily game."""
+        # Defer the response as this might take some time
+        await interaction.response.defer()
+        
+        try:
+            # Validate that the game exists
+            games = get_state_value_from_interaction("daily_games", interaction.guild_id) or {}
+            if name not in games:
+                await interaction.followup.send(
+                    f"No registered game named '{name}' found for this guild.", ephemeral=True
+                )
+                return
+            
+            game_info = games[name]
+            
+            # Check if the game is registered for this channel
+            if game_info.get("channel_id") != interaction.channel_id:
+                channel_mention = f"<#{game_info.get('channel_id')}>"
+                await interaction.followup.send(
+                    f"The game '{name}' is registered for {channel_mention}, not this channel.", 
+                    ephemeral=True
+                )
+                return
+            
+            # Parse date range or use defaults
+            stats_service = DailyGameStatsService()
+            
+            if start_date or end_date:
+                try:
+                    if start_date:
+                        parsed_start_date = stats_service.parse_utc_timestamp(start_date)
+                    else:
+                        parsed_start_date, _ = stats_service.get_default_date_range()
+                    
+                    if end_date:
+                        parsed_end_date = stats_service.parse_utc_timestamp(end_date)
+                    else:
+                        _, parsed_end_date = stats_service.get_default_date_range()
+                        
+                except ValueError as e:
+                    await interaction.followup.send(
+                        f"Invalid date format: {e}", ephemeral=True
+                    )
+                    return
+            else:
+                parsed_start_date, parsed_end_date = stats_service.get_default_date_range()
+            
+            # Validate date range
+            try:
+                stats_service.validate_date_range(parsed_start_date, parsed_end_date)
+            except ValueError as e:
+                await interaction.followup.send(
+                    f"Invalid date range: {e}", ephemeral=True
+                )
+                return
+            
+            # Ensure we're working with a TextChannel
+            if not isinstance(interaction.channel, discord.TextChannel):
+                await interaction.followup.send(
+                    "Stats can only be generated in text channels.", ephemeral=True
+                )
+                return
+            
+            # Analyze the stats
+            try:
+                stats_result = await self.thread_analyzer.analyze_daily_game_stats(
+                    interaction.channel, name, parsed_start_date, parsed_end_date
+                )
+                
+                # Format and send the response
+                formatted_response = stats_service.format_stats_response(stats_result, self.bot)
+                
+                # Split message if it's too long for Discord
+                if len(formatted_response) <= 2000:
+                    await interaction.followup.send(formatted_response)
+                else:
+                    # Split into multiple messages
+                    lines = formatted_response.split('\n')
+                    current_message = []
+                    current_length = 0
+                    
+                    for line in lines:
+                        line_length = len(line) + 1  # +1 for newline
+                        if current_length + line_length > 1900:  # Leave some buffer
+                            if current_message:
+                                await interaction.followup.send('\n'.join(current_message))
+                                current_message = [line]
+                                current_length = line_length
+                            else:
+                                # Single line too long, truncate it
+                                await interaction.followup.send(line[:1900] + "...")
+                        else:
+                            current_message.append(line)
+                            current_length += line_length
+                    
+                    # Send remaining lines
+                    if current_message:
+                        await interaction.followup.send('\n'.join(current_message))
+                        
+            except Exception as e:
+                await interaction.followup.send(
+                    f"Error analyzing game stats: {str(e)}", ephemeral=True
+                )
+                
+        except Exception as e:
+            await interaction.followup.send(
+                f"An unexpected error occurred: {str(e)}", ephemeral=True
+            )
 
 
 async def setup(bot: commands.Bot):

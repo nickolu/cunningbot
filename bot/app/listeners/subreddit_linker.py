@@ -6,7 +6,7 @@ Listener for subreddit linking events.
 import re
 import discord
 from discord.ext import commands
-from bot.domain.logger import get_logger
+from bot.app.utils.logger import get_logger
 
 logger = get_logger()
 

@@ -11,8 +11,8 @@ from discord.ext import commands
 from bot.api.openai.image_generation_client import ImageGenerationClient
 from bot.api.openai.image_edit_client import ImageEditClient
 from bot.api.os.file_service import FileService
-from bot.domain.logger import get_logger
-from bot.core.task_queue import get_task_queue
+from bot.app.utils.logger import get_logger
+from bot.app.task_queue import get_task_queue
 import uuid
 import discord
 from io import BytesIO
