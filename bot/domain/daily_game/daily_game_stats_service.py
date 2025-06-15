@@ -15,9 +15,9 @@ class DailyGameStatsService:
     @staticmethod
     def get_default_date_range() -> Tuple[datetime, datetime]:
         """Get the default date range (last 30 days)."""
-        end_date = datetime.now(timezone.utc).replace(hour=23, minute=59, second=59)
+        end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=29)  # 30 days total including today
-        start_date = start_date.replace(hour=0, minute=0, second=0)
+        start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
         return start_date, end_date
     
     @staticmethod
