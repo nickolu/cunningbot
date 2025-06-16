@@ -5,7 +5,7 @@ from discord import app_commands
 from typing import Optional
 
 from bot.app.app_state import get_default_persona, set_default_persona
-from bot.app.commands.persona.chat_personas import CHAT_PERSONAS
+from bot.domain.chat.chat_personas import CHAT_PERSONAS
 
 class PersonaCog(commands.Cog):
     """Cog for managing bot settings."""

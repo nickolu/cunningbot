@@ -11,7 +11,7 @@ from typing import Optional
 from bot.domain.chat.chat_service import chat_service
 from bot.api.openai.chat_completions_client import ChatCompletionsClient, PermittedModelType
 from bot.app.app_state import get_default_persona
-from bot.app.commands.persona.chat_personas import CHAT_PERSONAS
+from bot.domain.chat.chat_personas import CHAT_PERSONAS
 from bot.app.utils.logger import get_logger
 from bot.api.openai.utils import sanitize_name
 from bot.utils import split_message
