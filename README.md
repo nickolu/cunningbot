@@ -10,11 +10,76 @@ CunningBot is a full-featured Discord bot powered by OpenAI.  It provides natura
 |---------------|-------------|
 | `/chat` | Chat with the LLM about anything.  Supports model selection, message-history window size, persona selection, and private replies. |
 | `/image` | Create an image from a text prompt using OpenAI's DALL-E API. |
+| `/image-json` | Create highly specific images using structured photography parameters formatted as JSON. |
 | `/roll` | Roll dice using expressions like `4d6`, `1d20+5`, or `d20`. Defaults to 1d20 if no expression provided. |
 | `/persona default [persona]` | Set or view the default persona for the chat in this guild. |
 | `/persona list` | List all available personas with descriptions. |
 | `/baseball agent` | Ask factual questions about baseball. |
 | `/daily-game` | Manage automated daily game reminders and view participation statistics (see [Daily Game System](#daily-game-system)). |
+
+## Structured Image Generation
+
+The `/image-json` command allows you to create highly specific images by defining structured photography parameters that get formatted as JSON and passed to the image generation API. This gives you precise control over technical aspects like camera settings, lighting, and composition.
+
+### Available Parameters
+
+| Parameter | Description | Examples |
+|-----------|-------------|----------|
+| **json_string** | Raw JSON string with any image parameters | `{"filter":"prism","mood":"dramatic"}`, `{"subject":"car","style":"cinematic"}` |
+| **subject** | The main subject of the image | `"a red sports car driving down the road"`, `"portrait of a woman"` |
+| **lighting** | Lighting conditions | `"street lights at night"`, `"golden hour"`, `"studio lighting"` |
+| **focal_length** | Camera focal length | `"85mm"`, `"24mm"`, `"200mm"` |
+| **aperture** | Camera aperture | `"f/1.4"`, `"f/2.8"`, `"f/8"` |
+| **shutter_speed** | Camera shutter speed | `"1/1000"`, `"1/60"`, `"1s"` |
+| **style** | Photography/art style | `"sports photography"`, `"portrait photography"`, `"cinematic"` |
+| **camera** | Camera model or type | `"Canon EOS R5"`, `"film camera"`, `"vintage camera"` |
+| **lens** | Lens type | `"macro lens"`, `"wide angle"`, `"telephoto"` |
+| **iso** | ISO setting | `"ISO 100"`, `"ISO 800"`, `"ISO 3200"` |
+| **composition** | Composition style | `"rule of thirds"`, `"leading lines"`, `"symmetry"` |
+| **mood** | Overall mood or atmosphere | `"dramatic"`, `"peaceful"`, `"energetic"` |
+| **color_palette** | Color scheme | `"warm tones"`, `"monochrome"`, `"vibrant colors"` |
+| **weather** | Weather conditions | `"sunny"`, `"stormy"`, `"foggy"` |
+| **time_of_day** | Time setting | `"dawn"`, `"midday"`, `"dusk"`, `"midnight"` |
+| **location** | Location or setting | `"urban street"`, `"mountain peak"`, `"studio"` |
+| **color_temperature** | Color temperature | `"5000k"`, `"6500k"`, `"7000k"` |
+| **custom_\* / custom_\*_value** | Up to three arbitrary key/value pairs | `custom_1:"filterType" custom_1_value:"prism"` |
+
+### Usage Examples
+
+**Using discrete parameters:**
+```
+/image-json subject:"a red sports car driving down the road" lighting:"street lights at night" focal_length:"85mm" aperture:"f/1.4" shutter_speed:"1/1000" style:"sports photography"
+```
+
+**Using raw JSON:**
+```
+/image-json json_string:{"subject":"a red sports car driving down the road","lighting":"street lights at night","focalLength":"85mm","aperture":"f/1.4","shutterSpeed":"1/1000","style":"sports photography"}
+```
+
+**Combining JSON with discrete parameters (discrete parameters override JSON):**
+```
+/image-json json_string:{"filter":"prism","mood":"dramatic"} filter_type:"red moon" style:"cinematic"
+```
+In this example, `filter_type` will be "red moon" (not "prism") and `style` will be "cinematic", while `mood` remains "dramatic".
+
+**Using custom parameter pairs:**
+```
+/image-json subject:"sunset over lake" custom_1:"colorTemperature" custom_1_value:"5000k"
+```
+
+All of these approaches convert your parameters into a JSON structure that serves as the prompt for image generation, giving the AI very specific technical guidance for creating your image. **The final JSON structure is displayed in the bot's response** so you can see exactly what was sent to the image generation API.
+
+### Features
+
+- **🆕 Raw JSON Support**: Pass structured JSON directly with the `json_string` parameter for maximum flexibility
+- **🔀 Smart Parameter Merging**: Combine JSON with discrete parameters - discrete parameters always override JSON conflicts  
+- **📋 18 built-in parameters + 3 custom pairs**: Plenty of control while still fitting Discord's 25-option limit
+- **🔍 Dropdown Choices**: Many parameters include predefined choices for common photography settings
+- **⚡ Flexible Usage**: All parameters are optional - use as many or as few as needed
+- **📸 Technical Precision**: Perfect for photographers who want specific camera settings simulated
+- **🎨 Creative Control**: Combine technical and artistic parameters for unique results
+- **✅ JSON Validation**: Clear error messages for invalid JSON with helpful examples
+- **📱 Response Display**: Final JSON structure is shown in the bot's response for transparency
 
 ## Daily Game System
 

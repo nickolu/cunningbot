@@ -11,12 +11,13 @@ from typing import Optional
 from bot.domain.chat.chat_service import chat_service
 from bot.api.openai.chat_completions_client import ChatCompletionsClient, PermittedModelType
 from bot.app.app_state import get_default_persona
-from bot.app.commands.persona.chat_personas import CHAT_PERSONAS
+from bot.domain.chat.chat_personas import CHAT_PERSONAS
 from bot.app.utils.logger import get_logger
 from bot.api.openai.utils import sanitize_name
 from bot.utils import split_message
 from bot.api.discord.utils import flatten_discord_message, format_response_with_interaction_user_message, to_tiny_text
 from bot.app.task_queue import get_task_queue
+
 
 logger = get_logger()
 
@@ -162,8 +163,11 @@ class ChatCog(commands.Cog):
     )
     @app_commands.choices(
         persona=[
-            app_commands.Choice(name=CHAT_PERSONAS[key]["name"], value=key) 
-            for key in CHAT_PERSONAS.keys()
+            app_commands.Choice(name="A discord user", value="discord_user"),
+            app_commands.Choice(name="Cat", value="cat"),
+            app_commands.Choice(name="Helpful Assistant", value="helpful_assistant"),
+            app_commands.Choice(name="Sarcastic Jerk", value="sarcastic_jerk"),
+            app_commands.Choice(name="Homer Simpson", value="homer_simpson"),
         ]
     )
     async def chat(self, interaction: discord.Interaction, msg: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 20, private: Optional[int] = 0, persona: Optional[str] = None) -> None:
