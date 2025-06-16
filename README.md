@@ -25,7 +25,7 @@ The `/image-json` command allows you to create highly specific images by definin
 
 | Parameter | Description | Examples |
 |-----------|-------------|----------|
-| **json** | Raw JSON string with any image parameters | `{"filter":"prism","mood":"dramatic"}`, `{"subject":"car","style":"cinematic"}` |
+| **json_string** | Raw JSON string with any image parameters | `{"filter":"prism","mood":"dramatic"}`, `{"subject":"car","style":"cinematic"}` |
 | **subject** | The main subject of the image | `"a red sports car driving down the road"`, `"portrait of a woman"` |
 | **lighting** | Lighting conditions | `"street lights at night"`, `"golden hour"`, `"studio lighting"` |
 | **focal_length** | Camera focal length | `"85mm"`, `"24mm"`, `"200mm"` |
@@ -51,20 +51,20 @@ The `/image-json` command allows you to create highly specific images by definin
 
 **Using raw JSON:**
 ```
-/image-json json:{"subject":"a red sports car driving down the road","lighting":"street lights at night","focalLength":"85mm","aperture":"f/1.4","shutterSpeed":"1/1000","style":"sports photography"}
+/image-json json_string:{"subject":"a red sports car driving down the road","lighting":"street lights at night","focalLength":"85mm","aperture":"f/1.4","shutterSpeed":"1/1000","style":"sports photography"}
 ```
 
 **Combining JSON with discrete parameters (discrete parameters override JSON):**
 ```
-/image-json json:{"filter":"prism","mood":"dramatic"} filter:"red moon" style:"cinematic"
+/image-json json_string:{"filter":"prism","mood":"dramatic"} filter_type:"red moon" style:"cinematic"
 ```
-In this example, `filter` will be "red moon" (not "prism") and `style` will be "cinematic", while `mood` remains "dramatic".
+In this example, `filter_type` will be "red moon" (not "prism") and `style` will be "cinematic", while `mood` remains "dramatic".
 
 All of these approaches convert your parameters into a JSON structure that serves as the prompt for image generation, giving the AI very specific technical guidance for creating your image. **The final JSON structure is displayed in the bot's response** so you can see exactly what was sent to the image generation API.
 
 ### Features
 
-- **🆕 Raw JSON Support**: Pass structured JSON directly with the `json` parameter for maximum flexibility
+- **🆕 Raw JSON Support**: Pass structured JSON directly with the `json_string` parameter for maximum flexibility
 - **🔀 Smart Parameter Merging**: Combine JSON with discrete parameters - discrete parameters always override JSON conflicts  
 - **📋 40+ Parameters**: Comprehensive control over technical camera settings, creative aspects, and environmental conditions
 - **🔍 Dropdown Choices**: Many parameters include predefined choices for common photography settings
