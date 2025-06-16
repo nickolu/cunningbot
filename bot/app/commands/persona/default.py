@@ -7,6 +7,13 @@ from typing import Optional
 from bot.app.app_state import get_default_persona, set_default_persona
 from bot.domain.chat.chat_personas import CHAT_PERSONAS
 
+def get_persona_choices():
+    """Generate persona choices for app commands"""
+    return [
+        app_commands.Choice(name=CHAT_PERSONAS[key]["name"], value=key) 
+        for key in CHAT_PERSONAS.keys()
+    ]
+
 class PersonaCog(commands.Cog):
     """Cog for managing bot settings."""
     def __init__(self, bot: commands.Bot):
@@ -22,10 +29,7 @@ class PersonaCog(commands.Cog):
         persona="Choose a persona to set as default for this guild. Leave empty to view current default."
     )
     @app_commands.choices(
-        persona=[
-            app_commands.Choice(name=CHAT_PERSONAS[key]["name"], value=key) 
-            for key in CHAT_PERSONAS.keys()
-        ]
+        persona=get_persona_choices()
     )
     async def set_default_persona_setting(self, interaction: discord.Interaction, persona: Optional[str] = None) -> None:
         """Manages the bot's default persona setting for this guild."""

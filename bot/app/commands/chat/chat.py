@@ -18,6 +18,13 @@ from bot.utils import split_message
 from bot.api.discord.utils import flatten_discord_message, format_response_with_interaction_user_message, to_tiny_text
 from bot.app.task_queue import get_task_queue
 
+def get_persona_choices():
+    """Generate persona choices for app commands"""
+    return [
+        app_commands.Choice(name=CHAT_PERSONAS[key]["name"], value=key) 
+        for key in CHAT_PERSONAS.keys()
+    ]
+
 logger = get_logger()
 
 class ChatCog(commands.Cog):
@@ -161,10 +168,7 @@ class ChatCog(commands.Cog):
         ]
     )
     @app_commands.choices(
-        persona=[
-            app_commands.Choice(name=CHAT_PERSONAS[key]["name"], value=key) 
-            for key in CHAT_PERSONAS.keys()
-        ]
+        persona=get_persona_choices()
     )
     async def chat(self, interaction: discord.Interaction, msg: str, model: Optional[PermittedModelType] = None, message_count: Optional[int] = 20, private: Optional[int] = 0, persona: Optional[str] = None) -> None:
         """Queue a chat request for processing"""
