@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 
 from bot.api.openai.utils import sanitize_name
 from bot.api.openai.chat_completions_client import ChatCompletionsClient, PermittedModelType
-from bot.domain.logger import get_logger
+from bot.app.utils.logger import get_logger
 
 logger = get_logger()
 

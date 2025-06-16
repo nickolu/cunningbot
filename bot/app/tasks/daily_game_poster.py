@@ -5,10 +5,10 @@ scheduled for the current Pacific time slot and enabled, sends its link to the
 configured Discord channel using the bot token.
 
 Usage (inside Docker container hosting the bot):
-    python -m bot.tasks.daily_game_poster
+    python -m bot.app.tasks.daily_game_poster
 
 You can wire this up with a crontab entry on the host, e.g.:
-    */10 * * * * docker exec -t cunningbot python -m bot.tasks.daily_game_poster | cat
+    */10 * * * * docker exec -t cunningbot python -m bot.app.tasks.daily_game_poster | cat
 
 Ensure the container has the DISCORD_TOKEN environment variable set (same as the
 main bot process) and that the bot has permission to send messages to the
@@ -25,7 +25,7 @@ from typing import Any, Dict, List
 
 import discord
 from zoneinfo import ZoneInfo
-from bot.domain.app_state import get_all_guild_states
+from bot.app.app_state import get_all_guild_states
 
 logger = logging.getLogger("DailyGamePoster")
 logging.basicConfig(level=logging.INFO)

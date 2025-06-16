@@ -9,7 +9,7 @@ import asyncio
 from openai import OpenAI
 
 from typing import Literal, Optional
-from bot.domain.logger import get_logger
+from bot.app.utils.logger import get_logger
 
 logger = get_logger()
 openai = OpenAI()

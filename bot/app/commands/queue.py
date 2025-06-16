@@ -8,8 +8,8 @@ from discord import app_commands
 from discord.ext import commands
 from typing import Optional
 
-from bot.core.task_queue import get_task_queue
-from bot.domain.logger import get_logger
+from bot.app.task_queue import get_task_queue
+from bot.app.utils.logger import get_logger
 
 logger = get_logger()
 

@@ -1,9 +1,10 @@
 """
-image.py
-Command for generating images using OpenAI and saving them to disk.
+image_json.py
+Command for generating images using structured JSON parameters with OpenAI.
 """
 
 import asyncio
+import json
 
 from typing import Optional
 from discord import app_commands
@@ -11,21 +12,21 @@ from discord.ext import commands
 from bot.api.openai.image_generation_client import ImageGenerationClient
 from bot.api.openai.image_edit_client import ImageEditClient
 from bot.api.os.file_service import FileService
-from bot.domain.logger import get_logger
-from bot.core.task_queue import get_task_queue
+from bot.app.utils.logger import get_logger
+from bot.app.task_queue import get_task_queue
 import uuid
 import discord
 from io import BytesIO
 
 logger = get_logger()
 
-class ImageCog(commands.Cog):
+class ImageJsonCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.image_generation_client = ImageGenerationClient.factory()
         self.image_edit_client = ImageEditClient.factory()
 
-    async def _image_handler(
+    async def _image_json_handler(
         self, 
         interaction: discord.Interaction, 
         prompt: str, 
@@ -35,13 +36,13 @@ class ImageCog(commands.Cog):
         background: Optional[str] = None,
         already_responded: bool = False
     ) -> None:
-        """Internal image handler that processes the actual image generation/editing request"""
+        """Internal image handler that processes JSON image generation requests with formatted display"""
         # Only defer if we haven't already responded to the interaction
         if not already_responded and not interaction.response.is_done():
             await interaction.response.defer()
 
         # Set defaults
-        size = size or "1024x1024"
+        size = size or "auto"
         quality = quality or "auto"
         background = background or "auto"
 
@@ -141,7 +142,18 @@ class ImageCog(commands.Cog):
             params_used.append(f"Background: {background}")
         
         params_text = f" ({', '.join(params_used)})" if params_used else ""
-        base_message_content = f"Image {action_type} for {interaction.user.mention}:\nPrompt: *{prompt}*{params_text}"
+        
+        # For JSON command, show the formatted JSON
+        try:
+            # Try to parse and pretty-print the JSON
+            parsed_json = json.loads(prompt)
+            formatted_json = json.dumps(parsed_json, indent=2)
+            prompt_display = f"JSON Parameters:\n```json\n{formatted_json}\n```"
+        except (json.JSONDecodeError, TypeError):
+            # Fallback to showing as regular prompt if parsing fails
+            prompt_display = f"Prompt: *{prompt}*"
+        
+        base_message_content = f"Image {action_type} for {interaction.user.mention}:\n{prompt_display}{params_text}"
         full_message_content = f"{base_message_content}{save_status_message}"
 
         # Send the result using the appropriate method
@@ -156,13 +168,30 @@ class ImageCog(commands.Cog):
                 file=discord_file_attachment
             )
 
-    @app_commands.command(name="image", description="Generate or edit an image with OpenAI.")
+    @app_commands.command(name="image-json", description="Generate an image using structured parameters formatted as JSON.")
     @app_commands.describe(
-        prompt="Describe the image you want to generate or the edit you want to make.", 
-        attachment="Optional: The image to edit.", 
-        size="Size of the generated image", 
-        quality="Quality of the generated image (editing only)", 
-        background="Background setting for the generated image (editing only)"
+        json_string="Raw JSON string with image parameters (e.g., '{\"filter\":\"prism\",\"mood\":\"dramatic\"}')",
+        subject="The main subject of the image (e.g., 'a red sports car driving down the road')",
+        lighting="Lighting conditions (e.g., 'golden hour', 'studio lighting')",
+        style="Photography/art style (e.g., 'portrait', 'cinematic', 'vintage')",
+        focal_length="Focal length (e.g., '85mm', '24mm', '200mm')",
+        aperture="Aperture (e.g., 'f/1.4', 'f/2.8', 'f/8')",
+        shutter_speed="Shutter speed (e.g., '1/1000', '1/60', '1s')",
+        mood="Overall mood or atmosphere (e.g., 'dramatic', 'peaceful')",
+        color_palette="Color scheme (e.g., 'warm tones', 'monochrome')",
+        color_temperature="Color temperature (e.g., '5000k', '6500k', '7000k')",
+        weather="Weather conditions (e.g., 'sunny', 'foggy')",
+        time_of_day="Time setting (e.g., 'dawn', 'dusk')",
+        location="Location or setting (e.g., 'urban street', 'mountain peak')",
+        size="Size of the generated image",
+        quality="Quality of the generated image (e.g., 'high', 'medium', 'auto')",
+        background="Background setting for the generated image (e.g., 'transparent', 'opaque', 'auto')",
+        custom_1="Custom parameter name (e.g., 'colorTemperature')",
+        custom_1_value="Custom parameter value (e.g., '5000k')",
+        custom_2="Custom parameter name (e.g., 'colorTemperature')",
+        custom_2_value="Custom parameter value (e.g., '5000k')",
+        custom_3="Custom parameter name (e.g., 'colorTemperature')",
+        custom_3_value="Custom parameter value (e.g., '5000k')"
     )
     @app_commands.choices(
         size=[
@@ -176,31 +205,104 @@ class ImageCog(commands.Cog):
             app_commands.Choice(name="1024x1792 (Tall Portrait)", value="1024x1792"),
         ]
     )
-    @app_commands.choices(
-        quality=[
-            app_commands.Choice(name="Auto", value="auto"),
-            app_commands.Choice(name="High", value="high"),
-            app_commands.Choice(name="Medium", value="medium"),
-            app_commands.Choice(name="Low", value="low"),
-        ]
-    )
-    @app_commands.choices(
-        background=[
-            app_commands.Choice(name="Auto", value="auto"),
-            app_commands.Choice(name="Transparent", value="transparent"),
-            app_commands.Choice(name="Opaque", value="opaque"),
-        ]
-    )
-    async def image(
-        self, 
-        interaction: discord.Interaction, 
-        prompt: str, 
-        attachment: Optional[discord.Attachment] = None,
+    async def image_json(
+        self,
+        interaction: discord.Interaction,
+        json_string: Optional[str] = None,
+        subject: Optional[str] = None,
+        lighting: Optional[str] = None,
+        style: Optional[str] = None,
+        focal_length: Optional[str] = None,
+        aperture: Optional[str] = None,
+        shutter_speed: Optional[str] = None,
+        mood: Optional[str] = None,
+        color_palette: Optional[str] = None,
+        color_temperature: Optional[str] = None,
+        weather: Optional[str] = None,
+        time_of_day: Optional[str] = None,
+        location: Optional[str] = None,
         size: Optional[str] = None,
         quality: Optional[str] = None,
-        background: Optional[str] = None
+        background: Optional[str] = None,
+        custom_1: Optional[str] = None,
+        custom_1_value: Optional[str] = None,
+        custom_2: Optional[str] = None,
+        custom_2_value: Optional[str] = None,
+        custom_3: Optional[str] = None,
+        custom_3_value: Optional[str] = None
     ) -> None:
-        """Queue an image generation/editing request for processing"""
+        """Generate an image using structured parameters formatted as JSON"""
+        
+        # Parse JSON string if provided
+        json_params = {}
+        if json_string:
+            try:
+                json_params = json.loads(json_string)
+                if not isinstance(json_params, dict):
+                    await interaction.response.send_message(
+                        "❌ The JSON parameter must be a valid JSON object (dictionary), not a list or primitive value.",
+                        ephemeral=True
+                    )
+                    return
+            except json.JSONDecodeError as e:
+                await interaction.response.send_message(
+                    f"❌ Invalid JSON format: {str(e)}\n\n"
+                    f"Example of valid JSON: `{{\"filter\":\"prism\",\"mood\":\"dramatic\"}}`",
+                    ephemeral=True
+                )
+                return
+        
+        # Build the JSON object from provided parameters
+        # Start with JSON params as base, then override with explicit parameters
+        image_params = json_params.copy()
+        
+        # Add all non-None explicit parameters to the JSON object (these override JSON)
+        param_mapping = {
+            "subject": subject,
+            "lighting": lighting,
+            "style": style,
+            "focal_length": focal_length,
+            "aperture": aperture,
+            "shutter_speed": shutter_speed,
+            "mood": mood,
+            "colorPalette": color_palette,
+            "weather": weather,
+            "timeOfDay": time_of_day,
+            "location": location,
+            "color_temperature": color_temperature,
+            "custom_1": custom_1,
+            "custom_1_value": custom_1_value,
+            "custom_2": custom_2,
+            "custom_2_value": custom_2_value,
+            "custom_3": custom_3,
+            "custom_3_value": custom_3_value,
+            # Standard image generation options
+            "size": size,
+            "quality": quality,
+            "background": background,
+        }
+        
+        # Add non-None standard params
+        for key, value in param_mapping.items():
+            if key.startswith("custom_") and not key.endswith("_value"):
+                if value is not None:
+                    image_params[param_mapping[key]] = param_mapping[key + "_value"]
+            elif key.startswith("custom_") and key.endswith("_value"):
+                pass
+            elif value is not None:
+                image_params[key] = value
+        
+        # Ensure we have at least one parameter
+        if not image_params:
+            await interaction.response.send_message(
+                "❌ Please provide at least one parameter to generate an image. You can use the `json_string` parameter or any of the explicit parameters like `subject`.",
+                ephemeral=True
+            )
+            return
+        
+        # Convert to JSON string
+        json_prompt = json.dumps(image_params, indent=2)
+        
         try:
             # Get the task queue and enqueue the image handler
             task_queue = get_task_queue()
@@ -210,9 +312,8 @@ class ImageCog(commands.Cog):
             
             # If there are tasks in queue, inform the user
             if queue_status["queue_size"] > 0:
-                action = "edit" if attachment else "generate"
                 await interaction.response.send_message(
-                    f"🎨 Your image {action} request has been queued! There are {queue_status['queue_size']} tasks ahead of you. "
+                    f"🎨 Your structured image generation request has been queued! There are {queue_status['queue_size']} tasks ahead of you. "
                     f"I'll start working on your image as soon as I finish the current requests.",
                     ephemeral=True
                 )
@@ -222,16 +323,16 @@ class ImageCog(commands.Cog):
                 await interaction.response.defer()
                 already_responded = True
             
-            # Enqueue the actual image processing task
+            # Enqueue the actual image processing task with the JSON prompt
             task_id = await task_queue.enqueue_task(
-                self._image_handler, 
-                interaction, prompt, attachment, size, quality, background, already_responded
+                self._image_json_handler, 
+                interaction, json_prompt, None, size, quality, background, already_responded
             )
             
-            logger.info(f"Image command queued with task ID: {task_id}")
+            logger.info(f"Image-JSON command queued with task ID: {task_id}, params: {image_params}")
             
         except Exception as e:
-            logger.error(f"Error queuing image command: {str(e)}")
+            logger.error(f"Error queuing image-json command: {str(e)}")
             
             # Check if it's a queue full error
             if "queue is full" in str(e).lower():
@@ -245,4 +346,4 @@ class ImageCog(commands.Cog):
                 await interaction.followup.send(error_message, ephemeral=True)
 
 async def setup(bot: commands.Bot) -> None:
-    await bot.add_cog(ImageCog(bot))
+    await bot.add_cog(ImageJsonCog(bot)) 
