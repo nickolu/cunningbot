@@ -86,8 +86,8 @@ class PersonaCog(commands.Cog):
             await interaction.response.send_message("An unexpected error occurred while updating the default persona setting.", ephemeral=True)
 
     @settings_group.command(
-        name="list",
-        description="List all available personas that can be set as default."
+        name="show",
+        description="Show all available personas that can be set as default."
     )
     async def list_personas(self, interaction: discord.Interaction) -> None:
         """Lists all available personas."""
