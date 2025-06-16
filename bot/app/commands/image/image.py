@@ -41,7 +41,7 @@ class ImageCog(commands.Cog):
             await interaction.response.defer()
 
         # Set defaults
-        size = size or "1024x1024"
+        size = size or "auto"
         quality = quality or "auto"
         background = background or "auto"
 
