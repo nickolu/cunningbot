@@ -41,6 +41,8 @@ The `/image-json` command allows you to create highly specific images by definin
 | **weather** | Weather conditions | `"sunny"`, `"stormy"`, `"foggy"` |
 | **time_of_day** | Time setting | `"dawn"`, `"midday"`, `"dusk"`, `"midnight"` |
 | **location** | Location or setting | `"urban street"`, `"mountain peak"`, `"studio"` |
+| **color_temperature** | Color temperature | `"5000k"`, `"6500k"`, `"7000k"` |
+| **custom_\* / custom_\*_value** | Up to three arbitrary key/value pairs | `custom_1:"filterType" custom_1_value:"prism"` |
 
 ### Usage Examples
 
@@ -60,13 +62,18 @@ The `/image-json` command allows you to create highly specific images by definin
 ```
 In this example, `filter_type` will be "red moon" (not "prism") and `style` will be "cinematic", while `mood` remains "dramatic".
 
+**Using custom parameter pairs:**
+```
+/image-json subject:"sunset over lake" custom_1:"colorTemperature" custom_1_value:"5000k"
+```
+
 All of these approaches convert your parameters into a JSON structure that serves as the prompt for image generation, giving the AI very specific technical guidance for creating your image. **The final JSON structure is displayed in the bot's response** so you can see exactly what was sent to the image generation API.
 
 ### Features
 
 - **🆕 Raw JSON Support**: Pass structured JSON directly with the `json_string` parameter for maximum flexibility
 - **🔀 Smart Parameter Merging**: Combine JSON with discrete parameters - discrete parameters always override JSON conflicts  
-- **📋 40+ Parameters**: Comprehensive control over technical camera settings, creative aspects, and environmental conditions
+- **📋 18 built-in parameters + 3 custom pairs**: Plenty of control while still fitting Discord's 25-option limit
 - **🔍 Dropdown Choices**: Many parameters include predefined choices for common photography settings
 - **⚡ Flexible Usage**: All parameters are optional - use as many or as few as needed
 - **📸 Technical Precision**: Perfect for photographers who want specific camera settings simulated

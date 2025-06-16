@@ -42,7 +42,7 @@ class ImageJsonCog(commands.Cog):
             await interaction.response.defer()
 
         # Set defaults
-        size = size or "1024x1024"
+        size = size or "auto"
         quality = quality or "auto"
         background = background or "auto"
 
@@ -183,7 +183,7 @@ class ImageJsonCog(commands.Cog):
         weather="Weather conditions (e.g., 'sunny', 'foggy')",
         time_of_day="Time setting (e.g., 'dawn', 'dusk')",
         location="Location or setting (e.g., 'urban street', 'mountain peak')",
-        size="Size of the generated image (e.g., '1024x1024', 'auto')",
+        size="Size of the generated image",
         quality="Quality of the generated image (e.g., 'high', 'medium', 'auto')",
         background="Background setting for the generated image (e.g., 'transparent', 'opaque', 'auto')",
         custom_1="Custom parameter name (e.g., 'colorTemperature')",
@@ -192,6 +192,18 @@ class ImageJsonCog(commands.Cog):
         custom_2_value="Custom parameter value (e.g., '5000k')",
         custom_3="Custom parameter name (e.g., 'colorTemperature')",
         custom_3_value="Custom parameter value (e.g., '5000k')"
+    )
+    @app_commands.choices(
+        size=[
+            app_commands.Choice(name="Auto", value="auto"),
+            app_commands.Choice(name="1024x1024 (Square)", value="1024x1024"),
+            app_commands.Choice(name="1536x1024 (Landscape)", value="1536x1024"),
+            app_commands.Choice(name="1024x1536 (Portrait)", value="1024x1536"),
+            app_commands.Choice(name="256x256 (Small Square)", value="256x256"),
+            app_commands.Choice(name="512x512 (Medium Square)", value="512x512"),
+            app_commands.Choice(name="1792x1024 (Wide Landscape)", value="1792x1024"),
+            app_commands.Choice(name="1024x1792 (Tall Portrait)", value="1024x1792"),
+        ]
     )
     async def image_json(
         self,
