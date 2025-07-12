@@ -170,10 +170,6 @@ class ImageCog(commands.Cog):
             app_commands.Choice(name="1024x1024 (Square)", value="1024x1024"),
             app_commands.Choice(name="1536x1024 (Landscape)", value="1536x1024"),
             app_commands.Choice(name="1024x1536 (Portrait)", value="1024x1536"),
-            app_commands.Choice(name="256x256 (Small Square)", value="256x256"),
-            app_commands.Choice(name="512x512 (Medium Square)", value="512x512"),
-            app_commands.Choice(name="1792x1024 (Wide Landscape)", value="1792x1024"),
-            app_commands.Choice(name="1024x1792 (Tall Portrait)", value="1024x1792"),
         ]
     )
     @app_commands.choices(
