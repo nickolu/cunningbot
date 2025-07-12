@@ -195,7 +195,6 @@ Additional helper utilities include message splitting to respect Discord's 2 000
 │   ├── api/                 # Third-party service clients
 │   ├── commands/            # Discord Cogs (slash commands)
 │   ├── domain/              # Domain & state-management services
-│   ├── listeners/           # Event listeners (message, reaction, …)
 │   ├── utils.py             # Generic helpers
 │   └── main.py              # Application entry-point
 ├── generated_images/        # Saved images from `/image`
