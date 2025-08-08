@@ -155,13 +155,10 @@ class ImageJsonCog(commands.Cog):
             prompt_display = f"Prompt: *{prompt}*"
         
         base_message_content = f"Image {action_type} for {interaction.user.mention}:\n{prompt_display}{params_text}"
+        full_message_content = f"{base_message_content}{save_status_message}"
         
-        # Add donation link with 1/20 chance (5%)
-        donation_message = ""
-        if random.randint(1, 5) == 1:
-            donation_message = "\n\nIf you're getting value out of this bot, consider donating to help pay for its expenses (each image generation costs about $0.25) https://www.paypal.com/donate/?hosted_button_id=MV6C7HNDU45EU"
-        
-        full_message_content = f"{base_message_content}{save_status_message}{donation_message}"
+        # Check if we should send donation message (1/5 chance)
+        should_send_donation = random.randint(1, 5) == 1
 
         # Send the result using the appropriate method
         if interaction.response.is_done():
@@ -174,6 +171,11 @@ class ImageJsonCog(commands.Cog):
                 content=full_message_content,
                 file=discord_file_attachment
             )
+        
+        # Send donation message as follow-up if selected
+        if should_send_donation:
+            donation_message = "If you're getting value out of this bot, consider donating to keep it alive <https://www.paypal.com/donate/?hosted_button_id=MV6C7HNDU45EU>"
+            await interaction.followup.send(donation_message, ephemeral=True)
 
     @app_commands.command(name="image-json", description="Generate an image using structured parameters formatted as JSON.")
     @app_commands.describe(
