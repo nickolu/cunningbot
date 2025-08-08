@@ -157,8 +157,8 @@ class ImageJsonCog(commands.Cog):
         base_message_content = f"Image {action_type} for {interaction.user.mention}:\n{prompt_display}{params_text}"
         full_message_content = f"{base_message_content}{save_status_message}"
         
-        # Check if we should send donation message (1/9 chance)
-        random_number = random.randint(1, 9)
+        # Check if we should send donation message (1/20 chance)
+        random_number = random.randint(1, 20)
         should_send_donation = random_number == 1
         logger.info(f"Should send donation: {should_send_donation}, random number: {random_number}")
 
@@ -176,7 +176,7 @@ class ImageJsonCog(commands.Cog):
         
         # Send donation message as follow-up if selected
         if should_send_donation:
-            donation_message = f"Hey {interaction.user.mention}, if you're getting value out of this bot, consider suporting it by donating! (Each image generation costs about $0.25)\n Donate here: https://www.paypal.com/donate/?hosted_button_id=MV6C7HNDU45EU"
+            donation_message = f"Hey {interaction.user.mention}, if you're getting value out of this bot, consider suporting it by donating! (Each image generation costs about $0.25)\n Donate here: https://www.paypal.com/donate/?hosted_button_id=MV6C7HNDU45EU \n\n (this message is sent randomly about 5% of the time)"
             await interaction.followup.send(donation_message, ephemeral=True)
             logger.info(f"Donation message sent to {interaction.user.mention}")
 
