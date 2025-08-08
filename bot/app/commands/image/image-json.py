@@ -5,6 +5,7 @@ Command for generating images using structured JSON parameters with OpenAI.
 
 import asyncio
 import json
+import random
 
 from typing import Optional
 from discord import app_commands
@@ -154,7 +155,13 @@ class ImageJsonCog(commands.Cog):
             prompt_display = f"Prompt: *{prompt}*"
         
         base_message_content = f"Image {action_type} for {interaction.user.mention}:\n{prompt_display}{params_text}"
-        full_message_content = f"{base_message_content}{save_status_message}"
+        
+        # Add donation link with 1/20 chance (5%)
+        donation_message = ""
+        if random.randint(1, 20) == 1:
+            donation_message = "\n\nIf you're getting value out of this bot, consider donating to help pay for its expenses (each image generation costs about $0.25) https://www.paypal.com/donate/?hosted_button_id=MV6C7HNDU45EU"
+        
+        full_message_content = f"{base_message_content}{save_status_message}{donation_message}"
 
         # Send the result using the appropriate method
         if interaction.response.is_done():
