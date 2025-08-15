@@ -15,7 +15,7 @@ from bot.api.openai.image_edit_client import ImageEditClient
 from bot.api.os.file_service import FileService
 from bot.app.utils.logger import get_logger
 from bot.app.task_queue import get_task_queue
-from bot.config import IMAGE_GENERATION_ENABLED
+from bot.config import IMAGE_GENERATION_ENABLED, IMAGE_GENERATION_DISABLED_FOR_USERS
 import uuid
 import discord
 from io import BytesIO
@@ -243,6 +243,12 @@ class ImageJsonCog(commands.Cog):
         """Generate an image using structured parameters formatted as JSON"""
         # Check if image generation is globally enabled
         if not IMAGE_GENERATION_ENABLED:
+            error_message = "🔧 Image generation is temporarily unavailable due to maintenance. Please try again later."
+            await interaction.response.send_message(error_message, ephemeral=True)
+            return
+            
+        # Check if user is in the disabled list
+        if str(interaction.user.id) in IMAGE_GENERATION_DISABLED_FOR_USERS:
             error_message = "🔧 Image generation is temporarily unavailable due to maintenance. Please try again later."
             await interaction.response.send_message(error_message, ephemeral=True)
             return
