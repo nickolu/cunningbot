@@ -15,6 +15,7 @@ from bot.api.openai.image_edit_client import ImageEditClient
 from bot.api.os.file_service import FileService
 from bot.app.utils.logger import get_logger
 from bot.app.task_queue import get_task_queue
+from bot.config import IMAGE_GENERATION_ENABLED
 import uuid
 import discord
 from io import BytesIO
@@ -240,6 +241,11 @@ class ImageJsonCog(commands.Cog):
         custom_3_value: Optional[str] = None
     ) -> None:
         """Generate an image using structured parameters formatted as JSON"""
+        # Check if image generation is globally enabled
+        if not IMAGE_GENERATION_ENABLED:
+            error_message = "🔧 Image generation is temporarily unavailable due to maintenance. Please try again later."
+            await interaction.response.send_message(error_message, ephemeral=True)
+            return
         
         # Parse JSON string if provided
         json_params = {}
