@@ -14,6 +14,7 @@ from bot.api.openai.image_edit_client import ImageEditClient
 from bot.api.os.file_service import FileService
 from bot.app.utils.logger import get_logger
 from bot.app.task_queue import get_task_queue
+from bot.config import IMAGE_GENERATION_ENABLED
 import uuid
 import discord
 from io import BytesIO
@@ -209,6 +210,12 @@ class ImageCog(commands.Cog):
         background: Optional[str] = None
     ) -> None:
         """Queue an image generation/editing request for processing"""
+        # Check if image generation is globally enabled
+        if not IMAGE_GENERATION_ENABLED:
+            error_message = "🔧 Image generation is temporarily unavailable due to maintenance. Please try again later."
+            await interaction.response.send_message(error_message, ephemeral=True)
+            return
+            
         try:
             # Get the task queue and enqueue the image handler
             task_queue = get_task_queue()
