@@ -7,3 +7,4 @@ generated_images
 edited_images
 **.pyc
 .guild_config.json
+bot/app/app_state.json
