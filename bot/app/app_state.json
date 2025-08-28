@@ -14,7 +14,7 @@
                 "hour": 0,
                 "minute": 0,
                 "channel_id": 927326877461397554,
-                "enabled": true
+                "enabled": false
             },
             "Mini Crossword": {
                 "name": "Mini Crossword",
@@ -22,7 +22,7 @@
                 "hour": 21,
                 "minute": 0,
                 "channel_id": 927326877461397554,
-                "enabled": true
+                "enabled": false
             }
         }
     }
