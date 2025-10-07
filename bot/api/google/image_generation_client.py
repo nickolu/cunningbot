@@ -3,13 +3,12 @@ image_generation_client.py
 Google Gemini image generation client for the bot.
 """
 
-import base64
 import os
 import asyncio
 from typing import Literal, Optional
 
-import google.generativeai as genai
-from google.generativeai import types
+from google import genai
+from google.genai import types
 
 from bot.app.utils.logger import get_logger
 
@@ -35,9 +34,8 @@ class GeminiImageGenerationClient:
         if not self.api_key:
             raise EnvironmentError("GOOGLE_API_KEY environment variable is not set.")
 
-        # Configure the Gemini API
-        genai.configure(api_key=self.api_key)
-        self.client = genai.GenerativeModel(model_name=self.model)
+        # Configure the Gemini API client
+        self.client = genai.Client(api_key=self.api_key)
 
     async def generate_image(
         self,
@@ -66,7 +64,7 @@ class GeminiImageGenerationClient:
 
             # Configure the generation request
             config = types.GenerateContentConfig(
-                response_modalities=["IMAGE"],
+                response_modalities=["Image"],
                 image_config=types.ImageConfig(
                     aspect_ratio=ar
                 )
@@ -74,31 +72,32 @@ class GeminiImageGenerationClient:
 
             # Run the API call in a thread to avoid blocking
             response = await asyncio.to_thread(
-                self.client.generate_content,
+                self.client.models.generate_content,
+                model=self.model,
                 contents=[prompt],
                 config=config
             )
 
             # Extract the image from the response
-            if not response.parts:
+            if not response.candidates or not response.candidates[0].content.parts:
                 error_msg = "Image generation failed: No parts returned from Gemini API."
                 logger.warning(error_msg)
                 return None, error_msg
 
             # Find the image part in the response
-            image_part = None
-            for part in response.parts:
-                if hasattr(part, 'inline_data') and part.inline_data:
-                    image_part = part
-                    break
+            image_parts = [
+                part.inline_data.data
+                for part in response.candidates[0].content.parts
+                if part.inline_data
+            ]
 
-            if not image_part or not image_part.inline_data:
+            if not image_parts:
                 error_msg = "Image generation failed: No image data in response."
                 logger.warning(error_msg)
                 return None, error_msg
 
-            # Get the image bytes
-            image_bytes = image_part.inline_data.data
+            # Get the first image bytes
+            image_bytes = image_parts[0]
             logger.info(f"Image generated successfully with Gemini for prompt: '{prompt[:50]}...'")
             return image_bytes, ""
 

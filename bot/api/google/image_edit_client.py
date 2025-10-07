@@ -3,14 +3,14 @@ image_edit_client.py
 Google Gemini image editing client for the bot.
 """
 
-import base64
 import os
 import asyncio
+import base64
 from typing import Literal, Optional, Tuple, List, Union, BinaryIO
 from io import BytesIO
 
-import google.generativeai as genai
-from google.generativeai import types
+from google import genai
+from google.genai import types
 
 from bot.app.utils.logger import get_logger
 
@@ -43,8 +43,7 @@ class GeminiImageEditClient:
         if not self.api_key:
             raise EnvironmentError("GOOGLE_API_KEY environment variable is not set.")
 
-        genai.configure(api_key=self.api_key)
-        self.client = genai.GenerativeModel(model_name=self.DEFAULT_MODEL)
+        self.client = genai.Client(api_key=self.api_key)
 
     async def edit_image(
         self,
@@ -103,18 +102,18 @@ class GeminiImageEditClient:
 
             # Configure the generation request
             config = types.GenerateContentConfig(
-                response_modalities=["IMAGE"],
+                response_modalities=["Image"],
                 image_config=types.ImageConfig(
                     aspect_ratio=ar
                 )
             )
 
             # Prepare the content with image and prompt
-            # Gemini expects a list of parts: image followed by text prompt
-            image_part = types.Part(
-                inline_data=types.Blob(
-                    mime_type=mime_type,
-                    data=image_data
+            # Gemini expects the image data as base64-encoded string with proper formatting
+            image_b64 = base64.b64encode(image_data).decode('utf-8')
+            image_part = types.Part.from_image(
+                image=types.Image(
+                    image_bytes=image_data
                 )
             )
 
@@ -124,34 +123,35 @@ class GeminiImageEditClient:
             for i in range(n):
                 try:
                     response = await asyncio.to_thread(
-                        self.client.generate_content,
+                        self.client.models.generate_content,
+                        model=self.DEFAULT_MODEL,
                         contents=[image_part, prompt],
                         config=config
                     )
 
                     # Extract the image from the response
-                    if not response.parts:
+                    if not response.candidates or not response.candidates[0].content.parts:
                         logger.warning(f"No parts returned from Gemini API for edit request {i+1}/{n}.")
                         continue
 
                     # Find the image part in the response
-                    result_image_part = None
-                    for part in response.parts:
-                        if hasattr(part, 'inline_data') and part.inline_data:
-                            result_image_part = part
-                            break
+                    result_image_parts = [
+                        part.inline_data.data
+                        for part in response.candidates[0].content.parts
+                        if part.inline_data
+                    ]
 
-                    if not result_image_part or not result_image_part.inline_data:
+                    if not result_image_parts:
                         logger.warning(f"No image data in response for edit request {i+1}/{n}.")
                         continue
 
                     # Get the image bytes
-                    result_bytes = result_image_part.inline_data.data
+                    result_bytes = result_image_parts[0]
                     image_bytes_list.append(result_bytes)
                     logger.info(f"Image edited successfully with Gemini ({i+1}/{n})")
 
                 except Exception as e:
-                    logger.error(f"Failed to edit image with Gemini (attempt {i+1}/{n}): {e}")
+                    logger.error(f"Failed to edit image with Gemini (attempt {i+1}/{n}): {e}", exc_info=True)
                     if n == 1:
                         # If only requesting one image, return the error
                         return None, str(e)
