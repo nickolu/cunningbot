@@ -1,6 +1,6 @@
 """
 image_json.py
-Command for generating images using structured JSON parameters with OpenAI.
+Command for generating images using structured JSON parameters with OpenAI or Google Gemini.
 """
 
 import asyncio
@@ -12,6 +12,8 @@ from discord import app_commands
 from discord.ext import commands
 from bot.api.openai.image_generation_client import ImageGenerationClient
 from bot.api.openai.image_edit_client import ImageEditClient
+from bot.api.google.image_generation_client import GeminiImageGenerationClient
+from bot.api.google.image_edit_client import GeminiImageEditClient
 from bot.api.os.file_service import FileService
 from bot.app.utils.logger import get_logger
 from bot.app.task_queue import get_task_queue
@@ -25,17 +27,27 @@ logger = get_logger()
 class ImageJsonCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
-        self.image_generation_client = ImageGenerationClient.factory()
-        self.image_edit_client = ImageEditClient.factory()
+        self.openai_generation_client = ImageGenerationClient.factory()
+        self.openai_edit_client = ImageEditClient.factory()
+
+        # Initialize Gemini clients (will only work if GOOGLE_API_KEY is set)
+        self.gemini_generation_client = None
+        self.gemini_edit_client = None
+        try:
+            self.gemini_generation_client = GeminiImageGenerationClient.factory()
+            self.gemini_edit_client = GeminiImageEditClient.factory()
+        except EnvironmentError as e:
+            logger.warning(f"Gemini image generation unavailable: {e}")
 
     async def _image_json_handler(
-        self, 
-        interaction: discord.Interaction, 
-        prompt: str, 
+        self,
+        interaction: discord.Interaction,
+        prompt: str,
         attachment: Optional[discord.Attachment] = None,
         size: Optional[str] = None,
         quality: Optional[str] = None,
         background: Optional[str] = None,
+        model: Optional[str] = None,
         already_responded: bool = False
     ) -> None:
         """Internal image handler that processes JSON image generation requests with formatted display"""
@@ -47,6 +59,24 @@ class ImageJsonCog(commands.Cog):
         size = size or "auto"
         quality = quality or "auto"
         background = background or "auto"
+        model = model or "openai"
+
+        # Validate model selection
+        if model == "gemini" and not self.gemini_generation_client:
+            error_msg = "Google Gemini model is not available. Please ensure GOOGLE_API_KEY is configured."
+            if interaction.response.is_done():
+                await interaction.followup.send(error_msg)
+            else:
+                await interaction.response.send_message(error_msg)
+            return
+
+        # Select the appropriate clients based on model
+        if model == "gemini":
+            generation_client = self.gemini_generation_client
+            edit_client = self.gemini_edit_client
+        else:
+            generation_client = self.openai_generation_client
+            edit_client = self.openai_edit_client
 
         final_image_bytes: Optional[bytes] = None
         final_error_message: str = ""
@@ -68,14 +98,24 @@ class ImageJsonCog(commands.Cog):
                     await interaction.response.send_message(error_msg)
                 return
 
-            image_list_or_none, error_msg_edit = await asyncio.to_thread(
-                self.image_edit_client.edit_image,
-                image=image_to_edit_bytes,
-                prompt=prompt,
-                size=size,
-                quality=quality,
-                background=background
-            )
+            # For Gemini, check if editing is supported
+            if model == "gemini":
+                # Gemini supports editing
+                image_list_or_none, error_msg_edit = await edit_client.edit_image(
+                    image=image_to_edit_bytes,
+                    prompt=prompt,
+                    size=size
+                )
+            else:
+                # OpenAI editing
+                image_list_or_none, error_msg_edit = await asyncio.to_thread(
+                    edit_client.edit_image,
+                    image=image_to_edit_bytes,
+                    prompt=prompt,
+                    size=size,
+                    quality=quality,
+                    background=background
+                )
             final_error_message = error_msg_edit
             if image_list_or_none and len(image_list_or_none) > 0:
                 final_image_bytes = image_list_or_none[0] # Use the first image
@@ -96,7 +136,7 @@ class ImageJsonCog(commands.Cog):
         else:
             print("Generating image...")
             action_type = "generated"
-            generated_bytes_or_none, error_msg_gen = await self.image_generation_client.generate_image(prompt, size=size)
+            generated_bytes_or_none, error_msg_gen = await generation_client.generate_image(prompt, size=size)
             final_error_message = error_msg_gen
             final_image_bytes = generated_bytes_or_none
 
@@ -136,13 +176,14 @@ class ImageJsonCog(commands.Cog):
 
         # Build message with parameters used
         params_used = []
-        if size != "1024x1024":
+        params_used.append(f"Model: {model.upper()}")
+        if size != "1024x1024" and size != "auto":
             params_used.append(f"Size: {size}")
-        if quality != "auto":
+        if quality != "auto" and model == "openai":
             params_used.append(f"Quality: {quality}")
-        if background != "auto":
+        if background != "auto" and model == "openai":
             params_used.append(f"Background: {background}")
-        
+
         params_text = f" ({', '.join(params_used)})" if params_used else ""
         
         # For JSON command, show the formatted JSON
@@ -196,15 +237,22 @@ class ImageJsonCog(commands.Cog):
         weather="Weather conditions (e.g., 'sunny', 'foggy')",
         time_of_day="Time setting (e.g., 'dawn', 'dusk')",
         location="Location or setting (e.g., 'urban street', 'mountain peak')",
+        model="AI model to use for generation",
         size="Size of the generated image",
-        quality="Quality of the generated image (e.g., 'high', 'medium', 'auto')",
-        background="Background setting for the generated image (e.g., 'transparent', 'opaque', 'auto')",
+        quality="Quality of the generated image (OpenAI only, e.g., 'high', 'medium', 'auto')",
+        background="Background setting for the generated image (OpenAI only, e.g., 'transparent', 'opaque', 'auto')",
         custom_1="Custom parameter name (e.g., 'colorTemperature')",
         custom_1_value="Custom parameter value (e.g., '5000k')",
         custom_2="Custom parameter name (e.g., 'colorTemperature')",
         custom_2_value="Custom parameter value (e.g., '5000k')",
         custom_3="Custom parameter name (e.g., 'colorTemperature')",
         custom_3_value="Custom parameter value (e.g., '5000k')"
+    )
+    @app_commands.choices(
+        model=[
+            app_commands.Choice(name="OpenAI (GPT Image)", value="openai"),
+            app_commands.Choice(name="Google Gemini 2.5 Flash", value="gemini"),
+        ]
     )
     @app_commands.choices(
         size=[
@@ -230,6 +278,7 @@ class ImageJsonCog(commands.Cog):
         weather: Optional[str] = None,
         time_of_day: Optional[str] = None,
         location: Optional[str] = None,
+        model: Optional[str] = None,
         size: Optional[str] = None,
         quality: Optional[str] = None,
         background: Optional[str] = None,
@@ -345,8 +394,8 @@ class ImageJsonCog(commands.Cog):
             
             # Enqueue the actual image processing task with the JSON prompt
             task_id = await task_queue.enqueue_task(
-                self._image_json_handler, 
-                interaction, json_prompt, None, size, quality, background, already_responded
+                self._image_json_handler,
+                interaction, json_prompt, None, size, quality, background, model, already_responded
             )
             
             logger.info(f"Image-JSON command queued with task ID: {task_id}, params: {image_params}")
