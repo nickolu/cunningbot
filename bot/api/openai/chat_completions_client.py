@@ -26,6 +26,9 @@ PermittedModelType = Literal[
     "o3",
     "o4-mini",
     "o4",
+    "claude-3-5-sonnet-20241022",
+    "claude-3-5-haiku-20241022",
+    "claude-3-opus-20240229",
 ]
 
 def transform_arguments_for_model(model: PermittedModelType) -> Dict[str, Any]:
@@ -86,6 +89,9 @@ class ChatCompletionsClient:
         "o3": "openai",
         "o4-mini": "openai",
         "o4": "openai",
+        "claude-3-5-sonnet-20241022": "anthropic",
+        "claude-3-5-haiku-20241022": "anthropic",
+        "claude-3-opus-20240229": "anthropic",
     }
 
     def __init__(self, model: PermittedModelType = "gpt-4o-mini"):

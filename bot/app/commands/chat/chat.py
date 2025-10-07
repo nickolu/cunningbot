@@ -146,7 +146,7 @@ class ChatCog(commands.Cog):
             app_commands.Choice(name="False", value=0),
         ]
     )
-    @app_commands.choices(  
+    @app_commands.choices(
         model=[
             app_commands.Choice(name="gpt-3.5-turbo (cheapest)", value="gpt-3.5-turbo"),
             app_commands.Choice(name="gpt-4.1-nano", value="gpt-4.1-nano"),
@@ -158,7 +158,9 @@ class ChatCog(commands.Cog):
             app_commands.Choice(name="gpt-4-turbo", value="gpt-4-turbo"),
             app_commands.Choice(name="gpt-4", value="gpt-4"),
             app_commands.Choice(name="gpt-4.5-preview (most expensive)", value="gpt-4.5-preview"),
-            
+            app_commands.Choice(name="claude-3-5-haiku", value="claude-3-5-haiku-20241022"),
+            app_commands.Choice(name="claude-3-5-sonnet", value="claude-3-5-sonnet-20241022"),
+            app_commands.Choice(name="claude-3-opus", value="claude-3-opus-20240229"),
         ]
     )
     @app_commands.choices(
