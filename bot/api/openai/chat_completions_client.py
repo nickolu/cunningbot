@@ -30,11 +30,11 @@ PermittedModelType = Literal[
 
 def transform_arguments_for_model(model: PermittedModelType) -> Dict[str, Any]:
     if model == "gpt-3.5-turbo":
-        return {"model": "gpt-3.5-turbo", "max_tokens": 10000}
+        return {"model": "gpt-3.5-turbo", "max_tokens": 4096}
     elif model == "gpt-4":
-        return {"model": "gpt-4", "max_tokens": 10000}
+        return {"model": "gpt-4", "max_tokens": 8192}
     elif model == "gpt-4-turbo":
-        return {"model": "gpt-4-turbo", "max_tokens": 10000}
+        return {"model": "gpt-4-turbo", "max_tokens": 4096}
     elif model == "gpt-4.1-mini":
         return {"model": "gpt-4.1-mini", "max_tokens": 10000}
     elif model == "gpt-4.1-nano":
