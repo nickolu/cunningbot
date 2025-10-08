@@ -57,4 +57,4 @@ openai-agents==0.0.16
 python-mlb-statsapi==0.5.26
 aiofiles==24.1.0
 Pillow>=9.0.0 # For image manipulation and validation
-google-generativeai>=0.8.0 # For Google Gemini image generation
+google-genai>=0.1.0 # For Google Gemini image generation (newer SDK)
