@@ -281,7 +281,17 @@ Structured JSON logs are written to *logs/cunningbot-YYYY-MM-DD.json* (date-rota
 ## Testing
 
 ```bash
-pytest -q             # run all tests quietly
+# If .venv doesn't exist yet
+python -m venv .venv
+
+# Activate the virtual environment
+source .venv/bin/activate
+
+# Install dependencies (if needed)
+make install
+
+# Run tests
+pytest -q           # run all tests quietly
 ```
 
 CI pipelines should run `pytest` and `mypy` to ensure correctness and maintain strict typing.

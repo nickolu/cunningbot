@@ -5,30 +5,30 @@ run:
 	python3 -m bot.main
 
 up:
-	docker-compose up -d
+	docker compose up -d
 
 down:
-	docker-compose down
+	docker compose down
 
 
 build:
-	docker-compose build --no-cache
+	docker compose build --no-cache
 
 start:
-	docker-compose up -d
+	docker compose up -d
 
 stop:
-	docker-compose down || true
+	docker compose down || true
 
 remove:
-	docker-compose down || true
+	docker compose down || true
 
 restart: stop remove start
 
 rebuild: stop remove build start
 
 logs:
-	docker-compose logs -f
+	docker compose logs -f
 
 clean: stop remove
 	@echo "Stopped and removed container"

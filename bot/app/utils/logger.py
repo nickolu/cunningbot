@@ -61,6 +61,9 @@ def get_logger() -> Any:
 
     json_sink = JSONSink()
     _loguru_logger.remove()
+    # Human-readable console sink for container/stdout visibility
+    _loguru_logger.add(lambda msg: print(msg, end=""), enqueue=True)
+    # Structured JSON sink to file for long-term storage
     _loguru_logger.add(json_sink.write, serialize=True, enqueue=True)
     _logger_instance = _loguru_logger
     return _logger_instance
