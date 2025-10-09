@@ -111,13 +111,35 @@ class GeminiImageEditClient:
             )
 
             # Prepare the content with image and prompt
-            # Gemini expects the image data as base64-encoded string with proper formatting
-            image_b64 = base64.b64encode(image_data).decode('utf-8')
-            image_part = types.Part.from_image(
-                image=types.Image(
-                    image_bytes=image_data
+            # Prefer modern API if available; fall back for older SDKs
+            image_part = None
+            try:
+                # Newer SDK path
+                image_part = types.Part.from_image(
+                    image=types.Image(
+                        image_bytes=image_data
+                    )
                 )
-            )
+            except AttributeError:
+                # Older SDKs may not have from_image; use from_bytes
+                try:
+                    image_part = types.Part.from_bytes(
+                        data=image_data,
+                        mime_type=mime_type
+                    )
+                except Exception as part_err:
+                    logger.error(f"Failed to build Gemini image part using from_bytes: {part_err}")
+                    return None, f"An unexpected error occurred: image_part_build"
+            except Exception as part_err:
+                logger.error(f"Failed to build Gemini image part using from_image: {part_err}")
+                # Try fallback once more in case of non-AttributeError
+                try:
+                    image_part = types.Part.from_bytes(
+                        data=image_data,
+                        mime_type=mime_type
+                    )
+                except Exception:
+                    return None, f"An unexpected error occurred: from_image"
 
             # Generate the edited image(s)
             image_bytes_list: List[bytes] = []
