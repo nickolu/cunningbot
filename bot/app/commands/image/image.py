@@ -59,9 +59,11 @@ class ImageCog(commands.Cog):
             size = size or "auto"
             quality = quality or "auto"
             background = background or "auto"
-            model = model or "openai"
+            # Default to Gemini if available; otherwise OpenAI. Respect explicit user choice.
+            if model is None:
+                model = "gemini" if self.gemini_generation_client else "openai"
 
-            # Validate model selection
+            # Validate explicit Gemini selection (show error), but if defaulting and unavailable we already fell back
             if model == "gemini" and not self.gemini_generation_client:
                 error_msg = "Google Gemini model is not available. Please ensure GOOGLE_API_KEY is configured."
                 if interaction.response.is_done():
