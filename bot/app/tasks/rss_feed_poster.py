@@ -193,6 +193,8 @@ async def post_rss_updates() -> None:
             continue
 
         for feed_name, feed_info in feeds.items():
+            logger.info("Processing feed '%s' for guild %s", feed_name, guild_id_str)
+
             if not feed_info.get("enabled", True):
                 logger.info("Feed '%s' in guild %s is disabled, skipping", feed_name, guild_id_str)
                 continue
@@ -202,6 +204,9 @@ async def post_rss_updates() -> None:
             seen_items = feed_info.get("seen_items", [])
             max_seen_items = feed_info.get("max_seen_items", 100)
 
+            logger.info("Feed '%s': url=%s, channel_id=%s, seen_items=%d",
+                       feed_name, feed_url, channel_id, len(seen_items))
+
             if not feed_url or not channel_id:
                 logger.warning("Feed '%s' in guild %s has missing url or channel_id, skipping", feed_name, guild_id_str)
                 continue
@@ -210,14 +215,19 @@ async def post_rss_updates() -> None:
                 # Add small delay between feed fetches to be polite
                 await asyncio.sleep(1)
 
+                logger.info("Fetching feed '%s' from %s", feed_name, feed_url)
+
                 # Fetch and parse the feed
                 feed = feedparser.parse(feed_url)
+
+                logger.info("Feed '%s' fetched: bozo=%s, entries=%d",
+                           feed_name, feed.bozo, len(feed.entries))
 
                 if feed.bozo:
                     logger.warning("Feed parse warning for '%s': %s", feed_name, feed.get('bozo_exception', 'Unknown error'))
 
                 if not feed.entries:
-                    logger.info("No entries found in feed '%s'", feed_name)
+                    logger.warning("No entries found in feed '%s'", feed_name)
                     continue
 
                 # Filter to new items (not in seen_items)
