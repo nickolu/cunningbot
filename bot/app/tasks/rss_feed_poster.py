@@ -167,12 +167,17 @@ def format_item_embed(entry, feed) -> discord.Embed:
 
 async def post_rss_updates() -> None:
     """Main entry point called once per invocation."""
+    logger.info("=== RSS Feed Poster Starting ===")
+
     token = os.getenv("DISCORD_TOKEN")
     if not token:
         logger.error("DISCORD_TOKEN environment variable not set – aborting.")
         return
 
+    logger.info("Loading guild states...")
     all_guild_states = get_all_guild_states()
+    logger.info("Loaded %d guild states", len(all_guild_states))
+
     if not all_guild_states:
         logger.info("App state empty – nothing to post.")
         return
@@ -181,15 +186,23 @@ async def post_rss_updates() -> None:
     to_post: Dict[int, List[Dict[str, Any]]] = {}
 
     for guild_id_str, guild_state in all_guild_states.items():
+        logger.info("Checking guild %s", guild_id_str)
+
         if guild_id_str == "global":
+            logger.info("Skipping global state")
             continue  # skip global state
 
         if not isinstance(guild_state, dict):
             logger.warning("Guild state for %s is not a dict (got %s) – skipping", guild_id_str, type(guild_state))
             continue
 
+        logger.info("Guild %s state keys: %s", guild_id_str, list(guild_state.keys()))
+
         feeds = guild_state.get("rss_feeds", {})
+        logger.info("Guild %s has %d feeds", guild_id_str, len(feeds) if feeds else 0)
+
         if not feeds:
+            logger.info("No feeds for guild %s, skipping", guild_id_str)
             continue
 
         for feed_name, feed_info in feeds.items():
@@ -260,6 +273,9 @@ async def post_rss_updates() -> None:
             except Exception as e:
                 logger.error("Error processing feed '%s' in guild %s: %s", feed_name, guild_id_str, str(e))
                 continue
+
+    logger.info("Finished processing all feeds. Items queued for posting: %d", sum(len(items) for items in to_post.values()))
+    logger.info("Channels with items: %s", list(to_post.keys()))
 
     if not to_post:
         logger.info("No new items to post.")
