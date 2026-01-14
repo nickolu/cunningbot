@@ -179,7 +179,6 @@ async def post_rss_updates() -> None:
 
     # Build a mapping channel_id -> list[dict] of items to post
     to_post: Dict[int, List[Dict[str, Any]]] = {}
-    state_updates: Dict[str, Dict[str, Any]] = {}  # Track state updates per guild
 
     for guild_id_str, guild_state in all_guild_states.items():
         if guild_id_str == "global":
@@ -248,18 +247,6 @@ async def post_rss_updates() -> None:
                     # Add items to post queue
                     to_post.setdefault(channel_id, []).extend(new_items)
 
-                    # Track state update: add new item IDs to seen_items
-                    new_ids = [item['id'] for item in new_items]
-                    updated_seen_items = new_ids + seen_items
-                    updated_seen_items = updated_seen_items[:max_seen_items]  # Trim to max
-
-                    # Update state tracking
-                    if guild_id_str not in state_updates:
-                        state_updates[guild_id_str] = {"rss_feeds": feeds.copy()}
-
-                    state_updates[guild_id_str]["rss_feeds"][feed_name]["seen_items"] = updated_seen_items
-                    state_updates[guild_id_str]["rss_feeds"][feed_name]["last_check"] = dt.datetime.utcnow().isoformat()
-
             except Exception as e:
                 logger.error("Error processing feed '%s' in guild %s: %s", feed_name, guild_id_str, str(e))
                 continue
@@ -312,10 +299,43 @@ async def post_rss_updates() -> None:
                 logger.error("Unexpected error accessing channel %s: %s", channel_id, exc)
 
         # Update state only for successfully posted items
-        for guild_id_str, updates in state_updates.items():
+        # Group by guild and feed
+        state_updates: Dict[str, Dict[str, List[str]]] = {}  # guild_id -> feed_name -> [item_ids]
+
+        for item in successfully_posted_items:
+            guild_id = item['guild_id']
+            feed_name = item['feed_name']
+            item_id = item['id']
+
+            if guild_id not in state_updates:
+                state_updates[guild_id] = {}
+            if feed_name not in state_updates[guild_id]:
+                state_updates[guild_id][feed_name] = []
+
+            state_updates[guild_id][feed_name].append(item_id)
+
+        # Update state for each guild
+        for guild_id_str, feed_updates in state_updates.items():
             try:
-                set_state_value("rss_feeds", updates["rss_feeds"], guild_id_str)
-                logger.info("Updated state for guild %s", guild_id_str)
+                # Get current guild state
+                guild_state = all_guild_states.get(guild_id_str, {})
+                feeds = guild_state.get('rss_feeds', {})
+
+                for feed_name, new_ids in feed_updates.items():
+                    if feed_name in feeds:
+                        # Add new IDs to seen_items and trim
+                        current_seen = feeds[feed_name].get('seen_items', [])
+                        max_items = feeds[feed_name].get('max_seen_items', 100)
+                        updated_seen = new_ids + current_seen
+                        updated_seen = updated_seen[:max_items]
+
+                        feeds[feed_name]['seen_items'] = updated_seen
+                        feeds[feed_name]['last_check'] = dt.datetime.utcnow().isoformat()
+
+                # Save updated feeds back to state
+                set_state_value("rss_feeds", feeds, guild_id_str)
+                logger.info("Updated state for guild %s: marked %d items as seen across %d feeds",
+                           guild_id_str, sum(len(ids) for ids in feed_updates.values()), len(feed_updates))
             except Exception as e:
                 logger.error("Failed to update state for guild %s: %s", guild_id_str, str(e))
 
