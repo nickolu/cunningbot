@@ -20,5 +20,13 @@ services:
     environment:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
     volumes:
-      - ./bot/domain:/app/bot/domain
+      - ./bot/app:/app/bot/app
     command: bash -c "while true; do python -m bot.app.tasks.daily_game_poster; sleep 600; done"
+  rssfeed:
+    build: .
+    restart: unless-stopped
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+    volumes:
+      - ./bot/app:/app/bot/app
+    command: bash -c "while true; do python -m bot.app.tasks.rss_feed_poster; sleep 600; done"

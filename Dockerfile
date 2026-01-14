@@ -23,14 +23,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY --chown=appuser:appuser . .
 
 # Ensure app_state.json, logs and generated_images directories exist with proper permissions
-RUN mkdir -p /app/bot/core && \
+RUN mkdir -p /app/bot/app && \
     mkdir -p /app/logs && \
     mkdir -p /app/generated_images && \
-    touch /app/bot/core/app_state.json && \
-    chown -R appuser:appuser /app/bot/core && \
+    touch /app/bot/app/app_state.json && \
+    chown -R appuser:appuser /app/bot/app && \
     chown -R appuser:appuser /app/logs && \
     chown -R appuser:appuser /app/generated_images && \
-    chmod 644 /app/bot/core/app_state.json && \
+    chmod 644 /app/bot/app/app_state.json && \
     chmod 755 /app/logs && \
     chmod 755 /app/generated_images
 
