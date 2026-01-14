@@ -186,10 +186,20 @@ class NewsCog(commands.Cog):
         try:
             feed = feedparser.parse(feed_url)
             if feed.bozo and not feed.entries:
-                await interaction.followup.send(
-                    f"Failed to parse RSS feed. Please check the URL and try again.\nError: {feed.get('bozo_exception', 'Unknown error')}",
-                    ephemeral=True
-                )
+                error_msg = f"Failed to parse RSS feed. Please check the URL and try again.\nError: {feed.get('bozo_exception', 'Unknown error')}"
+
+                # Check if this looks like a FreshRSS HTML page
+                if 'freshrss' in feed_url.lower() or ('?rid=' in feed_url):
+                    error_msg += (
+                        "\n\n**⚠️ FreshRSS Detected**\n"
+                        "It looks like you're trying to use a FreshRSS web interface URL.\n"
+                        "Please use the actual RSS feed URL instead.\n\n"
+                        "**For FreshRSS, the correct format is:**\n"
+                        "`https://your-server/i/?a=rss&hours=168`\n\n"
+                        "You can find the RSS feed link in the page source or try changing `?rid=...` to `?a=rss&hours=168`"
+                    )
+
+                await interaction.followup.send(error_msg, ephemeral=True)
                 return
         except Exception as e:
             await interaction.followup.send(
@@ -296,6 +306,31 @@ class NewsCog(commands.Cog):
         channel_mention = f"<#{channel_id}>" if channel_id else "Unknown channel"
         await interaction.response.send_message(
             f"🗑️ RSS feed **{feed_name}** has been deleted completely. It will no longer post to {channel_mention}.",
+            ephemeral=True
+        )
+
+    @news.command(name="reset", description="Reset a feed to repost all items (clears seen items history).")
+    @app_commands.describe(feed_name="The name of the feed to reset")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def reset(self, interaction: discord.Interaction, feed_name: str) -> None:
+        feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+
+        if feed_name not in feeds:
+            await interaction.response.send_message(
+                f"No feed named '{feed_name}' found for this guild.", ephemeral=True
+            )
+            return
+
+        # Clear the seen items list
+        old_count = len(feeds[feed_name].get("seen_items", []))
+        feeds[feed_name]["seen_items"] = []
+
+        # Save back to state
+        set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
+
+        await interaction.response.send_message(
+            f"🔄 Feed **{feed_name}** has been reset! Cleared {old_count} seen items.\n"
+            f"The next poster run will post up to 5 recent items from this feed.",
             ephemeral=True
         )
 
