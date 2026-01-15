@@ -39,6 +39,25 @@
                     "1768434484070444",
                     "1768434484070445"
                 ],
+                "max_seen_items": 100,
+                "last_summary": "2026-01-15T03:05:30.456316"
+            },
+            "Yahoo Sport": {
+                "name": "Yahoo Sport",
+                "url": "https://sports.yahoo.com/top/rss.xml",
+                "channel_id": 1461164138255613993,
+                "enabled": true,
+                "last_check": "2026-01-15T03:03:32.276570",
+                "seen_items": [],
+                "max_seen_items": 100
+            },
+            "Yahoo Sports": {
+                "name": "Yahoo Sports",
+                "url": "https://sports.yahoo.com/top/rss.xml",
+                "channel_id": 1461164138255613993,
+                "enabled": true,
+                "last_check": "2026-01-15T03:03:49.243523",
+                "seen_items": [],
                 "max_seen_items": 100
             }
         }
