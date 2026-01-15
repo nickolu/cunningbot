@@ -355,11 +355,17 @@ SUMMARY: [Your summary here]"""
             title = title_match.group(1).strip() if title_match else articles[0].get('title', 'Breaking News')
             summary = summary_match.group(1).strip() if summary_match else articles[0].get('description', '')[:100]
 
-            # Collect all source links
-            links = [
-                {"source": a.get('source', 'Unknown'), "url": a.get('link', '')}
-                for a in articles
-            ]
+            # Collect all source links and deduplicate by URL
+            seen_urls = set()
+            links = []
+            for a in articles:
+                url = a.get('link', '')
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    links.append({
+                        "source": a.get('source', 'Unknown'),
+                        "url": url
+                    })
 
             summaries.append({
                 "title": title,
@@ -372,16 +378,26 @@ SUMMARY: [Your summary here]"""
 
     except Exception as e:
         logger.error(f"Error generating summaries: {e}")
-        # Fallback
-        return [
-            {
+        # Fallback - deduplicate links here too
+        fallback_summaries = []
+        for cluster in story_clusters:
+            seen_urls = set()
+            links = []
+            for a in cluster["articles"]:
+                url = a.get('link', '')
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    links.append({
+                        "source": a.get('source', 'Unknown'),
+                        "url": url
+                    })
+
+            fallback_summaries.append({
                 "title": cluster["articles"][0].get('title', 'News Update'),
                 "summary": cluster["articles"][0].get('description', '')[:100],
-                "links": [{"source": a.get('source', 'Unknown'), "url": a.get('link', '')}
-                         for a in cluster["articles"]]
-            }
-            for cluster in story_clusters
-        ]
+                "links": links
+            })
+        return fallback_summaries
 
 
 async def generate_summary_text(
@@ -411,12 +427,12 @@ async def generate_summary_text(
             # One-sentence summary
             summary_lines.append(f"{story['summary']}")
 
-            # Named source links
+            # Named source links with bullet separators
             source_links = [
                 f"[{link['source']}]({link['url']})"
                 for link in story['links']
             ]
-            summary_lines.append(f"{' '.join(source_links)}\n")
+            summary_lines.append(f"{' • '.join(source_links)}\n")
 
         logger.info(f"Formatted {len(story_summaries)} stories")
         return "\n".join(summary_lines)
