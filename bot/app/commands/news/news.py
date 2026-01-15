@@ -175,11 +175,10 @@ class NewsCog(commands.Cog):
         name="news", description="Manage RSS news feed subscriptions."
     )
 
-    @news.command(name="add", description="Add a new RSS feed to monitor.")
+    @news.command(name="add", description="Add a new RSS feed to monitor in this channel.")
     @app_commands.describe(
         feed_name="Short name for the feed (e.g. 'San Diego News')",
         feed_url="RSS feed URL to monitor",
-        channel="Discord channel where updates will be posted",
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def add(
@@ -187,9 +186,16 @@ class NewsCog(commands.Cog):
         interaction: discord.Interaction,
         feed_name: str,
         feed_url: str,
-        channel: discord.TextChannel,
     ) -> None:
-        """Register a new RSS feed for monitoring."""
+        """Register a new RSS feed for monitoring in the current channel."""
+
+        # Get the current channel
+        channel = interaction.channel
+        if not isinstance(channel, discord.TextChannel):
+            await interaction.response.send_message(
+                "This command can only be used in a text channel.", ephemeral=True
+            )
+            return
 
         # Validate URL
         if not _is_valid_url(feed_url):
@@ -352,7 +358,7 @@ class NewsCog(commands.Cog):
             ephemeral=True
         )
 
-    @news.command(name="list", description="List all RSS feeds for this guild.")
+    @news.command(name="list", description="List all RSS feeds in this channel.")
     async def list_feeds(self, interaction: discord.Interaction) -> None:
         feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
 
@@ -362,12 +368,23 @@ class NewsCog(commands.Cog):
             )
             return
 
+        # Filter feeds for current channel only
+        current_channel_id = interaction.channel_id
+        channel_feeds = {
+            name: info for name, info in feeds.items()
+            if info.get("channel_id") == current_channel_id
+        }
+
+        if not channel_feeds:
+            await interaction.response.send_message(
+                f"No RSS feeds are registered for {interaction.channel.mention}.", ephemeral=True
+            )
+            return
+
         # Build a formatted list of feeds
         feed_list = []
-        for name, feed_info in feeds.items():
+        for name, feed_info in channel_feeds.items():
             status = "✅ Enabled" if feed_info.get("enabled", True) else "🚫 Disabled"
-            channel_id = feed_info.get("channel_id")
-            channel_mention = f"<#{channel_id}>" if channel_id else "Unknown channel"
             url = feed_info.get("url", "No URL")
             last_check = feed_info.get("last_check", "Never")
 
@@ -384,7 +401,6 @@ class NewsCog(commands.Cog):
             feed_entry = (
                 f"**{name}**\n"
                 f"  • Status: {status}\n"
-                f"  • Channel: {channel_mention}\n"
                 f"  • URL: <{url}>\n"
                 f"  • Last Check: {last_check_str}\n"
             )
@@ -392,12 +408,12 @@ class NewsCog(commands.Cog):
 
         # Create embed for better formatting
         embed = discord.Embed(
-            title="📰 RSS News Feeds",
+            title=f"📰 RSS News Feeds in {interaction.channel.name}",
             description="\n".join(feed_list),
-            color=0x00ff00 if any(f.get("enabled", True) for f in feeds.values()) else 0xff0000
+            color=0x00ff00 if any(f.get("enabled", True) for f in channel_feeds.values()) else 0xff0000
         )
 
-        embed.set_footer(text=f"Total feeds: {len(feeds)}")
+        embed.set_footer(text=f"Total feeds in this channel: {len(channel_feeds)}")
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
