@@ -39,13 +39,20 @@ SUMMARY_TIMES = [
 ]
 
 
-def should_post_summary() -> tuple[bool, str]:
+def should_post_summary_for_channel(channel_schedule: List[tuple[int, int]] = None) -> tuple[bool, str]:
     """
-    Check if current time matches a summary schedule.
+    Check if current time matches a channel's summary schedule.
+
+    Args:
+        channel_schedule: List of (hour, minute) tuples for this channel, or None for default
 
     Returns:
-        Tuple of (should_post, edition) where edition is "Morning" or "Evening"
+        Tuple of (should_post, edition) where edition is "Morning", "Afternoon", or "Evening"
     """
+    # Use default schedule if not provided
+    if channel_schedule is None:
+        channel_schedule = SUMMARY_TIMES
+
     # Get current Pacific time
     pacific_tz = ZoneInfo("America/Los_Angeles")
     now = dt.datetime.now(pacific_tz)
@@ -53,10 +60,17 @@ def should_post_summary() -> tuple[bool, str]:
     # Round to nearest 10-minute interval
     rounded_minute = (now.minute // 10) * 10
 
-    # Check against summary times
-    for hour, minute in SUMMARY_TIMES:
+    # Check against channel's schedule
+    for hour, minute in channel_schedule:
         if now.hour == hour and rounded_minute == minute:
-            edition = "Morning" if hour == 8 else "Evening"
+            # Determine edition based on time of day
+            if hour < 12:
+                edition = "Morning"
+            elif hour < 18:
+                edition = "Afternoon"
+            else:
+                edition = "Evening"
+
             logger.info(f"Time check: {now.hour}:{rounded_minute:02d} matches {hour}:{minute:02d} - {edition} edition")
             return True, edition
 
@@ -99,16 +113,6 @@ async def post_summaries() -> None:
     """Main entry point called once per invocation."""
     logger.info("=== RSS Summary Poster Starting ===")
 
-    # Check if it's time to post
-    should_post, edition = should_post_summary()
-    if not should_post:
-        pacific_tz = ZoneInfo("America/Los_Angeles")
-        now = dt.datetime.now(pacific_tz)
-        logger.info(f"Not time for summary (current PT: {now.hour}:{now.minute:02d})")
-        return
-
-    logger.info(f"Time to post {edition} summary!")
-
     token = os.getenv("DISCORD_TOKEN")
     if not token:
         logger.error("DISCORD_TOKEN environment variable not set – aborting.")
@@ -123,6 +127,21 @@ async def post_summaries() -> None:
 
     logger.info(f"Found {len(channel_articles)} channels with pending articles")
 
+    # Load all channel schedules from app_state
+    all_guild_states = get_all_guild_states()
+    all_schedules = {}
+    for guild_id_str in all_guild_states.keys():
+        if guild_id_str != "global" and isinstance(all_guild_states[guild_id_str], dict):
+            guild_schedules = all_guild_states[guild_id_str].get("channel_summary_schedules", {})
+            # Convert string channel_ids to int and merge
+            for ch_id_str, schedule in guild_schedules.items():
+                try:
+                    all_schedules[int(ch_id_str)] = schedule
+                except (ValueError, TypeError):
+                    logger.warning(f"Invalid channel_id in schedules: {ch_id_str}")
+
+    logger.info(f"Loaded custom schedules for {len(all_schedules)} channels")
+
     # Create Discord client
     intents = discord.Intents.none()
     client = discord.Client(intents=intents)
@@ -133,11 +152,19 @@ async def post_summaries() -> None:
 
         for channel_id, data in channel_articles.items():
             try:
+                # Check if it's time to post for THIS channel
+                channel_schedule = all_schedules.get(channel_id)  # None = use default
+                should_post, edition = should_post_summary_for_channel(channel_schedule)
+
+                if not should_post:
+                    logger.info(f"Not time for summary in channel {channel_id}, skipping")
+                    continue
+
                 articles = data["articles"]
                 feed_names = data["feed_names"]
                 guild_id = data["guild_id"]
 
-                logger.info(f"Generating summary for channel {channel_id}: {len(articles)} articles from {len(feed_names)} feeds")
+                logger.info(f"Generating {edition} summary for channel {channel_id}: {len(articles)} articles from {len(feed_names)} feeds")
 
                 # Build filter map from feed configs
                 all_guild_states = get_all_guild_states()
