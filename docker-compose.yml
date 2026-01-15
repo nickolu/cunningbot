@@ -30,3 +30,12 @@ services:
     volumes:
       - ./bot/app:/app/bot/app
     command: bash -c "while true; do python -m bot.app.tasks.rss_feed_poster; sleep 600; done"
+  rsssummary:
+    build: .
+    restart: unless-stopped
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - ./bot/app:/app/bot/app
+    command: bash -c "while true; do python -m bot.app.tasks.rss_summary_poster; sleep 600; done"

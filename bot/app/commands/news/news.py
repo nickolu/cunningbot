@@ -490,6 +490,104 @@ class NewsCog(commands.Cog):
                 ephemeral=True
             )
 
+    @news.command(name="summary", description="Generate an on-demand news summary from pending articles.")
+    @app_commands.describe(
+        force="Generate even if no pending articles (shows recent articles instead)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def summary(
+        self,
+        interaction: discord.Interaction,
+        force: bool = False
+    ) -> None:
+        """Generate immediate news summary for current channel."""
+        from datetime import datetime
+        from bot.domain.news.news_summary_service import generate_news_summary
+        from bot.app.pending_news import get_pending_articles_for_channel, clear_pending_articles_for_channel
+
+        # Defer response (this may take time)
+        await interaction.response.defer(ephemeral=True)
+
+        # Get feeds for current channel (to check if configured)
+        feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+        channel_feeds = {
+            name: info for name, info in feeds.items()
+            if info.get("channel_id") == interaction.channel_id
+        }
+
+        if not channel_feeds:
+            await interaction.followup.send(
+                "No RSS feeds configured for this channel.",
+                ephemeral=True
+            )
+            return
+
+        # Get pending articles from pending_news.json
+        guild_id_str = str(interaction.guild_id)
+        pending_by_feed = get_pending_articles_for_channel(guild_id_str, interaction.channel_id)
+
+        # Flatten articles and collect feed names
+        all_pending = []
+        feed_names = []
+        for feed_name, articles in pending_by_feed.items():
+            all_pending.extend(articles)
+            if articles:
+                feed_names.append(feed_name)
+
+        if not all_pending and not force:
+            await interaction.followup.send(
+                "No pending articles to summarize. Use `force=True` to summarize recent articles anyway.",
+                ephemeral=True
+            )
+            return
+
+        # Generate summary
+        try:
+            logger.info(f"Generating on-demand summary for channel {interaction.channel_id}: {len(all_pending)} articles from {len(feed_names)} feeds")
+
+            summary_result = await generate_news_summary(all_pending, feed_names, "On-Demand")
+
+            # Create embed
+            embed = discord.Embed(
+                title="📰 News Summary - On-Demand",
+                description=summary_result["summary_text"],
+                color=0x00a8ff,
+                timestamp=datetime.utcnow()
+            )
+
+            feed_count = summary_result["feed_count"]
+            article_count = summary_result["total_articles"]
+            feed_text = "feed" if feed_count == 1 else "feeds"
+            article_text = "article" if article_count == 1 else "articles"
+            embed.set_footer(text=f"Summarized {article_count} {article_text} from {feed_count} {feed_text}")
+
+            # Post to channel
+            await interaction.channel.send(embed=embed)
+
+            # Clear pending articles from pending_news.json
+            cleared_count = clear_pending_articles_for_channel(guild_id_str, interaction.channel_id)
+            logger.info(f"Cleared {cleared_count} pending articles for channel {interaction.channel_id}")
+
+            # Update last_summary timestamp in app_state
+            for name in feed_names:
+                if name in feeds:
+                    feeds[name]["last_summary"] = datetime.utcnow().isoformat()
+
+            # Save state
+            set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
+
+            await interaction.followup.send(
+                f"✅ Summary posted! Processed {article_count} articles.",
+                ephemeral=True
+            )
+
+        except Exception as e:
+            logger.error(f"Error generating summary: {e}", exc_info=True)
+            await interaction.followup.send(
+                f"Failed to generate summary: {str(e)}",
+                ephemeral=True
+            )
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(NewsCog(bot))
