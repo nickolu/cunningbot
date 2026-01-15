@@ -21,6 +21,7 @@ from typing import Any, Dict, List
 import hashlib
 from html.parser import HTMLParser
 
+import discord
 import feedparser
 from bot.app.app_state import get_all_guild_states, set_state_value
 from bot.app.pending_news import add_pending_articles
@@ -175,6 +176,104 @@ def extract_article_data(entry, feed, feed_name: str) -> Dict[str, Any]:
     }
 
 
+async def post_direct_items(
+    to_post: Dict[int, List[Dict[str, Any]]],
+    token: str,
+    all_guild_states: Dict[str, Any]
+) -> None:
+    """Post items directly to Discord channels."""
+    logger.info(f"Posting {sum(len(items) for items in to_post.values())} direct items to {len(to_post)} channels")
+
+    # Create Discord client
+    intents = discord.Intents.none()
+    client = discord.Client(intents=intents)
+
+    @client.event  # type: ignore[misc]
+    async def on_ready():
+        logger.info("Discord client logged in as %s", client.user)
+        successfully_posted_items = []
+
+        for channel_id, items in to_post.items():
+            try:
+                channel = client.get_channel(channel_id)
+                if channel is None:
+                    channel = await client.fetch_channel(channel_id)  # type: ignore[attr-defined]
+                if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+                    logger.warning("Channel ID %s is not a text channel", channel_id)
+                    continue
+
+                for item in items:
+                    try:
+                        # Format and post the item
+                        embed = format_item_embed(item['entry'], item['feed'])
+                        await channel.send(embed=embed)
+                        logger.info("Posted item from feed '%s' to channel %s", item['feed_name'], channel.id)
+
+                        # Track successful post
+                        successfully_posted_items.append(item)
+
+                        # Add small delay between posts
+                        await asyncio.sleep(0.5)
+
+                    except discord.HTTPException as exc:
+                        logger.error("Failed to post item from feed '%s': %s", item['feed_name'], exc)
+                    except Exception as exc:
+                        logger.error("Unexpected error posting item from feed '%s': %s", item['feed_name'], exc)
+
+            except discord.Forbidden:
+                logger.error("Missing permissions to post in channel %s", channel_id)
+            except discord.HTTPException as exc:
+                logger.error("HTTP error accessing channel %s: %s", channel_id, exc)
+            except Exception as exc:
+                logger.error("Unexpected error accessing channel %s: %s", channel_id, exc)
+
+        logger.info(f"Successfully posted {len(successfully_posted_items)} direct items")
+        await client.close()
+
+    # Run the client
+    await client.start(token)
+
+
+def format_item_embed(entry, feed) -> discord.Embed:
+    """Format an RSS entry as a Discord embed for direct posting."""
+    title = entry.get('title', 'No title')[:256]
+    link = entry.get('link', '')
+    description = clean_html(get_description(entry))
+    source = get_source(entry, feed)
+    image_url = get_image_url(entry)
+
+    # Parse published date
+    published = entry.get('published', '')
+    timestamp = None
+    if published:
+        try:
+            from email.utils import parsedate_to_datetime
+            timestamp = parsedate_to_datetime(published)
+        except Exception:
+            pass
+
+    embed = discord.Embed(
+        title=title,
+        url=link,
+        description=description if description else "No description available",
+        color=0x00a8ff,
+        timestamp=timestamp
+    )
+
+    # Add image if available
+    if image_url:
+        try:
+            embed.set_image(url=image_url)
+        except Exception:
+            # If image URL is invalid, just skip it
+            pass
+
+    # Add source attribution in footer
+    embed.set_footer(text=f"Source: {source}")
+
+    return embed
+
+
 async def collect_rss_updates() -> None:
     """Main entry point called once per invocation."""
     logger.info("=== RSS Feed Collector Starting ===")
@@ -189,6 +288,10 @@ async def collect_rss_updates() -> None:
 
     # Track collected articles for logging
     total_collected = 0
+    total_posted_direct = 0
+
+    # Build a mapping channel_id -> list[dict] of items to post directly
+    to_post_direct: Dict[int, List[Dict[str, Any]]] = {}
 
     for guild_id_str, guild_state in all_guild_states.items():
         logger.info("Checking guild %s", guild_id_str)
@@ -226,8 +329,14 @@ async def collect_rss_updates() -> None:
             if "last_summary" not in feed_info:
                 feed_info["last_summary"] = None
 
-            logger.info("Feed '%s': url=%s, channel_id=%s, seen_items=%d",
-                       feed_name, feed_url, channel_id, len(seen_items))
+            # Initialize post_mode if not present (migration)
+            if "post_mode" not in feed_info:
+                feed_info["post_mode"] = "summary"  # Default to summary mode
+
+            post_mode = feed_info.get("post_mode", "summary")
+
+            logger.info("Feed '%s': url=%s, channel_id=%s, seen_items=%d, mode=%s",
+                       feed_name, feed_url, channel_id, len(seen_items), post_mode)
 
             if not feed_url or not channel_id:
                 logger.warning("Feed '%s' in guild %s has missing url or channel_id, skipping", feed_name, guild_id_str)
@@ -253,36 +362,55 @@ async def collect_rss_updates() -> None:
                     continue
 
                 # Filter to new items (not in seen_items)
-                new_items = []
+                new_entries = []
                 for entry in feed.entries:
                     item_id = get_item_id(entry)
                     if item_id not in seen_items:
-                        # Extract article data
-                        article_data = extract_article_data(entry, feed, feed_name)
-                        new_items.append(article_data)
+                        new_entries.append(entry)
 
-                # If this is the first run (empty seen_items), only collect the 5 most recent items
-                if not seen_items and len(new_items) > 5:
+                # If this is the first run (empty seen_items), only process the 5 most recent items
+                if not seen_items and len(new_entries) > 5:
                     logger.info("First run for feed '%s', limiting to 5 most recent items", feed_name)
-                    new_items = new_items[:5]
+                    new_entries = new_entries[:5]
 
-                if new_items:
-                    logger.info("Collecting %d new items from feed '%s'", len(new_items), feed_name)
+                if new_entries:
+                    logger.info("Found %d new items from feed '%s' (mode: %s)", len(new_entries), feed_name, post_mode)
 
-                    # Add to pending_news.json
-                    add_pending_articles(guild_id_str, channel_id, feed_name, new_items)
+                    # Route based on post_mode
+                    if post_mode == "direct":
+                        # Direct posting: queue for immediate Discord post
+                        for entry in new_entries:
+                            to_post_direct.setdefault(channel_id, []).append({
+                                'entry': entry,
+                                'feed': feed,
+                                'feed_name': feed_name,
+                                'guild_id': guild_id_str,
+                                'id': get_item_id(entry)
+                            })
+                        total_posted_direct += len(new_entries)
+                        logger.info("Queued %d items for direct posting from feed '%s'", len(new_entries), feed_name)
 
-                    # Add to seen_items to prevent re-collecting
-                    for item in new_items:
-                        seen_items.insert(0, item['id'])
+                    else:  # post_mode == "summary" (or default)
+                        # Summary mode: collect for later summarization
+                        article_data_list = []
+                        for entry in new_entries:
+                            article_data = extract_article_data(entry, feed, feed_name)
+                            article_data_list.append(article_data)
+
+                        # Add to pending_news.json
+                        add_pending_articles(guild_id_str, channel_id, feed_name, article_data_list)
+                        total_collected += len(article_data_list)
+                        logger.info("Collected %d items for summary from feed '%s'", len(article_data_list), feed_name)
+
+                    # Add to seen_items to prevent re-processing
+                    for entry in new_entries:
+                        seen_items.insert(0, get_item_id(entry))
 
                     # Trim seen_items to max
                     feed_info["seen_items"] = seen_items[:max_seen_items]
 
                     # Update last_check
                     feed_info["last_check"] = dt.datetime.utcnow().isoformat()
-
-                    total_collected += len(new_items)
 
             except Exception as e:
                 logger.error("Error processing feed '%s' in guild %s: %s", feed_name, guild_id_str, str(e))
@@ -295,7 +423,17 @@ async def collect_rss_updates() -> None:
         except Exception as e:
             logger.error("Failed to save state for guild %s: %s", guild_id_str, str(e))
 
-    logger.info(f"=== RSS Feed Collector Finished: Collected {total_collected} articles ===")
+    logger.info(f"Collection summary: {total_collected} articles for summary, {total_posted_direct} articles for direct posting")
+
+    # Post direct items if any
+    if to_post_direct:
+        token = os.getenv("DISCORD_TOKEN")
+        if not token:
+            logger.error("DISCORD_TOKEN not set, cannot post direct items")
+        else:
+            await post_direct_items(to_post_direct, token, all_guild_states)
+
+    logger.info(f"=== RSS Feed Collector Finished ===")
 
 
 if __name__ == "__main__":
