@@ -36,7 +36,7 @@ class ChatCog(commands.Cog):
             # Set defaults and convert types
             was_default = False
             if model is None:
-                model = "gpt-4o-mini"
+                model = "gpt-5.2"
                 was_default = True
             
             private = bool(private)
@@ -146,19 +146,26 @@ class ChatCog(commands.Cog):
             app_commands.Choice(name="False", value=0),
         ]
     )
-    @app_commands.choices(  
+    @app_commands.choices(
         model=[
-            app_commands.Choice(name="gpt-3.5-turbo (cheapest)", value="gpt-3.5-turbo"),
-            app_commands.Choice(name="gpt-4.1-nano", value="gpt-4.1-nano"),
-            app_commands.Choice(name="gpt-4o-mini (default)", value="gpt-4o-mini"),
-            app_commands.Choice(name="gpt-4.1-mini", value="gpt-4.1-mini"),
-            app_commands.Choice(name="o4-mini", value="o4-mini"),
-            app_commands.Choice(name="gpt-4.1", value="gpt-4.1"),
+            app_commands.Choice(name="gpt-5.2 (default)", value="gpt-5.2"),
+            app_commands.Choice(name="gpt-5.2-pro (smartest)", value="gpt-5.2-pro"),
+            app_commands.Choice(name="gpt-5.2-codex (coding)", value="gpt-5.2-codex"),
+            app_commands.Choice(name="gpt-5.1", value="gpt-5.1"),
+            app_commands.Choice(name="gpt-5", value="gpt-5"),
+            app_commands.Choice(name="gpt-5-mini", value="gpt-5-mini"),
             app_commands.Choice(name="gpt-4o", value="gpt-4o"),
+            app_commands.Choice(name="gpt-4o-mini", value="gpt-4o-mini"),
+            app_commands.Choice(name="gpt-4.5-preview", value="gpt-4.5-preview"),
+            app_commands.Choice(name="gpt-4.1", value="gpt-4.1"),
+            app_commands.Choice(name="gpt-4.1-mini", value="gpt-4.1-mini"),
+            app_commands.Choice(name="gpt-4.1-nano", value="gpt-4.1-nano"),
             app_commands.Choice(name="gpt-4-turbo", value="gpt-4-turbo"),
             app_commands.Choice(name="gpt-4", value="gpt-4"),
-            app_commands.Choice(name="gpt-4.5-preview (most expensive)", value="gpt-4.5-preview"),
-            
+            app_commands.Choice(name="gpt-3.5-turbo (cheapest)", value="gpt-3.5-turbo"),
+            app_commands.Choice(name="o4-mini", value="o4-mini"),
+            app_commands.Choice(name="o4", value="o4"),
+            app_commands.Choice(name="o3", value="o3"),
         ]
     )
     @app_commands.choices(

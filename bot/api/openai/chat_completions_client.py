@@ -23,6 +23,12 @@ PermittedModelType = Literal[
     "gpt-4.5-preview",
     "gpt-4o-mini",
     "gpt-4o",
+    "gpt-5-mini",
+    "gpt-5",
+    "gpt-5.1",
+    "gpt-5.2",
+    "gpt-5.2-pro",
+    "gpt-5.2-codex",
     "o3",
     "o4-mini",
     "o4",
@@ -47,6 +53,18 @@ def transform_arguments_for_model(model: PermittedModelType) -> Dict[str, Any]:
         return {"model": "gpt-4o-mini", "max_completion_tokens": 10000}
     elif model == "gpt-4o":
         return {"model": "gpt-4o", "max_completion_tokens": 10000}
+    elif model == "gpt-5-mini":
+        return {"model": "gpt-5-mini", "max_completion_tokens": 10000}
+    elif model == "gpt-5":
+        return {"model": "gpt-5", "max_completion_tokens": 10000}
+    elif model == "gpt-5.1":
+        return {"model": "gpt-5.1", "max_completion_tokens": 10000}
+    elif model == "gpt-5.2":
+        return {"model": "gpt-5.2", "max_completion_tokens": 10000}
+    elif model == "gpt-5.2-pro":
+        return {"model": "gpt-5.2-pro", "max_completion_tokens": 10000}
+    elif model == "gpt-5.2-codex":
+        return {"model": "gpt-5.2-codex", "max_completion_tokens": 10000}
     elif model == "o3":
         return {"model": "o3", "max_completion_tokens": 10000}
     elif model == "o4-mini":
@@ -83,12 +101,18 @@ class ChatCompletionsClient:
         "gpt-4.5-preview": "openai",
         "gpt-4o-mini": "openai",
         "gpt-4o": "openai",
+        "gpt-5-mini": "openai",
+        "gpt-5": "openai",
+        "gpt-5.1": "openai",
+        "gpt-5.2": "openai",
+        "gpt-5.2-pro": "openai",
+        "gpt-5.2-codex": "openai",
         "o3": "openai",
         "o4-mini": "openai",
         "o4": "openai",
     }
 
-    def __init__(self, model: PermittedModelType = "gpt-4o-mini"):
+    def __init__(self, model: PermittedModelType = "gpt-5.2"):
         self.model = model
         self.provider = self.PERMITTED_MODELS.get(model)
         if not self.provider:
@@ -131,6 +155,6 @@ class ChatCompletionsClient:
         return response.choices[0].message.content or ""
 
     @staticmethod
-    def factory(model: PermittedModelType = "gpt-4o-mini") -> "ChatCompletionsClient":
+    def factory(model: PermittedModelType = "gpt-5.2") -> "ChatCompletionsClient":
         return ChatCompletionsClient(model=model)
 

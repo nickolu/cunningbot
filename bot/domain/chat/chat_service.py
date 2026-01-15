@@ -22,7 +22,7 @@ async def chat_service(
 ) -> str:   
     
     if model is None:
-        model = "gpt-4o-mini"
+        model = "gpt-5.2"
 
     if name is None:
         name = "User"
