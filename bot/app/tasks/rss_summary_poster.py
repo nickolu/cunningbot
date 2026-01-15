@@ -179,6 +179,11 @@ async def post_summaries() -> None:
                 story_history = get_todays_story_history(guild_id_str, channel_id)
                 logger.info(f"Loaded {len(story_history)} stories from today's history for channel {channel_id}")
 
+                # Load article processing limits for this channel
+                from bot.domain.news.news_summary_service import get_channel_article_limits
+                limits = get_channel_article_limits(guild_id, channel_id)
+                logger.info(f"Using limits for channel {channel_id}: {limits['initial_limit']} → {limits['top_articles_limit']} → {limits['cluster_limit']}")
+
                 # Build filter map from feed configs
                 all_guild_states = get_all_guild_states()
                 guild_state = all_guild_states.get(guild_id, {})
@@ -197,7 +202,10 @@ async def post_summaries() -> None:
                         feed_names=feed_names,
                         filter_map=filter_map,
                         story_history=story_history,
-                        edition=edition
+                        edition=edition,
+                        initial_limit=limits["initial_limit"],
+                        top_articles_limit=limits["top_articles_limit"],
+                        cluster_limit=limits["cluster_limit"]
                     )
                 except Exception as e:
                     logger.error(f"Failed to generate summary for channel {channel_id}: {e}")

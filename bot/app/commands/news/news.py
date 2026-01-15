@@ -539,6 +539,132 @@ class NewsCog(commands.Cog):
                 ephemeral=True
             )
 
+    @news.command(name="set-limits", description="Configure article processing limits for this channel.")
+    @app_commands.describe(
+        initial_limit="Max articles to process initially (10-200, default: 50)",
+        top_articles_limit="Max articles to rank and cluster (5-50, default: 18)",
+        cluster_limit="Max story clusters to generate (3-20, default: 8)",
+        reset="Set to 'true' to reset all limits to defaults"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_limits(
+        self,
+        interaction: discord.Interaction,
+        initial_limit: Optional[int] = None,
+        top_articles_limit: Optional[int] = None,
+        cluster_limit: Optional[int] = None,
+        reset: Optional[str] = None
+    ) -> None:
+        """Configure article processing limits for current channel."""
+        from bot.domain.news.news_summary_service import (
+            validate_limit_value,
+            MIN_INITIAL_LIMIT, MAX_INITIAL_LIMIT,
+            MIN_TOP_ARTICLES_LIMIT, MAX_TOP_ARTICLES_LIMIT,
+            MIN_CLUSTER_LIMIT, MAX_CLUSTER_LIMIT,
+            DEFAULT_INITIAL_LIMIT, DEFAULT_TOP_ARTICLES_LIMIT, DEFAULT_CLUSTER_LIMIT
+        )
+
+        channel_id = interaction.channel_id
+        all_limits = get_state_value_from_interaction("channel_article_limits", interaction.guild_id) or {}
+
+        # Handle reset
+        if reset and reset.lower() == "true":
+            if str(channel_id) in all_limits:
+                del all_limits[str(channel_id)]
+                set_state_value_from_interaction("channel_article_limits", all_limits, interaction.guild_id)
+                await interaction.response.send_message(
+                    f"✅ Article processing limits reset to defaults for {interaction.channel.mention}\n"
+                    f"**Defaults:** {DEFAULT_INITIAL_LIMIT} → {DEFAULT_TOP_ARTICLES_LIMIT} → {DEFAULT_CLUSTER_LIMIT}",
+                    ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    "ℹ️ This channel already uses default limits.",
+                    ephemeral=True
+                )
+            return
+
+        # Check if at least one limit was provided
+        if initial_limit is None and top_articles_limit is None and cluster_limit is None:
+            await interaction.response.send_message(
+                "⚠️ Please provide at least one limit to set, or use `reset=true`.\n\n"
+                "**Examples:**\n"
+                "  • `/news set-limits initial_limit:100`\n"
+                "  • `/news set-limits top_articles_limit:25 cluster_limit:12`\n"
+                "  • `/news set-limits reset:true`",
+                ephemeral=True
+            )
+            return
+
+        # Get current limits (or defaults)
+        current_limits = all_limits.get(str(channel_id), {})
+        new_limits = {
+            "initial_limit": current_limits.get("initial_limit", DEFAULT_INITIAL_LIMIT),
+            "top_articles_limit": current_limits.get("top_articles_limit", DEFAULT_TOP_ARTICLES_LIMIT),
+            "cluster_limit": current_limits.get("cluster_limit", DEFAULT_CLUSTER_LIMIT)
+        }
+
+        # Validate and update provided limits
+        try:
+            if initial_limit is not None:
+                validate_limit_value(initial_limit, MIN_INITIAL_LIMIT, MAX_INITIAL_LIMIT, "Initial limit")
+                new_limits["initial_limit"] = initial_limit
+
+            if top_articles_limit is not None:
+                validate_limit_value(top_articles_limit, MIN_TOP_ARTICLES_LIMIT, MAX_TOP_ARTICLES_LIMIT, "Top articles limit")
+                new_limits["top_articles_limit"] = top_articles_limit
+
+            if cluster_limit is not None:
+                validate_limit_value(cluster_limit, MIN_CLUSTER_LIMIT, MAX_CLUSTER_LIMIT, "Cluster limit")
+                new_limits["cluster_limit"] = cluster_limit
+
+            # Logical validation: top_articles_limit <= initial_limit
+            if new_limits["top_articles_limit"] > new_limits["initial_limit"]:
+                await interaction.response.send_message(
+                    f"⚠️ Top articles limit ({new_limits['top_articles_limit']}) cannot exceed initial limit ({new_limits['initial_limit']}).",
+                    ephemeral=True
+                )
+                return
+
+            # Logical validation: cluster_limit <= top_articles_limit
+            if new_limits["cluster_limit"] > new_limits["top_articles_limit"]:
+                await interaction.response.send_message(
+                    f"⚠️ Cluster limit ({new_limits['cluster_limit']}) cannot exceed top articles limit ({new_limits['top_articles_limit']}).",
+                    ephemeral=True
+                )
+                return
+
+        except ValueError as e:
+            await interaction.response.send_message(
+                f"❌ Invalid limit value: {str(e)}\n\n"
+                f"**Valid ranges:**\n"
+                f"  • Initial: {MIN_INITIAL_LIMIT}-{MAX_INITIAL_LIMIT}\n"
+                f"  • Top articles: {MIN_TOP_ARTICLES_LIMIT}-{MAX_TOP_ARTICLES_LIMIT}\n"
+                f"  • Clusters: {MIN_CLUSTER_LIMIT}-{MAX_CLUSTER_LIMIT}",
+                ephemeral=True
+            )
+            return
+
+        # Save new limits
+        all_limits[str(channel_id)] = new_limits
+        set_state_value_from_interaction("channel_article_limits", all_limits, interaction.guild_id)
+
+        # Build response
+        changes = []
+        if initial_limit is not None:
+            changes.append(f"Initial articles: **{initial_limit}**")
+        if top_articles_limit is not None:
+            changes.append(f"Top articles: **{top_articles_limit}**")
+        if cluster_limit is not None:
+            changes.append(f"Story clusters: **{cluster_limit}**")
+
+        await interaction.response.send_message(
+            f"✅ Article processing limits updated for {interaction.channel.mention}\n\n"
+            f"**Updated:** " + ", ".join(changes) + "\n\n"
+            f"**Current config:** {new_limits['initial_limit']} → {new_limits['top_articles_limit']} → {new_limits['cluster_limit']}",
+            ephemeral=True
+        )
+
     @news.command(name="list", description="List all RSS feeds in this channel.")
     async def list_feeds(self, interaction: discord.Interaction) -> None:
         feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
@@ -617,6 +743,29 @@ class NewsCog(commands.Cog):
         embed.add_field(
             name="📅 Summary Posting Schedule",
             value=schedule_str,
+            inline=False
+        )
+
+        # Add article processing limits information
+        limits = get_state_value_from_interaction("channel_article_limits", interaction.guild_id) or {}
+        channel_limits = limits.get(str(current_channel_id))
+
+        if channel_limits:
+            limits_str = (
+                f"**Custom Limits:** "
+                f"{channel_limits['initial_limit']} → "
+                f"{channel_limits['top_articles_limit']} → "
+                f"{channel_limits['cluster_limit']}"
+            )
+        else:
+            from bot.domain.news.news_summary_service import (
+                DEFAULT_INITIAL_LIMIT, DEFAULT_TOP_ARTICLES_LIMIT, DEFAULT_CLUSTER_LIMIT
+            )
+            limits_str = f"**Limits:** {DEFAULT_INITIAL_LIMIT} → {DEFAULT_TOP_ARTICLES_LIMIT} → {DEFAULT_CLUSTER_LIMIT} (default)"
+
+        embed.add_field(
+            name="⚙️ Article Processing Limits",
+            value=limits_str,
             inline=False
         )
 
@@ -756,11 +905,24 @@ class NewsCog(commands.Cog):
         # Load today's story history for deduplication
         story_history = get_todays_story_history(guild_id_str, interaction.channel_id)
 
+        # Load article processing limits for this channel
+        from bot.domain.news.news_summary_service import get_channel_article_limits
+        limits = get_channel_article_limits(interaction.guild_id, interaction.channel_id)
+
         # Generate summary
         try:
             logger.info(f"Generating on-demand summary for channel {interaction.channel_id}: {len(all_pending)} articles from {len(feed_names)} feeds")
 
-            summary_result = await generate_news_summary(all_pending, feed_names, filter_map, story_history, "On-Demand")
+            summary_result = await generate_news_summary(
+                articles=all_pending,
+                feed_names=feed_names,
+                filter_map=filter_map,
+                story_history=story_history,
+                edition="On-Demand",
+                initial_limit=limits["initial_limit"],
+                top_articles_limit=limits["top_articles_limit"],
+                cluster_limit=limits["cluster_limit"]
+            )
 
             # Create embed
             embed = discord.Embed(
