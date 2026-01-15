@@ -253,6 +253,7 @@ class NewsCog(commands.Cog):
             "url": feed_url,
             "channel_id": channel.id,
             "enabled": True,
+            "post_mode": "summary",  # "summary" or "direct"
             "last_check": datetime.utcnow().isoformat(),
             "seen_items": [],
             "max_seen_items": 100,
@@ -264,7 +265,9 @@ class NewsCog(commands.Cog):
         set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
 
         await interaction.followup.send(
-            f"✅ RSS feed **{feed_name}** registered! I will check this feed every 10 minutes and post updates to {channel.mention}.",
+            f"✅ RSS feed **{feed_name}** registered!\n"
+            f"• Mode: **Summary** (articles aggregated for 8am/8pm summaries)\n"
+            f"• Use `/news set-mode {feed_name} direct` to post articles immediately instead",
             ephemeral=True,
         )
 
@@ -358,6 +361,49 @@ class NewsCog(commands.Cog):
             ephemeral=True
         )
 
+    @news.command(name="set-mode", description="Set posting mode for a feed (summary or direct).")
+    @app_commands.describe(
+        feed_name="The name of the feed to configure",
+        mode="Posting mode: 'summary' for aggregated summaries, 'direct' for immediate posts"
+    )
+    @app_commands.choices(mode=[
+        app_commands.Choice(name="Summary (8am/8pm aggregated)", value="summary"),
+        app_commands.Choice(name="Direct (immediate posting)", value="direct")
+    ])
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_mode(
+        self,
+        interaction: discord.Interaction,
+        feed_name: str,
+        mode: str
+    ) -> None:
+        """Set the posting mode for an RSS feed."""
+        feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+
+        if feed_name not in feeds:
+            await interaction.response.send_message(
+                f"No feed named '{feed_name}' found for this guild.", ephemeral=True
+            )
+            return
+
+        # Update the mode
+        old_mode = feeds[feed_name].get("post_mode", "summary")
+        feeds[feed_name]["post_mode"] = mode
+
+        # Save back to state
+        set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
+
+        mode_description = {
+            "summary": "📊 **Summary Mode** - Articles will be aggregated and posted as AI-generated summaries at 8am and 8pm PT",
+            "direct": "⚡ **Direct Mode** - Articles will be posted immediately as they are discovered (every 10 minutes)"
+        }
+
+        await interaction.response.send_message(
+            f"✅ Feed **{feed_name}** mode changed from **{old_mode}** to **{mode}**\n\n"
+            f"{mode_description.get(mode, '')}",
+            ephemeral=True
+        )
+
     @news.command(name="list", description="List all RSS feeds in this channel.")
     async def list_feeds(self, interaction: discord.Interaction) -> None:
         feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
@@ -387,6 +433,8 @@ class NewsCog(commands.Cog):
             status = "✅ Enabled" if feed_info.get("enabled", True) else "🚫 Disabled"
             url = feed_info.get("url", "No URL")
             last_check = feed_info.get("last_check", "Never")
+            post_mode = feed_info.get("post_mode", "summary")
+            mode_icon = "📊" if post_mode == "summary" else "⚡"
 
             # Format last check time
             if last_check and last_check != "Never":
@@ -401,6 +449,7 @@ class NewsCog(commands.Cog):
             feed_entry = (
                 f"**{name}**\n"
                 f"  • Status: {status}\n"
+                f"  • Mode: {mode_icon} {post_mode.title()}\n"
                 f"  • URL: <{url}>\n"
                 f"  • Last Check: {last_check_str}\n"
             )

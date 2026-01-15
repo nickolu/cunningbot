@@ -136,7 +136,6 @@ async def post_summaries() -> None:
                 articles = data["articles"]
                 feed_names = data["feed_names"]
                 guild_id = data["guild_id"]
-                feeds_to_update = data["feeds"]
 
                 logger.info(f"Generating summary for channel {channel_id}: {len(articles)} articles from {len(feed_names)} feeds")
 
