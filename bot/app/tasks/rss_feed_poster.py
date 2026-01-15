@@ -51,6 +51,23 @@ def clean_html(html_text: str, max_length: int = 500) -> str:
     if not html_text:
         return ""
 
+    import re
+
+    # Remove common "related articles" sections before processing
+    # These patterns often appear at the end of articles
+    patterns_to_remove = [
+        r'<h[23]>Related.*?</h[23]>.*',  # Related heading and everything after
+        r'<div[^>]*class="[^"]*related[^"]*"[^>]*>.*?</div>',  # Related divs
+        r'<aside[^>]*>.*?</aside>',  # Aside sections (often related content)
+        r'Read more:.*',  # "Read more" sections
+        r'Related:.*',  # "Related:" sections
+        r'See also:.*',  # "See also" sections
+    ]
+
+    cleaned = html_text
+    for pattern in patterns_to_remove:
+        cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE | re.DOTALL)
+
     class HTMLStripper(HTMLParser):
         def __init__(self):
             super().__init__()
@@ -64,12 +81,14 @@ def clean_html(html_text: str, max_length: int = 500) -> str:
 
     stripper = HTMLStripper()
     try:
-        stripper.feed(html_text)
+        stripper.feed(cleaned)
         text = stripper.get_text().strip()
     except Exception:
         # If HTML parsing fails, just strip basic tags
-        import re
-        text = re.sub(r'<[^>]+>', '', html_text).strip()
+        text = re.sub(r'<[^>]+>', '', cleaned).strip()
+
+    # Remove extra whitespace and newlines
+    text = ' '.join(text.split())
 
     # Truncate with ellipsis
     if len(text) > max_length:
