@@ -267,7 +267,8 @@ class NewsCog(commands.Cog):
 
         await interaction.followup.send(
             f"✅ RSS feed **{feed_name}** registered!\n"
-            f"• Mode: **Summary** (articles aggregated for 8am/8pm summaries)\n"
+            f"• Mode: **Summary** (articles aggregated for scheduled summaries)\n"
+            f"• Use `/news set-schedule` to customize posting times\n"
             f"• Use `/news set-mode {feed_name} direct` to post articles immediately instead",
             ephemeral=True,
         )
@@ -445,6 +446,98 @@ class NewsCog(commands.Cog):
                 ephemeral=True
             )
 
+    @news.command(name="set-schedule", description="Set summary posting times for this channel.")
+    @app_commands.describe(
+        times="Comma-separated times in 24-hour format (e.g., '8:00,20:00' or '6:00,12:00,18:00'). Use 'default' to reset."
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_schedule(
+        self,
+        interaction: discord.Interaction,
+        times: str
+    ) -> None:
+        """Configure summary posting schedule for current channel."""
+        channel_id = interaction.channel_id
+
+        # Load existing schedules
+        schedules = get_state_value_from_interaction("channel_summary_schedules", interaction.guild_id) or {}
+
+        # Handle "default" - remove custom schedule
+        if times.lower() == "default":
+            if str(channel_id) in schedules:
+                del schedules[str(channel_id)]
+                set_state_value_from_interaction("channel_summary_schedules", schedules, interaction.guild_id)
+                await interaction.response.send_message(
+                    "✅ Summary schedule reset to default (8:00 AM, 8:00 PM Pacific)",
+                    ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    "ℹ️ This channel already uses the default schedule (8:00 AM, 8:00 PM Pacific)",
+                    ephemeral=True
+                )
+            return
+
+        # Parse times
+        try:
+            time_list = []
+            for time_str in times.split(','):
+                time_str = time_str.strip()
+                if ':' not in time_str:
+                    raise ValueError(f"Invalid time format: {time_str}")
+
+                hour_str, minute_str = time_str.split(':', 1)
+                hour = int(hour_str)
+                minute = int(minute_str)
+
+                # Validate
+                if not (0 <= hour <= 23):
+                    raise ValueError(f"Hour must be 0-23, got {hour}")
+                if not (0 <= minute <= 59):
+                    raise ValueError(f"Minute must be 0-59, got {minute}")
+
+                time_list.append((hour, minute))
+
+            # Limit to 4 time slots
+            if len(time_list) > 4:
+                await interaction.response.send_message(
+                    "⚠️ Maximum 4 time slots allowed. Please provide 1-4 times.",
+                    ephemeral=True
+                )
+                return
+
+            if len(time_list) == 0:
+                await interaction.response.send_message(
+                    "⚠️ Please provide at least one time. Use 'default' to reset to default schedule.",
+                    ephemeral=True
+                )
+                return
+
+            # Save schedule
+            schedules[str(channel_id)] = time_list
+            set_state_value_from_interaction("channel_summary_schedules", schedules, interaction.guild_id)
+
+            # Format times for display
+            formatted_times = [f"{h}:{m:02d}" for h, m in sorted(time_list)]
+
+            await interaction.response.send_message(
+                f"✅ Summary schedule updated for {interaction.channel.mention}\n"
+                f"**New schedule (Pacific Time):** {', '.join(formatted_times)}\n\n"
+                f"Summaries will be posted at these times when pending articles are available.",
+                ephemeral=True
+            )
+
+        except ValueError as e:
+            await interaction.response.send_message(
+                f"❌ Invalid time format: {str(e)}\n\n"
+                f"**Expected format:** Comma-separated times in 24-hour format\n"
+                f"**Examples:**\n"
+                f"  • `8:00,20:00` (8 AM and 8 PM)\n"
+                f"  • `6:00,12:00,18:00` (6 AM, 12 PM, 6 PM)\n"
+                f"  • `9:30,21:30` (9:30 AM and 9:30 PM)",
+                ephemeral=True
+            )
+
     @news.command(name="list", description="List all RSS feeds in this channel.")
     async def list_feeds(self, interaction: discord.Interaction) -> None:
         feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
@@ -509,6 +602,22 @@ class NewsCog(commands.Cog):
         )
 
         embed.set_footer(text=f"Total feeds in this channel: {len(channel_feeds)}")
+
+        # Add schedule information
+        schedules = get_state_value_from_interaction("channel_summary_schedules", interaction.guild_id) or {}
+        channel_schedule = schedules.get(str(current_channel_id))
+
+        if channel_schedule:
+            formatted_times = [f"{h}:{m:02d}" for h, m in sorted(channel_schedule)]
+            schedule_str = f"**Custom Schedule (PT):** {', '.join(formatted_times)}"
+        else:
+            schedule_str = "**Schedule (PT):** 8:00, 20:00 (default)"
+
+        embed.add_field(
+            name="📅 Summary Posting Schedule",
+            value=schedule_str,
+            inline=False
+        )
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
