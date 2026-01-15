@@ -123,59 +123,119 @@ def reorder_articles(articles: List[Dict[str, Any]], ranking: List[int]) -> List
         return articles
 
 
+async def generate_story_summaries(
+    top_articles: List[Dict[str, Any]]
+) -> List[Dict[str, str]]:
+    """
+    Generate brief summaries for each article using LLM.
+
+    Args:
+        top_articles: List of top-ranked articles
+
+    Returns:
+        List of dicts with title, link, summary for each article
+    """
+    try:
+        # Take top 8 articles for summary (more manageable for LLM)
+        articles_to_summarize = top_articles[:8]
+
+        # Prepare article list for LLM
+        article_list = []
+        for i, a in enumerate(articles_to_summarize, 1):
+            title = a.get('title', 'Untitled')
+            desc = a.get('description', '')[:400]
+
+            article_list.append(f"{i}. Title: {title}\n   Description: {desc}")
+
+        prompt = f"""You are a news editor. For each article below, write ONE concise sentence (max 25 words) summarizing the key point or most interesting aspect.
+
+Articles:
+{chr(10).join(article_list)}
+
+Format your response as a numbered list with ONLY the summary sentence for each article:
+1. [Your summary for article 1]
+2. [Your summary for article 2]
+etc."""
+
+        llm = ChatCompletionsClient.factory("gpt-4o-mini")
+        response = await llm.chat([
+            {"role": "system", "content": "You are a concise news editor who summarizes stories in one sentence each."},
+            {"role": "user", "content": prompt}
+        ])
+
+        # Parse LLM response into summaries
+        summaries = []
+        lines = response.strip().split('\n')
+
+        for i, article in enumerate(articles_to_summarize):
+            # Try to find matching summary line
+            summary_text = None
+            for line in lines:
+                if line.strip().startswith(f"{i+1}."):
+                    summary_text = line.split('.', 1)[1].strip() if '.' in line else line.strip()
+                    break
+
+            # Fallback to first sentence of description if parsing failed
+            if not summary_text:
+                desc = article.get('description', '')
+                summary_text = desc.split('.')[0][:100] if desc else "Breaking news update"
+
+            summaries.append({
+                'title': article.get('title', 'Untitled'),
+                'link': article.get('link', ''),
+                'source': article.get('source', 'Unknown'),
+                'summary': summary_text
+            })
+
+        return summaries
+
+    except Exception as e:
+        logger.error(f"Error generating story summaries: {e}")
+        # Fallback: use article titles
+        return [
+            {
+                'title': a.get('title', 'Untitled'),
+                'link': a.get('link', ''),
+                'source': a.get('source', 'Unknown'),
+                'summary': a.get('description', '')[:100]
+            }
+            for a in top_articles[:8]
+        ]
+
+
 async def generate_summary_text(
     top_articles: List[Dict[str, Any]],
     edition: str = "Summary"
 ) -> str:
     """
-    Generate natural language summary with embedded article links.
+    Generate structured summary with guaranteed links to top stories.
 
     Args:
         top_articles: List of top-ranked articles (typically top 10)
         edition: "Morning", "Evening", or "Summary" for title
 
     Returns:
-        AI-generated summary text with Discord markdown links
+        Formatted summary text with Discord markdown links
     """
     if not top_articles:
         return "No articles available for summary."
 
     try:
-        # Prepare article details for LLM
-        article_details = []
-        for i, a in enumerate(top_articles, 1):
-            title = a.get('title', 'Untitled')
-            desc = a.get('description', '')[:300]
-            link = a.get('link', '')
-            source = a.get('source', 'Unknown')
+        # Generate brief summaries for each story
+        story_summaries = await generate_story_summaries(top_articles)
 
-            article_details.append(
-                f"{i}. [{title}]({link}) (Source: {source})\n   {desc}"
+        # Format as bullet list with guaranteed links
+        summary_lines = ["**Top Stories:**\n"]
+
+        for i, story in enumerate(story_summaries, 1):
+            # Format: • [Title](link) - Brief summary (Source)
+            summary_lines.append(
+                f"**{i}.** [{story['title']}]({story['link']})\n"
+                f"   {story['summary']} *({story['source']})*\n"
             )
 
-        prompt = f"""You are a news summarizer. Create a concise, engaging summary of today's top stories.
-
-Requirements:
-- Write 2-3 paragraphs (max 500 words)
-- Naturally incorporate article links using Discord markdown format: [Title](URL)
-- Group related stories together when possible
-- Use engaging, conversational tone
-- Focus on the most important/interesting aspects
-- Do NOT include a title or header (it will be added separately)
-
-Top Articles:
-{chr(10).join(article_details)}
-
-Write the summary:"""
-
-        llm = ChatCompletionsClient.factory("gpt-4o-mini")
-        response = await llm.chat([
-            {"role": "system", "content": "You are a professional news summarizer."},
-            {"role": "user", "content": prompt}
-        ])
-
-        logger.info(f"Generated summary text from {len(top_articles)} articles")
-        return response.strip()
+        logger.info(f"Generated summary with {len(story_summaries)} linked stories")
+        return "\n".join(summary_lines)
 
     except Exception as e:
         logger.error(f"Error generating summary text: {e}")
