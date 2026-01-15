@@ -8,7 +8,7 @@ services:
       - CLIENT_ID=${CLIENT_ID}
       - INVITE_URL=${INVITE_URL}
     volumes:
-      - ./bot/domain:/app/bot/domain
+      - ./bot/app:/app/bot/app
       - ./logs:/app/logs
       - ./generated_images:/app/generated_images
     # Note: Using volumes for the core directory allows state persistence

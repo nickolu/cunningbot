@@ -24,6 +24,23 @@
                 "channel_id": 927326877461397554,
                 "enabled": false
             }
+        },
+        "rss_feeds": {
+            "San Diego News": {
+                "name": "San Diego News",
+                "url": "https://rss.astrocrash.net/i/?a=rss&hours=168",
+                "channel_id": 1461118903332900999,
+                "enabled": true,
+                "last_check": "2026-01-14T23:57:17.451011",
+                "seen_items": [
+                    "1768428187644960",
+                    "1768410187035868",
+                    "1768434484070443",
+                    "1768434484070444",
+                    "1768434484070445"
+                ],
+                "max_seen_items": 100
+            }
         }
     }
 }
