@@ -254,6 +254,7 @@ class NewsCog(commands.Cog):
             "channel_id": channel.id,
             "enabled": True,
             "post_mode": "summary",  # "summary" or "direct"
+            "filter_instructions": None,  # Custom filter instructions (e.g., "only San Diego articles")
             "last_check": datetime.utcnow().isoformat(),
             "seen_items": [],
             "max_seen_items": 100,
@@ -404,6 +405,46 @@ class NewsCog(commands.Cog):
             ephemeral=True
         )
 
+    @news.command(name="set-filter", description="Set custom filter instructions for a feed.")
+    @app_commands.describe(
+        feed_name="The name of the feed to configure",
+        instructions="Filter instructions (e.g., 'only San Diego articles') or 'none' to clear"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_filter(
+        self,
+        interaction: discord.Interaction,
+        feed_name: str,
+        instructions: str
+    ) -> None:
+        """Set or clear custom filter instructions for a feed."""
+        feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+
+        if feed_name not in feeds:
+            await interaction.response.send_message(
+                f"No feed named '{feed_name}' found for this guild.", ephemeral=True
+            )
+            return
+
+        # Clear filter if "none"
+        if instructions.lower() == "none":
+            feeds[feed_name]["filter_instructions"] = None
+            set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
+            await interaction.response.send_message(
+                f"✅ Filter cleared for **{feed_name}**\n"
+                f"All articles from this feed will be included in summaries.",
+                ephemeral=True
+            )
+        else:
+            feeds[feed_name]["filter_instructions"] = instructions
+            set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
+            await interaction.response.send_message(
+                f"✅ Filter set for **{feed_name}**\n"
+                f"Active filter: \"{instructions}\"\n\n"
+                f"Articles will be filtered using AI based on these instructions during summary generation.",
+                ephemeral=True
+            )
+
     @news.command(name="list", description="List all RSS feeds in this channel.")
     async def list_feeds(self, interaction: discord.Interaction) -> None:
         feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
@@ -446,10 +487,15 @@ class NewsCog(commands.Cog):
             else:
                 last_check_str = "Never"
 
+            # Add filter line if filter is set
+            filter_instr = feed_info.get("filter_instructions")
+            filter_line = f"  • Filter: \"{filter_instr}\"\n" if filter_instr else ""
+
             feed_entry = (
                 f"**{name}**\n"
                 f"  • Status: {status}\n"
                 f"  • Mode: {mode_icon} {post_mode.title()}\n"
+                f"{filter_line}"
                 f"  • URL: <{url}>\n"
                 f"  • Last Check: {last_check_str}\n"
             )
@@ -590,11 +636,18 @@ class NewsCog(commands.Cog):
             )
             return
 
+        # Build filter map
+        filter_map = {
+            name: channel_feeds[name].get('filter_instructions')
+            for name in feed_names
+            if channel_feeds[name].get('filter_instructions')
+        }
+
         # Generate summary
         try:
             logger.info(f"Generating on-demand summary for channel {interaction.channel_id}: {len(all_pending)} articles from {len(feed_names)} feeds")
 
-            summary_result = await generate_news_summary(all_pending, feed_names, "On-Demand")
+            summary_result = await generate_news_summary(all_pending, feed_names, filter_map, "On-Demand")
 
             # Create embed
             embed = discord.Embed(
