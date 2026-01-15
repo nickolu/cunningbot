@@ -139,11 +139,23 @@ async def post_summaries() -> None:
 
                 logger.info(f"Generating summary for channel {channel_id}: {len(articles)} articles from {len(feed_names)} feeds")
 
+                # Build filter map from feed configs
+                all_guild_states = get_all_guild_states()
+                guild_state = all_guild_states.get(guild_id, {})
+                all_feeds = guild_state.get('rss_feeds', {})
+
+                filter_map = {
+                    name: feed.get('filter_instructions')
+                    for name, feed in all_feeds.items()
+                    if name in feed_names and feed.get('filter_instructions')
+                }
+
                 # Generate AI summary
                 try:
                     summary_result = await generate_news_summary(
                         articles=articles,
                         feed_names=feed_names,
+                        filter_map=filter_map,
                         edition=edition
                     )
                 except Exception as e:
