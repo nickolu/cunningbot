@@ -11,6 +11,46 @@ from bot.app.utils.logger import get_logger
 
 logger = get_logger()
 
+# Article processing limit defaults
+DEFAULT_INITIAL_LIMIT = 50
+DEFAULT_TOP_ARTICLES_LIMIT = 18
+DEFAULT_CLUSTER_LIMIT = 8
+
+# Validation bounds
+MIN_INITIAL_LIMIT = 10
+MAX_INITIAL_LIMIT = 200
+MIN_TOP_ARTICLES_LIMIT = 5
+MAX_TOP_ARTICLES_LIMIT = 50
+MIN_CLUSTER_LIMIT = 3
+MAX_CLUSTER_LIMIT = 20
+
+
+def get_channel_article_limits(guild_id: int, channel_id: int) -> Dict[str, int]:
+    """
+    Retrieve article processing limits for a specific channel.
+    Returns defaults if no custom limits configured.
+    """
+    from bot.app.app_state import get_state_value
+
+    guild_id_str = str(guild_id)
+    all_limits = get_state_value("channel_article_limits", guild_id_str) or {}
+    channel_limits = all_limits.get(str(channel_id), {})
+
+    return {
+        "initial_limit": channel_limits.get("initial_limit", DEFAULT_INITIAL_LIMIT),
+        "top_articles_limit": channel_limits.get("top_articles_limit", DEFAULT_TOP_ARTICLES_LIMIT),
+        "cluster_limit": channel_limits.get("cluster_limit", DEFAULT_CLUSTER_LIMIT)
+    }
+
+
+def validate_limit_value(value: int, min_val: int, max_val: int, name: str) -> None:
+    """Validate that a limit value is within acceptable bounds."""
+    if not isinstance(value, int):
+        raise ValueError(f"{name} must be an integer")
+
+    if value < min_val or value > max_val:
+        raise ValueError(f"{name} must be between {min_val} and {max_val}, got {value}")
+
 
 async def filter_articles_by_instructions(
     articles: List[Dict[str, Any]],
@@ -210,10 +250,15 @@ def reorder_articles(articles: List[Dict[str, Any]], ranking: List[int]) -> List
 
 
 async def cluster_articles_by_story(
-    articles: List[Dict[str, Any]]
+    articles: List[Dict[str, Any]],
+    max_clusters: int = 8
 ) -> List[Dict[str, Any]]:
     """
     Group similar articles into story clusters using LLM.
+
+    Args:
+        articles: List of articles to cluster
+        max_clusters: Maximum number of clusters to return (default: 8)
 
     Returns:
         List of clusters: [{"articles": [...], "theme": "..."}, ...]
@@ -271,15 +316,15 @@ Aim for 5-8 total clusters. Single-article clusters are fine."""
                     "theme": cluster_id
                 })
 
-        clusters = clusters[:8]  # Limit to 8 clusters
-        logger.info(f"Clustered {len(articles)} articles into {len(clusters)} stories")
+        clusters = clusters[:max_clusters]
+        logger.info(f"Clustered {len(articles)} articles into {len(clusters)} stories (max: {max_clusters})")
         return clusters
 
     except Exception as e:
         logger.error(f"Error clustering: {e}")
         # Fallback: each article is own cluster
         return [{"articles": [a], "theme": f"story_{i+1}"}
-                for i, a in enumerate(articles[:8])]
+                for i, a in enumerate(articles[:max_clusters])]
 
 
 async def generate_preliminary_title(articles: List[Dict[str, Any]]) -> str:
@@ -687,7 +732,10 @@ async def generate_news_summary(
     feed_names: List[str],
     filter_map: Dict[str, str] = None,
     story_history: List[Dict[str, Any]] = None,
-    edition: str = "Summary"
+    edition: str = "Summary",
+    initial_limit: int = 50,
+    top_articles_limit: int = 18,
+    cluster_limit: int = 8
 ) -> Dict[str, Any]:
     """
     Main orchestrator function for generating news summaries with filtering, clustering, and deduplication.
@@ -698,6 +746,9 @@ async def generate_news_summary(
         filter_map: Optional dict mapping feed_name to filter_instructions
         story_history: Optional list of stories already posted today (for deduplication)
         edition: "Morning", "Evening", or "Summary"
+        initial_limit: Max articles to process initially (default: 50)
+        top_articles_limit: Max articles to rank and cluster (default: 18)
+        cluster_limit: Max story clusters to generate (default: 8)
 
     Returns:
         Dictionary with:
@@ -718,10 +769,10 @@ async def generate_news_summary(
             "feed_count": len(feed_names)
         }
 
-    # Limit to most recent 50 articles if there are too many
-    if len(articles) > 50:
-        logger.info(f"Limiting from {len(articles)} to 50 most recent articles")
-        articles = articles[:50]
+    # Limit to most recent N articles if there are too many
+    if len(articles) > initial_limit:
+        logger.info(f"Limiting from {len(articles)} to {initial_limit} most recent articles")
+        articles = articles[:initial_limit]
 
     # Step 0: Filter articles by feed instructions
     if filter_map:
@@ -751,11 +802,12 @@ async def generate_news_summary(
     # Step 1: Rank articles by importance
     ranked_articles = await rank_articles_by_importance(articles)
 
-    # Step 2: Take top 18 (increased from 10)
-    top_articles = ranked_articles[:18]
+    # Step 2: Take top N articles
+    top_articles = ranked_articles[:top_articles_limit]
+    logger.info(f"Selected top {len(top_articles)} articles from {len(ranked_articles)} ranked articles")
 
     # Step 3: Cluster articles into stories
-    story_clusters = await cluster_articles_by_story(top_articles)
+    story_clusters = await cluster_articles_by_story(top_articles, max_clusters=cluster_limit)
 
     # Step 3.5: Story-level deduplication (filter duplicate stories)
     if story_history:
