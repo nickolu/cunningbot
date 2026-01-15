@@ -282,6 +282,215 @@ Aim for 5-8 total clusters. Single-article clusters are fine."""
                 for i, a in enumerate(articles[:8])]
 
 
+async def generate_preliminary_title(articles: List[Dict[str, Any]]) -> str:
+    """
+    Generate a quick preliminary title for a story cluster.
+    Used for duplicate detection before full summary generation.
+    """
+    if not articles:
+        return "Untitled Story"
+
+    if len(articles) == 1:
+        return articles[0].get("title", "Untitled Story")
+
+    try:
+        # Quick prompt to get just the title
+        article_titles = [a.get("title", "Untitled") for a in articles]
+        prompt = f"""These articles cover the same story. Generate ONE unified title (max 80 chars):
+
+{chr(10).join(f"{i+1}. {t}" for i, t in enumerate(article_titles))}
+
+Return ONLY the title, nothing else."""
+
+        llm = ChatCompletionsClient.factory("gpt-4o-mini")
+        response = await llm.chat([
+            {"role": "system", "content": "You are a news editor. Return only the title."},
+            {"role": "user", "content": prompt}
+        ])
+
+        return response.strip()[:80]
+
+    except Exception as e:
+        logger.error(f"Error generating preliminary title: {e}")
+        return articles[0].get("title", "Untitled Story")
+
+
+async def check_story_similarity(
+    new_title: str,
+    new_articles: List[Dict[str, Any]],
+    historical_titles: List[str],
+    story_history: List[Dict[str, Any]]
+) -> tuple[bool, Dict[str, Any] | None]:
+    """
+    Check if a new story is semantically similar to any story in today's history.
+
+    Returns:
+        (is_duplicate, similar_story_dict or None)
+    """
+    if not historical_titles:
+        return False, None
+
+    try:
+        # Prepare comparison
+        historical_list = "\n".join(f"{i+1}. {t}" for i, t in enumerate(historical_titles))
+
+        prompt = f"""Compare this NEW story title against TODAY'S posted stories:
+
+NEW STORY: "{new_title}"
+
+TODAY'S POSTED STORIES:
+{historical_list}
+
+Is the NEW story about the same event/topic as any POSTED story?
+- Consider: Same core event, same main subject, covering same news
+- Ignore: Minor wording differences, different sources, different angles
+
+Return JSON: {{"is_similar": true/false, "similar_to_index": 1-based number or null}}
+
+If similar, return the index of the most similar posted story."""
+
+        llm = ChatCompletionsClient.factory("gpt-4o-mini")
+        response = await llm.chat([
+            {"role": "system", "content": "You are a news editor detecting duplicate stories. Return only JSON."},
+            {"role": "user", "content": prompt}
+        ])
+
+        # Parse JSON response
+        import json
+        json_match = re.search(r'\{[^}]+\}', response, re.DOTALL)
+        if not json_match:
+            logger.warning("Could not parse similarity check response")
+            return False, None
+
+        result = json.loads(json_match.group())
+
+        if result.get("is_similar"):
+            idx = result.get("similar_to_index")
+            if idx and 0 < idx <= len(story_history):
+                return True, story_history[idx - 1]
+
+        return False, None
+
+    except Exception as e:
+        logger.error(f"Error checking story similarity: {e}")
+        return False, None
+
+
+async def check_significant_updates(
+    new_articles: List[Dict[str, Any]],
+    historical_story: Dict[str, Any]
+) -> bool:
+    """
+    Check if new articles contain significant updates compared to historical story.
+
+    Returns True if significant new information is present.
+    """
+    try:
+        # Get article summaries
+        new_content = "\n".join([
+            f"- {a.get('title', '')}: {a.get('description', '')[:200]}"
+            for a in new_articles[:3]  # Limit to 3 articles
+        ])
+
+        old_summary = historical_story.get("summary", "")
+
+        prompt = f"""Compare NEW articles against PREVIOUS coverage of this story:
+
+PREVIOUS COVERAGE:
+{old_summary}
+
+NEW ARTICLES:
+{new_content}
+
+Do the NEW articles contain SIGNIFICANT updates or developments?
+- Yes if: Major new developments, breaking updates, important changes
+- No if: Same information, minor details, repetitive coverage
+
+Return JSON: {{"has_significant_updates": true/false, "reason": "brief explanation"}}"""
+
+        llm = ChatCompletionsClient.factory("gpt-4o-mini")
+        response = await llm.chat([
+            {"role": "system", "content": "You are a news editor evaluating story updates. Return only JSON."},
+            {"role": "user", "content": prompt}
+        ])
+
+        # Parse JSON response
+        import json
+        json_match = re.search(r'\{[^}]+\}', response, re.DOTALL)
+        if not json_match:
+            logger.warning("Could not parse update check response")
+            return False  # Conservative: don't show if unsure
+
+        result = json.loads(json_match.group())
+        has_updates = result.get("has_significant_updates", False)
+
+        if has_updates:
+            reason = result.get("reason", "")
+            logger.info(f"Significant updates detected: {reason}")
+
+        return has_updates
+
+    except Exception as e:
+        logger.error(f"Error checking significant updates: {e}")
+        return False  # Conservative: don't show if error
+
+
+async def filter_duplicate_stories(
+    story_clusters: List[Dict[str, Any]],
+    story_history: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """
+    Filter duplicate stories using hybrid approach:
+    1. Generate preliminary titles for each cluster
+    2. Check semantic similarity against today's history
+    3. If similar, check for significant updates
+    4. Keep unique stories and stories with significant updates
+
+    Returns filtered list of story clusters.
+    """
+    if not story_history:
+        logger.info("No story history for today, keeping all clusters")
+        return story_clusters
+
+    historical_titles = [s["title"] for s in story_history]
+    logger.info(f"Checking {len(story_clusters)} new clusters against {len(historical_titles)} historical stories")
+
+    filtered_clusters = []
+
+    for cluster in story_clusters:
+        articles = cluster["articles"]
+
+        # Generate preliminary title
+        prelim_title = await generate_preliminary_title(articles)
+
+        # Check similarity
+        is_duplicate, similar_story = await check_story_similarity(
+            prelim_title,
+            articles,
+            historical_titles,
+            story_history
+        )
+
+        if is_duplicate and similar_story:
+            # Similar story found, check for updates
+            logger.info(f"Story '{prelim_title}' similar to '{similar_story.get('title')}' - checking for updates")
+
+            has_updates = await check_significant_updates(articles, similar_story)
+
+            if has_updates:
+                logger.info(f"Significant updates found - keeping story")
+                filtered_clusters.append(cluster)
+            else:
+                logger.info(f"No significant updates - filtering duplicate story")
+                # Skip this cluster
+        else:
+            # Unique story, keep it
+            filtered_clusters.append(cluster)
+
+    logger.info(f"Story-level dedup: {len(story_clusters)} -> {len(filtered_clusters)} clusters")
+    return filtered_clusters
+
+
 async def generate_story_summaries(
     story_clusters: List[Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
@@ -477,20 +686,23 @@ async def generate_news_summary(
     articles: List[Dict[str, Any]],
     feed_names: List[str],
     filter_map: Dict[str, str] = None,
+    story_history: List[Dict[str, Any]] = None,
     edition: str = "Summary"
 ) -> Dict[str, Any]:
     """
-    Main orchestrator function for generating news summaries with filtering and clustering.
+    Main orchestrator function for generating news summaries with filtering, clustering, and deduplication.
 
     Args:
         articles: All pending articles
         feed_names: List of feed names contributing articles
         filter_map: Optional dict mapping feed_name to filter_instructions
+        story_history: Optional list of stories already posted today (for deduplication)
         edition: "Morning", "Evening", or "Summary"
 
     Returns:
         Dictionary with:
         - summary_text: AI-generated summary with embedded links
+        - story_summaries: List of story summary dicts (for history saving)
         - top_articles: List of top articles (for reference)
         - total_articles: Total number of articles processed
         - feed_count: Number of feeds
@@ -500,6 +712,7 @@ async def generate_news_summary(
     if not articles:
         return {
             "summary_text": "No articles to summarize.",
+            "story_summaries": [],
             "top_articles": [],
             "total_articles": 0,
             "feed_count": len(feed_names)
@@ -510,10 +723,30 @@ async def generate_news_summary(
         logger.info(f"Limiting from {len(articles)} to 50 most recent articles")
         articles = articles[:50]
 
-    # Step 0: Filter articles (NEW)
+    # Step 0: Filter articles by feed instructions
     if filter_map:
         articles = await filter_articles_by_instructions(articles, filter_map)
-        logger.info(f"After filtering: {len(articles)} articles remain")
+        logger.info(f"After feed filtering: {len(articles)} articles remain")
+
+    # Step 0.5: Article-level deduplication (filter out URLs already used today)
+    if story_history:
+        used_urls = set()
+        for story in story_history:
+            used_urls.update(story.get("article_urls", []))
+
+        original_count = len(articles)
+        articles = [a for a in articles if a.get("link") not in used_urls]
+        logger.info(f"Article-level dedup: {original_count} -> {len(articles)} articles ({len(used_urls)} URLs filtered)")
+
+        if not articles:
+            logger.info("All articles were already covered today")
+            return {
+                "summary_text": "All articles have been covered in earlier summaries today.",
+                "story_summaries": [],
+                "top_articles": [],
+                "total_articles": 0,
+                "feed_count": len(feed_names)
+            }
 
     # Step 1: Rank articles by importance
     ranked_articles = await rank_articles_by_importance(articles)
@@ -521,8 +754,22 @@ async def generate_news_summary(
     # Step 2: Take top 18 (increased from 10)
     top_articles = ranked_articles[:18]
 
-    # Step 3: Cluster articles (NEW)
+    # Step 3: Cluster articles into stories
     story_clusters = await cluster_articles_by_story(top_articles)
+
+    # Step 3.5: Story-level deduplication (filter duplicate stories)
+    if story_history:
+        story_clusters = await filter_duplicate_stories(story_clusters, story_history)
+
+        if not story_clusters:
+            logger.info("All stories were duplicates of earlier summaries")
+            return {
+                "summary_text": "All stories have been covered in earlier summaries today.",
+                "story_summaries": [],
+                "top_articles": [],
+                "total_articles": len(articles),
+                "feed_count": len(feed_names)
+            }
 
     # Step 4: Generate unified summaries
     story_summaries = await generate_story_summaries(story_clusters)
@@ -530,10 +777,11 @@ async def generate_news_summary(
     # Step 5: Format as Discord markdown
     summary_text = await generate_summary_text(story_summaries, edition)
 
-    logger.info(f"Summary generated: {len(story_clusters)} stories from {len(articles)} articles")
+    logger.info(f"Summary generated: {len(story_clusters)} unique stories from {len(articles)} articles")
 
     return {
         "summary_text": summary_text,
+        "story_summaries": story_summaries,
         "top_articles": top_articles,
         "total_articles": len(articles),
         "feed_count": len(feed_names)

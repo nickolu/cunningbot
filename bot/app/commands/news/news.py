@@ -13,6 +13,7 @@ from bot.app.app_state import (
     set_state_value_from_interaction,
     get_state_value_from_interaction,
 )
+from bot.app.story_history import get_todays_story_history
 
 logger = logging.getLogger("NewsCommands")
 
@@ -752,11 +753,14 @@ class NewsCog(commands.Cog):
             if channel_feeds[name].get('filter_instructions')
         }
 
+        # Load today's story history for deduplication
+        story_history = get_todays_story_history(guild_id_str, interaction.channel_id)
+
         # Generate summary
         try:
             logger.info(f"Generating on-demand summary for channel {interaction.channel_id}: {len(all_pending)} articles from {len(feed_names)} feeds")
 
-            summary_result = await generate_news_summary(all_pending, feed_names, filter_map, "On-Demand")
+            summary_result = await generate_news_summary(all_pending, feed_names, filter_map, story_history, "On-Demand")
 
             # Create embed
             embed = discord.Embed(

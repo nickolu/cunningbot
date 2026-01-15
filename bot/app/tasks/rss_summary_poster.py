@@ -24,6 +24,11 @@ from collections import defaultdict
 import discord
 from bot.app.app_state import get_all_guild_states, set_state_value
 from bot.app.pending_news import get_all_pending_by_channel, clear_pending_articles_for_channel
+from bot.app.story_history import (
+    get_todays_story_history,
+    add_stories_to_history,
+    cleanup_old_history
+)
 from bot.domain.news.news_summary_service import generate_news_summary
 
 logger = logging.getLogger("RSSSummaryPoster")
@@ -113,6 +118,9 @@ async def post_summaries() -> None:
     """Main entry point called once per invocation."""
     logger.info("=== RSS Summary Poster Starting ===")
 
+    # Clean up old story history from previous days
+    cleanup_old_history()
+
     token = os.getenv("DISCORD_TOKEN")
     if not token:
         logger.error("DISCORD_TOKEN environment variable not set – aborting.")
@@ -166,6 +174,11 @@ async def post_summaries() -> None:
 
                 logger.info(f"Generating {edition} summary for channel {channel_id}: {len(articles)} articles from {len(feed_names)} feeds")
 
+                # Load today's story history for deduplication
+                guild_id_str = str(guild_id)
+                story_history = get_todays_story_history(guild_id_str, channel_id)
+                logger.info(f"Loaded {len(story_history)} stories from today's history for channel {channel_id}")
+
                 # Build filter map from feed configs
                 all_guild_states = get_all_guild_states()
                 guild_state = all_guild_states.get(guild_id, {})
@@ -177,16 +190,26 @@ async def post_summaries() -> None:
                     if name in feed_names and feed.get('filter_instructions')
                 }
 
-                # Generate AI summary
+                # Generate AI summary with deduplication
                 try:
                     summary_result = await generate_news_summary(
                         articles=articles,
                         feed_names=feed_names,
                         filter_map=filter_map,
+                        story_history=story_history,
                         edition=edition
                     )
                 except Exception as e:
                     logger.error(f"Failed to generate summary for channel {channel_id}: {e}")
+                    continue
+
+                # Check if any stories to post after deduplication
+                story_summaries = summary_result.get("story_summaries", [])
+                if not story_summaries:
+                    logger.info(f"No new stories for channel {channel_id} after deduplication")
+                    # Still clear pending articles
+                    cleared_count = clear_pending_articles_for_channel(guild_id_str, channel_id)
+                    logger.info(f"Cleared {cleared_count} pending articles with no new stories")
                     continue
 
                 # Create embed
@@ -209,6 +232,21 @@ async def post_summaries() -> None:
 
                     await channel.send(embed=embed)
                     logger.info(f"Posted {edition} summary to channel {channel_id}")
+
+                    # Save story data to history for deduplication
+                    pacific_tz = ZoneInfo("America/Los_Angeles")
+                    story_data = [
+                        {
+                            "title": story["title"],
+                            "summary": story["summary"],
+                            "article_urls": [link["url"] for link in story["links"]],
+                            "posted_at": dt.datetime.now(pacific_tz).isoformat(),
+                            "edition": edition
+                        }
+                        for story in story_summaries
+                    ]
+                    add_stories_to_history(guild_id_str, channel_id, story_data)
+                    logger.info(f"Saved {len(story_data)} stories to history for channel {channel_id}")
 
                 except discord.Forbidden:
                     logger.error(f"Missing permissions to post in channel {channel_id}")
