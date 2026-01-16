@@ -109,6 +109,12 @@ class GeminiImageGenerationClient:
                 return None, "RATE_LIMIT: Google Gemini is currently experiencing high demand. Please try again in a few moments."
             
             # Extract the image from the response
+            # Check if content exists before accessing parts
+            if not response.candidates[0].content:
+                error_msg = "Image generation failed: No content returned from Gemini API."
+                logger.warning(error_msg)
+                return None, error_msg
+
             if not response.candidates[0].content.parts:
                 error_msg = "Image generation failed: No parts returned from Gemini API."
                 logger.warning(error_msg)

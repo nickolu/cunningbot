@@ -26,7 +26,14 @@ logger = get_logger()
 class ImageCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
-        self.openai_generation_client = ImageGenerationClient.factory()
+        # Initialize multiple OpenAI clients for different models
+        self.openai_clients = {
+            "gpt-image-1.5": ImageGenerationClient.factory(model="gpt-image-1.5"),
+            "gpt-image-1": ImageGenerationClient.factory(model="gpt-image-1"),
+            "gpt-image-1-mini": ImageGenerationClient.factory(model="gpt-image-1-mini"),
+        }
+        # Default OpenAI client for backward compatibility
+        self.openai_generation_client = self.openai_clients["gpt-image-1"]
         self.openai_edit_client = ImageEditClient.factory()
 
         # Initialize Gemini clients (will only work if GOOGLE_API_KEY is set)
@@ -59,9 +66,9 @@ class ImageCog(commands.Cog):
             size = size or "auto"
             quality = quality or "auto"
             background = background or "auto"
-            # Default to Gemini if available; otherwise OpenAI. Respect explicit user choice.
+            # Default to Gemini if available; otherwise gpt-image-1. Respect explicit user choice.
             if model is None:
-                model = "gemini" if self.gemini_generation_client else "openai"
+                model = "gemini" if self.gemini_generation_client else "gpt-image-1"
 
             # Validate explicit Gemini selection (show error), but if defaulting and unavailable we already fell back
             if model == "gemini" and not self.gemini_generation_client:
@@ -76,7 +83,12 @@ class ImageCog(commands.Cog):
             if model == "gemini":
                 generation_client = self.gemini_generation_client
                 edit_client = self.gemini_edit_client
+            elif model in self.openai_clients:
+                # Use the specific OpenAI model client
+                generation_client = self.openai_clients[model]
+                edit_client = self.openai_edit_client
             else:
+                # Fallback for backward compatibility (e.g., "openai")
                 generation_client = self.openai_generation_client
                 edit_client = self.openai_edit_client
 
@@ -230,9 +242,11 @@ class ImageCog(commands.Cog):
             params_used.append(f"Model: {model.upper()}")
             if size != "1024x1024" and size != "auto":
                 params_used.append(f"Size: {size}")
-            if quality != "auto" and model == "openai":
+            # Check if it's an OpenAI model (not Gemini)
+            is_openai_model = model != "gemini"
+            if quality != "auto" and is_openai_model:
                 params_used.append(f"Quality: {quality}")
-            if background != "auto" and model == "openai":
+            if background != "auto" and is_openai_model:
                 params_used.append(f"Background: {background}")
 
             params_text = f" ({', '.join(params_used)})" if params_used else ""
@@ -310,8 +324,10 @@ class ImageCog(commands.Cog):
     )
     @app_commands.choices(
         model=[
-            app_commands.Choice(name="OpenAI (GPT Image)", value="openai"),
             app_commands.Choice(name="Google Gemini 2.5 Flash", value="gemini"),
+            app_commands.Choice(name="GPT Image 1.5", value="gpt-image-1.5"),
+            app_commands.Choice(name="GPT Image 1", value="gpt-image-1"),
+            app_commands.Choice(name="GPT Image 1 Mini", value="gpt-image-1-mini"),
         ]
     )
     @app_commands.choices(
