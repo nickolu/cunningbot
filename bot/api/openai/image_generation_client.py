@@ -35,10 +35,10 @@ class ImageGenerationClient:
             # Run the synchronous OpenAI API call in a separate thread
             img = await asyncio.to_thread(
                 openai.images.generate,
-                model="gpt-image-1",  # Preserving original hardcoded model
+                model=self.model,  # Use the configured model instead of hardcoded
                 prompt=prompt,
                 n=n,
-                size=size 
+                size=size
             )
 
             if not img.data or not img.data[0].b64_json:
