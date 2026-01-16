@@ -28,6 +28,7 @@ class ImageCog(commands.Cog):
         self.bot = bot
         # Initialize multiple OpenAI clients for different models
         self.openai_clients = {
+            "chatgpt-image-latest": ImageGenerationClient.factory(model="chatgpt-image-latest"),
             "gpt-image-1.5": ImageGenerationClient.factory(model="gpt-image-1.5"),
             "gpt-image-1": ImageGenerationClient.factory(model="gpt-image-1"),
             "gpt-image-1-mini": ImageGenerationClient.factory(model="gpt-image-1-mini"),
@@ -37,13 +38,19 @@ class ImageCog(commands.Cog):
         self.openai_edit_client = ImageEditClient.factory()
 
         # Initialize Gemini clients (will only work if GOOGLE_API_KEY is set)
-        self.gemini_generation_client = None
+        self.gemini_generation_clients = {}
         self.gemini_edit_client = None
         try:
-            self.gemini_generation_client = GeminiImageGenerationClient.factory()
+            self.gemini_generation_clients = {
+                "gemini": GeminiImageGenerationClient.factory(model="gemini-2.5-flash-image"),
+                "gemini-3-pro-image-preview": GeminiImageGenerationClient.factory(model="gemini-3-pro-image-preview"),
+            }
+            # Default Gemini client for backward compatibility
+            self.gemini_generation_client = self.gemini_generation_clients["gemini"]
             self.gemini_edit_client = GeminiImageEditClient.factory()
         except EnvironmentError as e:
             logger.warning(f"Gemini image generation unavailable: {e}")
+            self.gemini_generation_client = None
 
     async def _image_handler(
         self,
@@ -71,7 +78,8 @@ class ImageCog(commands.Cog):
                 model = "gemini" if self.gemini_generation_client else "gpt-image-1"
 
             # Validate explicit Gemini selection (show error), but if defaulting and unavailable we already fell back
-            if model == "gemini" and not self.gemini_generation_client:
+            is_gemini_model = model in self.gemini_generation_clients or model == "gemini"
+            if is_gemini_model and not self.gemini_generation_client:
                 error_msg = "Google Gemini model is not available. Please ensure GOOGLE_API_KEY is configured."
                 if interaction.response.is_done():
                     await interaction.followup.send(error_msg)
@@ -80,8 +88,9 @@ class ImageCog(commands.Cog):
                 return
 
             # Select the appropriate clients based on model
-            if model == "gemini":
-                generation_client = self.gemini_generation_client
+            if model in self.gemini_generation_clients:
+                # Use the specific Gemini model client
+                generation_client = self.gemini_generation_clients[model]
                 edit_client = self.gemini_edit_client
             elif model in self.openai_clients:
                 # Use the specific OpenAI model client
@@ -113,7 +122,7 @@ class ImageCog(commands.Cog):
                     return
 
                 # For Gemini, check if editing is supported
-                if model == "gemini":
+                if model in self.gemini_generation_clients or model == "gemini":
                     # Gemini supports editing
                     image_list_or_none, error_msg_edit = await edit_client.edit_image(
                         image=image_to_edit_bytes,
@@ -243,7 +252,8 @@ class ImageCog(commands.Cog):
             if size != "1024x1024" and size != "auto":
                 params_used.append(f"Size: {size}")
             # Check if it's an OpenAI model (not Gemini)
-            is_openai_model = model != "gemini"
+            is_gemini = model in self.gemini_generation_clients or model == "gemini"
+            is_openai_model = not is_gemini
             if quality != "auto" and is_openai_model:
                 params_used.append(f"Quality: {quality}")
             if background != "auto" and is_openai_model:
@@ -282,12 +292,13 @@ class ImageCog(commands.Cog):
             logger.error(f"Unexpected error in _image_handler: {e}", exc_info=True)
             
             # Check if it's a rate limit error
+            is_gemini = model in self.gemini_generation_clients or model == "gemini"
             if (
                 "RATE_LIMIT:" in error_str
                 or "429" in error_str
                 or "Too Many Requests" in error_str
                 or error_str.strip() == "'error'"  # Gemini SDK sometimes yields a bare 'error'
-                or (model == "gemini")  # Force friendly message for Gemini on unexpected errors
+                or is_gemini  # Force friendly message for Gemini on unexpected errors
             ):
                 error_msg = (
                     f"⏱️ **Rate Limit Reached**\n\n"
@@ -325,6 +336,8 @@ class ImageCog(commands.Cog):
     @app_commands.choices(
         model=[
             app_commands.Choice(name="Google Gemini 2.5 Flash", value="gemini"),
+            app_commands.Choice(name="Google Gemini 3 Pro", value="gemini-3-pro-image-preview"),
+            app_commands.Choice(name="ChatGPT Image (Latest)", value="chatgpt-image-latest"),
             app_commands.Choice(name="GPT Image 1.5", value="gpt-image-1.5"),
             app_commands.Choice(name="GPT Image 1", value="gpt-image-1"),
             app_commands.Choice(name="GPT Image 1 Mini", value="gpt-image-1-mini"),
