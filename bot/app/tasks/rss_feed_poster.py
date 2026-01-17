@@ -323,7 +323,7 @@ async def collect_rss_updates() -> None:
             feed_url = feed_info.get("url")
             channel_id = feed_info.get("channel_id")
             seen_items = feed_info.get("seen_items", [])
-            max_seen_items = feed_info.get("max_seen_items", 100)
+            max_seen_items = feed_info.get("max_seen_items", 500)
 
             # Initialize last_summary if not present (migration)
             if "last_summary" not in feed_info:

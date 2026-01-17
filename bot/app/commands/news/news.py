@@ -265,7 +265,7 @@ class NewsCog(commands.Cog):
             "filter_instructions": None,  # Custom filter instructions (e.g., "only San Diego articles")
             "last_check": datetime.utcnow().isoformat(),
             "seen_items": [],
-            "max_seen_items": 100,
+            "max_seen_items": 500,
         }
 
         feeds[feed_name] = feed_info
