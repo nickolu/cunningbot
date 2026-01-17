@@ -13,7 +13,14 @@ from bot.app.app_state import (
     set_state_value_from_interaction,
     get_state_value_from_interaction,
 )
-from bot.app.story_history import get_todays_story_history
+from bot.app.story_history import (
+    get_todays_story_history,
+    get_stories_within_window,
+    get_channel_dedup_window,
+    MIN_DEDUP_WINDOW_HOURS,
+    MAX_DEDUP_WINDOW_HOURS,
+    DEFAULT_DEDUP_WINDOW_HOURS
+)
 
 logger = logging.getLogger("NewsCommands")
 
@@ -665,6 +672,72 @@ class NewsCog(commands.Cog):
             ephemeral=True
         )
 
+    @news.command(name="set-window", description="Set deduplication time window for this channel.")
+    @app_commands.describe(
+        hours="Time window in hours (6-168). Use 'default' to reset to 24 hours."
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_window(
+        self,
+        interaction: discord.Interaction,
+        hours: str
+    ) -> None:
+        """Configure deduplication window for current channel."""
+        channel_id = interaction.channel_id
+        windows = get_state_value_from_interaction("channel_dedup_windows", interaction.guild_id) or {}
+
+        # Handle "default"
+        if hours.lower() == "default":
+            if str(channel_id) in windows:
+                del windows[str(channel_id)]
+                set_state_value_from_interaction("channel_dedup_windows", windows, interaction.guild_id)
+                await interaction.response.send_message(
+                    f"✅ Deduplication window reset to default ({DEFAULT_DEDUP_WINDOW_HOURS} hours)",
+                    ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    f"ℹ️ This channel already uses the default window ({DEFAULT_DEDUP_WINDOW_HOURS} hours)",
+                    ephemeral=True
+                )
+            return
+
+        # Parse and validate
+        try:
+            hours_int = int(hours)
+
+            if hours_int < MIN_DEDUP_WINDOW_HOURS or hours_int > MAX_DEDUP_WINDOW_HOURS:
+                await interaction.response.send_message(
+                    f"⚠️ Window must be between {MIN_DEDUP_WINDOW_HOURS} and {MAX_DEDUP_WINDOW_HOURS} hours.\n"
+                    f"**Recommended:** 24h (1 day), 48h (2 days), 72h (3 days), 168h (7 days)",
+                    ephemeral=True
+                )
+                return
+
+            # Save
+            windows[str(channel_id)] = hours_int
+            set_state_value_from_interaction("channel_dedup_windows", windows, interaction.guild_id)
+
+            # Format response
+            days_str = ""
+            if hours_int >= 24:
+                days = hours_int / 24
+                days_str = f" ({days:.1f} days)" if days != int(days) else f" ({int(days)} day{'s' if days != 1 else ''})"
+
+            await interaction.response.send_message(
+                f"✅ Deduplication window updated for {interaction.channel.mention}\n"
+                f"**New window:** {hours_int} hours{days_str}\n\n"
+                f"Stories posted within the last {hours_int} hours will be used for deduplication.",
+                ephemeral=True
+            )
+
+        except ValueError:
+            await interaction.response.send_message(
+                f"❌ Invalid input. Provide a number (6-168) or 'default'.\n"
+                f"**Examples:** `/news set-window hours:48` or `/news set-window hours:default`",
+                ephemeral=True
+            )
+
     @news.command(name="list", description="List all RSS feeds in this channel.")
     async def list_feeds(self, interaction: discord.Interaction) -> None:
         feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
@@ -766,6 +839,22 @@ class NewsCog(commands.Cog):
         embed.add_field(
             name="⚙️ Article Processing Limits",
             value=limits_str,
+            inline=False
+        )
+
+        # Add deduplication window information
+        windows = get_state_value_from_interaction("channel_dedup_windows", interaction.guild_id) or {}
+        channel_window = windows.get(str(current_channel_id))
+
+        if channel_window:
+            days_str = f" ({channel_window / 24:.1f} days)" if channel_window >= 24 else ""
+            window_str = f"**Custom Window:** {channel_window} hours{days_str}"
+        else:
+            window_str = f"**Window:** {DEFAULT_DEDUP_WINDOW_HOURS} hours (default)"
+
+        embed.add_field(
+            name="🔄 Deduplication Window",
+            value=window_str,
             inline=False
         )
 
@@ -902,8 +991,9 @@ class NewsCog(commands.Cog):
             if channel_feeds[name].get('filter_instructions')
         }
 
-        # Load today's story history for deduplication
-        story_history = get_todays_story_history(guild_id_str, interaction.channel_id)
+        # Load story history within deduplication window
+        window_hours = get_channel_dedup_window(interaction.guild_id, interaction.channel_id)
+        story_history = get_stories_within_window(guild_id_str, interaction.channel_id, window_hours)
 
         # Load article processing limits for this channel
         from bot.domain.news.news_summary_service import get_channel_article_limits
@@ -964,6 +1054,156 @@ class NewsCog(commands.Cog):
                 f"Failed to generate summary: {str(e)}",
                 ephemeral=True
             )
+
+    @news.command(name="latest", description="View recent articles from RSS feeds with pagination.")
+    @app_commands.describe(
+        page="Page number to display (default: 1)",
+        feed_name="Optional: filter by specific feed name"
+    )
+    async def latest(
+        self,
+        interaction: discord.Interaction,
+        page: Optional[int] = 1,
+        feed_name: Optional[str] = None
+    ) -> None:
+        """Browse recent articles from RSS feeds with pagination."""
+        from bot.app.pending_news import get_pending_articles_for_channel
+
+        ARTICLES_PER_PAGE = 10
+
+        # Validate channel has feeds
+        feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+        channel_feeds = {name: info for name, info in feeds.items() if info.get("channel_id") == interaction.channel_id}
+
+        if not channel_feeds:
+            await interaction.response.send_message("No RSS feeds configured for this channel.", ephemeral=True)
+            return
+
+        # Get pending articles
+        guild_id_str = str(interaction.guild_id)
+        pending_by_feed = get_pending_articles_for_channel(guild_id_str, interaction.channel_id)
+
+        # Handle feed filtering
+        if feed_name:
+            if feed_name not in pending_by_feed:
+                available = ", ".join(f"'{n}'" for n in pending_by_feed.keys()) if pending_by_feed else "none"
+                await interaction.response.send_message(
+                    f"Feed '{feed_name}' not found.\nAvailable: {available}",
+                    ephemeral=True
+                )
+                return
+            all_articles = pending_by_feed[feed_name]
+            feed_filter_text = f" - {feed_name}"
+        else:
+            all_articles = []
+            for articles in pending_by_feed.values():
+                all_articles.extend(articles)
+            feed_filter_text = ""
+
+        if not all_articles:
+            await interaction.response.send_message("No pending articles available.", ephemeral=True)
+            return
+
+        # Sort by collected_at DESC
+        all_articles.sort(key=lambda x: x.get('collected_at', ''), reverse=True)
+
+        # Calculate pagination
+        total_articles = len(all_articles)
+        total_pages = max(1, (total_articles + ARTICLES_PER_PAGE - 1) // ARTICLES_PER_PAGE)
+
+        # Validate page
+        if page < 1:
+            await interaction.response.send_message("Page must be 1 or greater.", ephemeral=True)
+            return
+        if page > total_pages:
+            await interaction.response.send_message(
+                f"Page {page} doesn't exist. Max: {total_pages}",
+                ephemeral=True
+            )
+            return
+
+        # Get page slice
+        start_idx = (page - 1) * ARTICLES_PER_PAGE
+        end_idx = start_idx + ARTICLES_PER_PAGE
+        page_articles = all_articles[start_idx:end_idx]
+
+        # Format article list
+        article_list = _format_article_list(page_articles, start_idx + 1)
+
+        # Create embed
+        embed = discord.Embed(
+            title=f"📰 Latest Articles{feed_filter_text}",
+            description=article_list,
+            color=0x00a8ff
+        )
+
+        # Footer with navigation
+        footer_parts = [f"Page {page} of {total_pages}", f"{total_articles} total"]
+        if page < total_pages:
+            footer_parts.append(f"Use /news latest page:{page + 1} for next")
+        embed.set_footer(text=" • ".join(footer_parts))
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+def _format_article_list(articles: list[dict[str, Any]], start_number: int = 1) -> str:
+    """Format articles as compact numbered list."""
+    lines = []
+
+    for idx, article in enumerate(articles, start=start_number):
+        # Truncate title
+        title = article.get('title', 'Untitled')
+        if len(title) > 80:
+            title = title[:77] + "..."
+
+        # Get source and time
+        source = article.get('source', 'Unknown Source')
+        collected_at = article.get('collected_at', '')
+        relative_time = _format_relative_time(collected_at)
+
+        # Format link
+        link = article.get('link', '')
+
+        # Build entry
+        lines.append(f"**{idx}. {title}**")
+        lines.append(f"*{source}* • {relative_time}")
+        if link:
+            lines.append(f"[Read more]({link})")
+        lines.append("")  # Blank line
+
+    return "\n".join(lines)
+
+
+def _format_relative_time(iso_timestamp: str) -> str:
+    """Convert ISO timestamp to relative time (e.g., '2 hours ago')."""
+    if not iso_timestamp:
+        return "recently"
+
+    try:
+        from datetime import timezone
+
+        article_time = datetime.fromisoformat(iso_timestamp.replace('Z', '+00:00'))
+        now = datetime.now(timezone.utc)
+
+        if article_time.tzinfo is None:
+            article_time = article_time.replace(tzinfo=timezone.utc)
+
+        delta = now - article_time
+        seconds = delta.total_seconds()
+
+        if seconds < 60:
+            return "just now"
+        elif seconds < 3600:
+            minutes = int(seconds / 60)
+            return f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+        elif seconds < 86400:
+            hours = int(seconds / 3600)
+            return f"{hours} hour{'s' if hours != 1 else ''} ago"
+        else:
+            days = int(seconds / 86400)
+            return f"{days} day{'s' if days != 1 else ''} ago"
+    except Exception:
+        return "recently"
 
 
 async def setup(bot: commands.Bot):

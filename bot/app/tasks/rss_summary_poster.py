@@ -26,6 +26,8 @@ from bot.app.app_state import get_all_guild_states, set_state_value
 from bot.app.pending_news import get_all_pending_by_channel, clear_pending_articles_for_channel
 from bot.app.story_history import (
     get_todays_story_history,
+    get_stories_within_window,
+    get_channel_dedup_window,
     add_stories_to_history,
     cleanup_old_history
 )
@@ -174,10 +176,11 @@ async def post_summaries() -> None:
 
                 logger.info(f"Generating {edition} summary for channel {channel_id}: {len(articles)} articles from {len(feed_names)} feeds")
 
-                # Load today's story history for deduplication
+                # Load story history within deduplication window
                 guild_id_str = str(guild_id)
-                story_history = get_todays_story_history(guild_id_str, channel_id)
-                logger.info(f"Loaded {len(story_history)} stories from today's history for channel {channel_id}")
+                window_hours = get_channel_dedup_window(guild_id, channel_id)
+                story_history = get_stories_within_window(guild_id_str, channel_id, window_hours)
+                logger.info(f"Using {window_hours}h dedup window for channel {channel_id}")
 
                 # Load article processing limits for this channel
                 from bot.domain.news.news_summary_service import get_channel_article_limits
