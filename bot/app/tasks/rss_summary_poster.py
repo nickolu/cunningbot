@@ -327,10 +327,18 @@ async def post_summaries() -> None:
                 logger.error(f"Error processing channel {channel_id}: {e}")
 
         logger.info("=== RSS Summary Poster Finished ===")
+
+        # Give a moment for any pending operations to complete
+        await asyncio.sleep(0.5)
         await client.close()
 
     # Run the client
-    await client.start(token)
+    try:
+        await client.start(token)
+    finally:
+        # Ensure client is closed even if start() fails
+        if not client.is_closed():
+            await client.close()
 
 
 if __name__ == "__main__":
