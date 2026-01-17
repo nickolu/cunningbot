@@ -735,7 +735,8 @@ async def generate_news_summary(
     edition: str = "Summary",
     initial_limit: int = 50,
     top_articles_limit: int = 18,
-    cluster_limit: int = 8
+    cluster_limit: int = 8,
+    diversity_config: Dict[str, Any] = None
 ) -> Dict[str, Any]:
     """
     Main orchestrator function for generating news summaries with filtering, clustering, and deduplication.
@@ -749,6 +750,7 @@ async def generate_news_summary(
         initial_limit: Max articles to process initially (default: 50)
         top_articles_limit: Max articles to rank and cluster (default: 18)
         cluster_limit: Max story clusters to generate (default: 8)
+        diversity_config: Optional dict with feed diversity settings (strategy, max_per_feed, min_per_feed)
 
     Returns:
         Dictionary with:
@@ -770,7 +772,8 @@ async def generate_news_summary(
         "filtered_by_limit": 0,
         "filtered_by_feed_filter": 0,
         "filtered_by_url_dedup": 0,
-        "filtered_by_story_dedup": 0
+        "filtered_by_story_dedup": 0,
+        "feed_distribution": None
     }
 
     if not articles:
@@ -783,7 +786,49 @@ async def generate_news_summary(
             "stats": stats
         }
 
-    # Limit to most recent N articles if there are too many
+    # Step -1: Apply feed diversity strategy (if configured)
+    if diversity_config and diversity_config.get("strategy") != "disabled":
+        from bot.domain.news.feed_diversity import apply_feed_diversity_strategy
+
+        logger.info(f"Applying feed diversity strategy: {diversity_config.get('strategy')}")
+
+        # Re-group articles by feed
+        articles_by_feed = {}
+        for article in articles:
+            feed = article.get('feed_name', 'Unknown')
+            if feed not in articles_by_feed:
+                articles_by_feed[feed] = []
+            articles_by_feed[feed].append(article)
+
+        # Sort each feed's articles by recency
+        for feed in articles_by_feed:
+            articles_by_feed[feed].sort(
+                key=lambda x: x.get('collected_at', ''),
+                reverse=True
+            )
+
+        # Apply diversity strategy
+        articles = apply_feed_diversity_strategy(
+            articles_by_feed=articles_by_feed,
+            initial_limit=initial_limit,
+            strategy=diversity_config.get("strategy", "disabled"),
+            max_per_feed=diversity_config.get("max_articles_per_feed"),
+            min_per_feed=diversity_config.get("min_articles_per_feed", 0)
+        )
+
+        # Track feed distribution for stats
+        feed_counts = {}
+        for article in articles:
+            feed = article.get('feed_name', 'Unknown')
+            feed_counts[feed] = feed_counts.get(feed, 0) + 1
+
+        stats["feed_distribution"] = feed_counts
+        logger.info(f"Applied '{diversity_config['strategy']}' diversity: {feed_counts}")
+    else:
+        stats["feed_distribution"] = None
+
+    # Step 0: Limit to most recent N articles if there are too many
+    # (Only applies if diversity not enabled, since diversity already limits)
     if len(articles) > initial_limit:
         logger.info(f"Limiting from {len(articles)} to {initial_limit} most recent articles")
         stats["filtered_by_limit"] = len(articles) - initial_limit

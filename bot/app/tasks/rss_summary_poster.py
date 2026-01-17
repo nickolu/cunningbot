@@ -139,6 +139,16 @@ def create_summary_embed(
         if filter_parts:
             footer_parts.append(f"Filtered: {', '.join(filter_parts)}")
 
+        # Feed distribution (if diversity applied)
+        feed_dist = stats.get("feed_distribution")
+        if feed_dist:
+            # Format as "Feed1: 5, Feed2: 3, Feed3: 2"
+            dist_items = sorted(feed_dist.items(), key=lambda x: -x[1])  # Sort by count desc
+            dist_str = ", ".join(f"{feed}: {count}" for feed, count in dist_items[:5])  # Top 5
+            if len(dist_items) > 5:
+                dist_str += f", +{len(dist_items) - 5} more"
+            footer_parts.append(f"Distribution: {dist_str}")
+
         # Feed count
         feed_text = "feed" if feed_count == 1 else "feeds"
         footer_parts.append(f"{feed_count} {feed_text}")
@@ -224,6 +234,12 @@ async def post_summaries() -> None:
                 limits = get_channel_article_limits(guild_id, channel_id)
                 logger.info(f"Using limits for channel {channel_id}: {limits['initial_limit']} → {limits['top_articles_limit']} → {limits['cluster_limit']}")
 
+                # Load feed diversity config for this channel
+                from bot.domain.news.feed_diversity import get_channel_feed_diversity
+                diversity_config = get_channel_feed_diversity(guild_id, channel_id)
+                if diversity_config.get("strategy") != "disabled":
+                    logger.info(f"Feed diversity enabled for channel {channel_id}: {diversity_config}")
+
                 # Build filter map from feed configs
                 all_guild_states = get_all_guild_states()
                 guild_state = all_guild_states.get(guild_id, {})
@@ -245,7 +261,8 @@ async def post_summaries() -> None:
                         edition=edition,
                         initial_limit=limits["initial_limit"],
                         top_articles_limit=limits["top_articles_limit"],
-                        cluster_limit=limits["cluster_limit"]
+                        cluster_limit=limits["cluster_limit"],
+                        diversity_config=diversity_config
                     )
                 except Exception as e:
                     logger.error(f"Failed to generate summary for channel {channel_id}: {e}")

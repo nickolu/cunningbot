@@ -738,6 +738,147 @@ class NewsCog(commands.Cog):
                 ephemeral=True
             )
 
+    @news.command(name="diversity", description="Configure feed diversity settings for this channel.")
+    @app_commands.describe(
+        action="Action to perform: configure, show, or reset",
+        strategy="Diversity strategy: balanced, proportional, or disabled",
+        max_per_feed="Maximum articles from any single feed (optional)",
+        min_per_feed="Minimum articles per feed (optional)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def diversity(
+        self,
+        interaction: discord.Interaction,
+        action: str,
+        strategy: Optional[str] = None,
+        max_per_feed: Optional[int] = None,
+        min_per_feed: Optional[int] = None
+    ) -> None:
+        """Configure feed diversity to ensure fair representation across feeds."""
+        from bot.domain.news.feed_diversity import (
+            DEFAULT_STRATEGY,
+            RECOMMENDED_MAX_PER_FEED,
+            RECOMMENDED_MIN_PER_FEED,
+            get_channel_feed_diversity
+        )
+
+        channel_id = interaction.channel_id
+        all_diversity = get_state_value_from_interaction("channel_feed_diversity", interaction.guild_id) or {}
+
+        if action.lower() == "show":
+            # Show current configuration
+            config = get_channel_feed_diversity(interaction.guild_id, channel_id)
+            if config.get("strategy") == "disabled":
+                await interaction.response.send_message(
+                    "📊 Feed diversity is currently **disabled** for this channel.\n"
+                    "Articles are selected purely by recency (current behavior).",
+                    ephemeral=True
+                )
+            else:
+                strat = config.get("strategy", "disabled")
+                max_per = config.get("max_articles_per_feed")
+                min_per = config.get("min_articles_per_feed", 0)
+
+                max_str = str(max_per) if max_per is not None else "No limit"
+                min_str = str(min_per)
+
+                await interaction.response.send_message(
+                    f"📊 Feed Diversity Configuration for {interaction.channel.mention}\n\n"
+                    f"**Strategy:** {strat}\n"
+                    f"**Max per feed:** {max_str}\n"
+                    f"**Min per feed:** {min_str}\n\n"
+                    f"Use `/news diversity configure` to change settings.",
+                    ephemeral=True
+                )
+            return
+
+        elif action.lower() == "reset":
+            # Reset to default (disabled)
+            if str(channel_id) in all_diversity:
+                del all_diversity[str(channel_id)]
+                set_state_value_from_interaction("channel_feed_diversity", all_diversity, interaction.guild_id)
+                await interaction.response.send_message(
+                    "✅ Feed diversity reset to default (disabled).\n"
+                    "Articles will be selected by recency without feed balancing.",
+                    ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    "ℹ️ This channel already uses default settings (disabled).",
+                    ephemeral=True
+                )
+            return
+
+        elif action.lower() == "configure":
+            # Validate strategy
+            if not strategy:
+                await interaction.response.send_message(
+                    "⚠️ Please specify a strategy: `balanced`, `proportional`, or `disabled`\n\n"
+                    f"**Recommended for most channels:**\n"
+                    f"`/news diversity action:configure strategy:balanced max_per_feed:{RECOMMENDED_MAX_PER_FEED} min_per_feed:{RECOMMENDED_MIN_PER_FEED}`",
+                    ephemeral=True
+                )
+                return
+
+            if strategy.lower() not in ["disabled", "balanced", "proportional"]:
+                await interaction.response.send_message(
+                    "❌ Invalid strategy. Choose: `balanced`, `proportional`, or `disabled`",
+                    ephemeral=True
+                )
+                return
+
+            # Validate bounds
+            if max_per_feed is not None and max_per_feed < 1:
+                await interaction.response.send_message(
+                    "⚠️ max_per_feed must be at least 1",
+                    ephemeral=True
+                )
+                return
+
+            if min_per_feed is not None and min_per_feed < 0:
+                await interaction.response.send_message(
+                    "⚠️ min_per_feed cannot be negative",
+                    ephemeral=True
+                )
+                return
+
+            # Validate max vs min
+            if max_per_feed is not None and min_per_feed is not None and min_per_feed > max_per_feed:
+                await interaction.response.send_message(
+                    "⚠️ min_per_feed cannot be greater than max_per_feed",
+                    ephemeral=True
+                )
+                return
+
+            # Save configuration
+            config = {
+                "strategy": strategy.lower(),
+                "max_articles_per_feed": max_per_feed,
+                "min_articles_per_feed": min_per_feed if min_per_feed is not None else 0
+            }
+
+            all_diversity[str(channel_id)] = config
+            set_state_value_from_interaction("channel_feed_diversity", all_diversity, interaction.guild_id)
+
+            # Format response
+            max_str = str(max_per_feed) if max_per_feed is not None else "No limit"
+            min_str = str(min_per_feed) if min_per_feed is not None else "0"
+
+            await interaction.response.send_message(
+                f"✅ Feed diversity configured for {interaction.channel.mention}\n\n"
+                f"**Strategy:** {strategy.lower()}\n"
+                f"**Max per feed:** {max_str}\n"
+                f"**Min per feed:** {min_str}\n\n"
+                f"Next summary will apply these diversity rules.",
+                ephemeral=True
+            )
+
+        else:
+            await interaction.response.send_message(
+                "❌ Invalid action. Use: `configure`, `show`, or `reset`",
+                ephemeral=True
+            )
+
     @news.command(name="list", description="List all RSS feeds in this channel.")
     async def list_feeds(self, interaction: discord.Interaction) -> None:
         feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
@@ -855,6 +996,32 @@ class NewsCog(commands.Cog):
         embed.add_field(
             name="🔄 Deduplication Window",
             value=window_str,
+            inline=False
+        )
+
+        # Add feed diversity information
+        from bot.domain.news.feed_diversity import get_channel_feed_diversity
+        diversity_config = get_channel_feed_diversity(interaction.guild_id, current_channel_id)
+
+        if diversity_config.get("strategy") != "disabled":
+            strat = diversity_config.get("strategy", "disabled")
+            max_per = diversity_config.get("max_articles_per_feed")
+            min_per = diversity_config.get("min_articles_per_feed", 0)
+
+            max_str = str(max_per) if max_per is not None else "No limit"
+            min_str = str(min_per)
+
+            diversity_str = (
+                f"**Strategy:** {strat}\n"
+                f"**Max per feed:** {max_str}\n"
+                f"**Min per feed:** {min_str}"
+            )
+        else:
+            diversity_str = "**Disabled** (articles selected by recency only)"
+
+        embed.add_field(
+            name="📊 Feed Diversity",
+            value=diversity_str,
             inline=False
         )
 
@@ -999,6 +1166,10 @@ class NewsCog(commands.Cog):
         from bot.domain.news.news_summary_service import get_channel_article_limits
         limits = get_channel_article_limits(interaction.guild_id, interaction.channel_id)
 
+        # Load feed diversity config for this channel
+        from bot.domain.news.feed_diversity import get_channel_feed_diversity
+        diversity_config = get_channel_feed_diversity(interaction.guild_id, interaction.channel_id)
+
         # Generate summary
         try:
             logger.info(f"Generating on-demand summary for channel {interaction.channel_id}: {len(all_pending)} articles from {len(feed_names)} feeds")
@@ -1011,7 +1182,8 @@ class NewsCog(commands.Cog):
                 edition="On-Demand",
                 initial_limit=limits["initial_limit"],
                 top_articles_limit=limits["top_articles_limit"],
-                cluster_limit=limits["cluster_limit"]
+                cluster_limit=limits["cluster_limit"],
+                diversity_config=diversity_config
             )
 
             # Create embed with stats
@@ -1050,6 +1222,16 @@ class NewsCog(commands.Cog):
 
                 if filter_parts:
                     footer_parts.append(f"Filtered: {', '.join(filter_parts)}")
+
+                # Feed distribution (if diversity applied)
+                feed_dist = stats.get("feed_distribution")
+                if feed_dist:
+                    # Format as "Feed1: 5, Feed2: 3, Feed3: 2"
+                    dist_items = sorted(feed_dist.items(), key=lambda x: -x[1])  # Sort by count desc
+                    dist_str = ", ".join(f"{feed}: {count}" for feed, count in dist_items[:5])  # Top 5
+                    if len(dist_items) > 5:
+                        dist_str += f", +{len(dist_items) - 5} more"
+                    footer_parts.append(f"Distribution: {dist_str}")
 
                 # Feed count
                 feed_text = "feed" if feed_count == 1 else "feeds"
