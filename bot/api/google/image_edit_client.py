@@ -48,7 +48,7 @@ class GeminiImageEditClient:
 
     async def edit_image(
         self,
-        image: Union[str, bytes, BinaryIO],
+        image: Union[str, bytes, BinaryIO, List[Union[str, bytes, BinaryIO]]],
         prompt: str,
         n: int = 1,
         size: str = "1024x1024",
@@ -56,10 +56,11 @@ class GeminiImageEditClient:
         **kwargs  # Accept but ignore OpenAI-specific params like quality, background
     ) -> Tuple[Optional[List[bytes]], str]:
         """
-        Edits an image using Google Gemini's image editing capabilities.
+        Edits an image or multiple images using Google Gemini's image editing capabilities.
 
         Args:
-            image: Path to the source image file, image bytes, or a file-like object.
+            image: Path to the source image file, image bytes, a file-like object,
+                   or a list of any of these for multi-image composition.
             prompt: A text description of the desired edits.
             n: The number of images to generate (Note: Gemini generates one at a time).
             size: OpenAI-style size string (will be converted to aspect ratio).
@@ -73,28 +74,10 @@ class GeminiImageEditClient:
         """
         try:
             print(f"[GEMINI] edit_image called. prompt[:60]={prompt[:60]!r}, n={n}, size={size}, aspect_ratio={aspect_ratio}", flush=True)
-            # Prepare the image data
-            image_data = None
-            mime_type = "image/png"
 
-            if isinstance(image, str):
-                # Read from file path
-                with open(image, "rb") as f:
-                    image_data = f.read()
-                # Determine mime type from extension
-                if image.lower().endswith('.jpg') or image.lower().endswith('.jpeg'):
-                    mime_type = "image/jpeg"
-                elif image.lower().endswith('.webp'):
-                    mime_type = "image/webp"
-            elif isinstance(image, bytes):
-                image_data = image
-            elif hasattr(image, 'read'):
-                image_data = image.read()
-            else:
-                return None, "Invalid image input type. Must be path (str), bytes, or file-like object."
-
-            if not image_data:
-                return None, "Failed to read image data."
+            # Normalize input to list for uniform processing
+            images_to_process = image if isinstance(image, list) else [image]
+            print(f"[GEMINI] Processing {len(images_to_process)} image(s)", flush=True)
 
             # Determine the aspect ratio to use
             if aspect_ratio:
@@ -110,46 +93,74 @@ class GeminiImageEditClient:
                 )
             )
 
-            # Prepare the content with image and prompt
-            # Prefer modern API if available; fall back for older SDKs
-            image_part = None
-            try:
-                # Newer SDK path
-                image_part = types.Part.from_image(
-                    image=types.Image(
-                        image_bytes=image_data
-                    )
-                )
-            except AttributeError:
-                # Older SDKs may not have from_image; use from_bytes
+            # Process each image and create image parts
+            image_parts = []
+            for idx, img in enumerate(images_to_process):
+                image_data = None
+                mime_type = "image/png"
+
+                if isinstance(img, str):
+                    # Read from file path
+                    with open(img, "rb") as f:
+                        image_data = f.read()
+                    # Determine mime type from extension
+                    if img.lower().endswith('.jpg') or img.lower().endswith('.jpeg'):
+                        mime_type = "image/jpeg"
+                    elif img.lower().endswith('.webp'):
+                        mime_type = "image/webp"
+                elif isinstance(img, bytes):
+                    image_data = img
+                elif hasattr(img, 'read'):
+                    image_data = img.read()
+                else:
+                    return None, f"Invalid image input type at index {idx}. Must be path (str), bytes, or file-like object."
+
+                if not image_data:
+                    return None, f"Failed to read image data at index {idx}."
+
+                # Prepare the content with image - prefer modern API if available; fall back for older SDKs
+                image_part = None
                 try:
-                    image_part = types.Part.from_bytes(
-                        data=image_data,
-                        mime_type=mime_type
+                    # Newer SDK path
+                    image_part = types.Part.from_image(
+                        image=types.Image(
+                            image_bytes=image_data
+                        )
                     )
+                except AttributeError:
+                    # Older SDKs may not have from_image; use from_bytes
+                    try:
+                        image_part = types.Part.from_bytes(
+                            data=image_data,
+                            mime_type=mime_type
+                        )
+                    except Exception as part_err:
+                        logger.error(f"Failed to build Gemini image part using from_bytes: {part_err}")
+                        return None, f"An unexpected error occurred: image_part_build"
                 except Exception as part_err:
-                    logger.error(f"Failed to build Gemini image part using from_bytes: {part_err}")
-                    return None, f"An unexpected error occurred: image_part_build"
-            except Exception as part_err:
-                logger.error(f"Failed to build Gemini image part using from_image: {part_err}")
-                # Try fallback once more in case of non-AttributeError
-                try:
-                    image_part = types.Part.from_bytes(
-                        data=image_data,
-                        mime_type=mime_type
-                    )
-                except Exception:
-                    return None, f"An unexpected error occurred: from_image"
+                    logger.error(f"Failed to build Gemini image part using from_image: {part_err}")
+                    # Try fallback once more in case of non-AttributeError
+                    try:
+                        image_part = types.Part.from_bytes(
+                            data=image_data,
+                            mime_type=mime_type
+                        )
+                    except Exception:
+                        return None, f"An unexpected error occurred: from_image"
+
+                image_parts.append(image_part)
 
             # Generate the edited image(s)
             image_bytes_list: List[bytes] = []
 
             for i in range(n):
                 try:
+                    # Build contents: all image parts followed by the prompt
+                    contents = image_parts + [prompt]
                     response = await asyncio.to_thread(
                         self.client.models.generate_content,
                         model=self.DEFAULT_MODEL,
-                        contents=[image_part, prompt],
+                        contents=contents,
                         config=config
                     )
 
