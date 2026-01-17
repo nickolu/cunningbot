@@ -760,24 +760,46 @@ async def generate_news_summary(
     """
     logger.info(f"Generating {edition} summary for {len(articles)} articles from {len(feed_names)} feeds")
 
+    # Initialize statistics tracking
+    stats = {
+        "original_count": len(articles),
+        "after_initial_limit": 0,
+        "after_feed_filter": 0,
+        "after_url_dedup": 0,
+        "after_story_dedup": 0,
+        "filtered_by_limit": 0,
+        "filtered_by_feed_filter": 0,
+        "filtered_by_url_dedup": 0,
+        "filtered_by_story_dedup": 0
+    }
+
     if not articles:
         return {
-            "summary_text": "No articles to summarize.",
+            "summary_text": "No articles collected from RSS feeds during this period.",
             "story_summaries": [],
             "top_articles": [],
             "total_articles": 0,
-            "feed_count": len(feed_names)
+            "feed_count": len(feed_names),
+            "stats": stats
         }
 
     # Limit to most recent N articles if there are too many
     if len(articles) > initial_limit:
         logger.info(f"Limiting from {len(articles)} to {initial_limit} most recent articles")
+        stats["filtered_by_limit"] = len(articles) - initial_limit
         articles = articles[:initial_limit]
+
+    stats["after_initial_limit"] = len(articles)
 
     # Step 0: Filter articles by feed instructions
     if filter_map:
+        before_filter = len(articles)
         articles = await filter_articles_by_instructions(articles, filter_map)
+        stats["filtered_by_feed_filter"] = before_filter - len(articles)
+        stats["after_feed_filter"] = len(articles)
         logger.info(f"After feed filtering: {len(articles)} articles remain")
+    else:
+        stats["after_feed_filter"] = len(articles)
 
     # Step 0.5: Article-level deduplication (filter out URLs already used today)
     if story_history:
@@ -785,19 +807,24 @@ async def generate_news_summary(
         for story in story_history:
             used_urls.update(story.get("article_urls", []))
 
-        original_count = len(articles)
+        before_dedup = len(articles)
         articles = [a for a in articles if a.get("link") not in used_urls]
-        logger.info(f"Article-level dedup: {original_count} -> {len(articles)} articles ({len(used_urls)} URLs filtered)")
+        stats["filtered_by_url_dedup"] = before_dedup - len(articles)
+        stats["after_url_dedup"] = len(articles)
+        logger.info(f"Article-level dedup: {before_dedup} -> {len(articles)} articles ({len(used_urls)} URLs filtered)")
 
         if not articles:
-            logger.info("All articles were already covered today")
+            logger.info("All articles were already covered")
             return {
-                "summary_text": "All articles have been covered in earlier summaries today.",
+                "summary_text": "All articles have been covered in earlier summaries.",
                 "story_summaries": [],
                 "top_articles": [],
                 "total_articles": 0,
-                "feed_count": len(feed_names)
+                "feed_count": len(feed_names),
+                "stats": stats
             }
+    else:
+        stats["after_url_dedup"] = len(articles)
 
     # Step 1: Rank articles by importance
     ranked_articles = await rank_articles_by_importance(articles)
@@ -811,17 +838,23 @@ async def generate_news_summary(
 
     # Step 3.5: Story-level deduplication (filter duplicate stories)
     if story_history:
+        before_story_dedup = len(story_clusters)
         story_clusters = await filter_duplicate_stories(story_clusters, story_history)
+        stats["filtered_by_story_dedup"] = before_story_dedup - len(story_clusters)
+        stats["after_story_dedup"] = len(story_clusters)
 
         if not story_clusters:
             logger.info("All stories were duplicates of earlier summaries")
             return {
-                "summary_text": "All stories have been covered in earlier summaries today.",
+                "summary_text": "All stories have been covered in earlier summaries.",
                 "story_summaries": [],
                 "top_articles": [],
-                "total_articles": len(articles),
-                "feed_count": len(feed_names)
+                "total_articles": 0,
+                "feed_count": len(feed_names),
+                "stats": stats
             }
+    else:
+        stats["after_story_dedup"] = len(story_clusters)
 
     # Step 4: Generate unified summaries
     story_summaries = await generate_story_summaries(story_clusters)
@@ -836,5 +869,6 @@ async def generate_news_summary(
         "story_summaries": story_summaries,
         "top_articles": top_articles,
         "total_articles": len(articles),
-        "feed_count": len(feed_names)
+        "feed_count": len(feed_names),
+        "stats": stats
     }

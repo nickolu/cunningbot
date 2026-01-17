@@ -1014,19 +1014,53 @@ class NewsCog(commands.Cog):
                 cluster_limit=limits["cluster_limit"]
             )
 
-            # Create embed
+            # Create embed with stats
+            article_count = summary_result["total_articles"]
+            feed_count = summary_result["feed_count"]
+            stats = summary_result.get("stats", {})
+
+            # Determine color based on whether there are stories
+            color = 0x00a8ff if article_count > 0 else 0x808080
+
             embed = discord.Embed(
                 title="📰 News Summary - On-Demand",
                 description=summary_result["summary_text"],
-                color=0x00a8ff,
+                color=color,
                 timestamp=datetime.utcnow()
             )
 
-            feed_count = summary_result["feed_count"]
-            article_count = summary_result["total_articles"]
-            feed_text = "feed" if feed_count == 1 else "feeds"
-            article_text = "article" if article_count == 1 else "articles"
-            embed.set_footer(text=f"Summarized {article_count} {article_text} from {feed_count} {feed_text}")
+            # Build footer with statistics
+            if stats:
+                footer_parts = []
+
+                # Original count
+                original = stats.get("original_count", 0)
+                footer_parts.append(f"Collected: {original}")
+
+                # Filtering breakdown
+                filter_parts = []
+                if stats.get("filtered_by_limit", 0) > 0:
+                    filter_parts.append(f"{stats['filtered_by_limit']} by limit")
+                if stats.get("filtered_by_feed_filter", 0) > 0:
+                    filter_parts.append(f"{stats['filtered_by_feed_filter']} by filters")
+                if stats.get("filtered_by_url_dedup", 0) > 0:
+                    filter_parts.append(f"{stats['filtered_by_url_dedup']} by URL dedup")
+                if stats.get("filtered_by_story_dedup", 0) > 0:
+                    filter_parts.append(f"{stats['filtered_by_story_dedup']} by story dedup")
+
+                if filter_parts:
+                    footer_parts.append(f"Filtered: {', '.join(filter_parts)}")
+
+                # Feed count
+                feed_text = "feed" if feed_count == 1 else "feeds"
+                footer_parts.append(f"{feed_count} {feed_text}")
+
+                embed.set_footer(text=" • ".join(footer_parts))
+            else:
+                # Fallback to old format
+                feed_text = "feed" if feed_count == 1 else "feeds"
+                article_text = "article" if article_count == 1 else "articles"
+                embed.set_footer(text=f"Summarized {article_count} {article_text} from {feed_count} {feed_text}")
 
             # Post to channel
             await interaction.channel.send(embed=embed)

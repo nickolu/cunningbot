@@ -88,7 +88,8 @@ def create_summary_embed(
     summary_text: str,
     article_count: int,
     feed_count: int,
-    edition: str
+    edition: str,
+    stats: Dict[str, int] = None
 ) -> discord.Embed:
     """
     Create a Discord embed for the news summary.
@@ -98,20 +99,56 @@ def create_summary_embed(
         article_count: Total number of articles summarized
         feed_count: Number of feeds contributing articles
         edition: "Morning" or "Evening"
+        stats: Optional filtering statistics
 
     Returns:
         Discord Embed object
     """
+    # Determine color based on whether there are stories
+    if article_count > 0:
+        color = 0x00a8ff  # Blue for normal summaries
+    else:
+        color = 0x808080  # Gray for empty summaries
+
     embed = discord.Embed(
         title=f"📰 News Summary - {edition} Edition",
         description=summary_text,
-        color=0x00a8ff,
+        color=color,
         timestamp=dt.datetime.utcnow()
     )
 
-    feed_text = "feed" if feed_count == 1 else "feeds"
-    article_text = "article" if article_count == 1 else "articles"
-    embed.set_footer(text=f"Summarized {article_count} {article_text} from {feed_count} {feed_text}")
+    # Build footer with statistics
+    if stats:
+        footer_parts = []
+
+        # Original count
+        original = stats.get("original_count", 0)
+        footer_parts.append(f"Collected: {original}")
+
+        # Filtering breakdown
+        filter_parts = []
+        if stats.get("filtered_by_limit", 0) > 0:
+            filter_parts.append(f"{stats['filtered_by_limit']} by limit")
+        if stats.get("filtered_by_feed_filter", 0) > 0:
+            filter_parts.append(f"{stats['filtered_by_feed_filter']} by filters")
+        if stats.get("filtered_by_url_dedup", 0) > 0:
+            filter_parts.append(f"{stats['filtered_by_url_dedup']} by URL dedup")
+        if stats.get("filtered_by_story_dedup", 0) > 0:
+            filter_parts.append(f"{stats['filtered_by_story_dedup']} by story dedup")
+
+        if filter_parts:
+            footer_parts.append(f"Filtered: {', '.join(filter_parts)}")
+
+        # Feed count
+        feed_text = "feed" if feed_count == 1 else "feeds"
+        footer_parts.append(f"{feed_count} {feed_text}")
+
+        embed.set_footer(text=" • ".join(footer_parts))
+    else:
+        # Fallback to old format
+        feed_text = "feed" if feed_count == 1 else "feeds"
+        article_text = "article" if article_count == 1 else "articles"
+        embed.set_footer(text=f"Summarized {article_count} {article_text} from {feed_count} {feed_text}")
 
     return embed
 
@@ -214,21 +251,17 @@ async def post_summaries() -> None:
                     logger.error(f"Failed to generate summary for channel {channel_id}: {e}")
                     continue
 
-                # Check if any stories to post after deduplication
+                # Get stats and story summaries
                 story_summaries = summary_result.get("story_summaries", [])
-                if not story_summaries:
-                    logger.info(f"No new stories for channel {channel_id} after deduplication")
-                    # Still clear pending articles
-                    cleared_count = clear_pending_articles_for_channel(guild_id_str, channel_id)
-                    logger.info(f"Cleared {cleared_count} pending articles with no new stories")
-                    continue
+                stats = summary_result.get("stats", {})
 
-                # Create embed
+                # Create embed (always post, even if no stories)
                 embed = create_summary_embed(
                     summary_text=summary_result["summary_text"],
                     article_count=summary_result["total_articles"],
                     feed_count=summary_result["feed_count"],
-                    edition=edition
+                    edition=edition,
+                    stats=stats
                 )
 
                 # Fetch channel and post
