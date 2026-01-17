@@ -221,6 +221,32 @@ async def post_summaries() -> None:
                 feed_names = data["feed_names"]
                 guild_id = data["guild_id"]
 
+                # Filter out articles from removed feeds
+                all_guild_states = get_all_guild_states()
+                guild_state = all_guild_states.get(str(guild_id), {})
+                all_feeds = guild_state.get('rss_feeds', {})
+
+                # Check for orphaned feeds (feeds with pending articles but removed from config)
+                valid_feed_names = [name for name in feed_names if name in all_feeds]
+                orphaned_feeds = [name for name in feed_names if name not in all_feeds]
+
+                if orphaned_feeds:
+                    from bot.app.pending_news import clear_pending_articles_for_feed
+                    logger.warning(f"Found orphaned feeds in channel {channel_id}: {orphaned_feeds}")
+                    for orphaned_feed in orphaned_feeds:
+                        cleared = clear_pending_articles_for_feed(str(guild_id), channel_id, orphaned_feed)
+                        logger.info(f"Cleaned up {cleared} orphaned articles from removed feed: {orphaned_feed}")
+
+                    # Update feed_names to only include valid feeds
+                    feed_names = valid_feed_names
+
+                    # Filter articles to only include those from valid feeds
+                    articles = [a for a in articles if a.get('feed_name') in valid_feed_names]
+
+                    if not articles:
+                        logger.info(f"No articles remaining after filtering orphaned feeds for channel {channel_id}")
+                        continue
+
                 logger.info(f"Generating {edition} summary for channel {channel_id}: {len(articles)} articles from {len(feed_names)} feeds")
 
                 # Load story history within deduplication window
@@ -240,11 +266,7 @@ async def post_summaries() -> None:
                 if diversity_config.get("strategy") != "disabled":
                     logger.info(f"Feed diversity enabled for channel {channel_id}: {diversity_config}")
 
-                # Build filter map from feed configs
-                all_guild_states = get_all_guild_states()
-                guild_state = all_guild_states.get(guild_id, {})
-                all_feeds = guild_state.get('rss_feeds', {})
-
+                # Build filter map from feed configs (all_feeds already loaded above)
                 filter_map = {
                     name: feed.get('filter_instructions')
                     for name, feed in all_feeds.items()

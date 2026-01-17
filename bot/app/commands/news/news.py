@@ -321,6 +321,8 @@ class NewsCog(commands.Cog):
     @app_commands.describe(feed_name="The name of the feed to remove")
     @app_commands.checks.has_permissions(administrator=True)
     async def remove(self, interaction: discord.Interaction, feed_name: str) -> None:
+        from bot.app.pending_news import clear_pending_articles_for_feed
+
         feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
 
         if feed_name not in feeds:
@@ -338,6 +340,13 @@ class NewsCog(commands.Cog):
 
         # Save back to state
         set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
+
+        # Clean up any pending articles for this feed
+        guild_id_str = str(interaction.guild_id)
+        if channel_id:
+            cleared_count = clear_pending_articles_for_feed(guild_id_str, channel_id, feed_name)
+            if cleared_count > 0:
+                logger.info(f"Cleared {cleared_count} pending articles from removed feed {feed_name}")
 
         # Confirmation message
         channel_mention = f"<#{channel_id}>" if channel_id else "Unknown channel"
@@ -1113,7 +1122,7 @@ class NewsCog(commands.Cog):
         """Generate immediate news summary for current channel."""
         from datetime import datetime
         from bot.domain.news.news_summary_service import generate_news_summary
-        from bot.app.pending_news import get_pending_articles_for_channel, clear_pending_articles_for_channel
+        from bot.app.pending_news import get_pending_articles_for_channel, clear_pending_articles_for_channel, clear_pending_articles_for_feed
 
         # Defer response (this may take time)
         await interaction.response.defer(ephemeral=True)
@@ -1136,13 +1145,26 @@ class NewsCog(commands.Cog):
         guild_id_str = str(interaction.guild_id)
         pending_by_feed = get_pending_articles_for_channel(guild_id_str, interaction.channel_id)
 
-        # Flatten articles and collect feed names
+        # Flatten articles and collect feed names (only for feeds that still exist)
         all_pending = []
         feed_names = []
+        orphaned_feeds = []
+
         for feed_name, articles in pending_by_feed.items():
+            # Skip and clean up articles from feeds that have been removed
+            if feed_name not in channel_feeds:
+                logger.warning(f"Found {len(articles)} orphaned articles from removed feed: {feed_name}")
+                orphaned_feeds.append(feed_name)
+                continue
+
             all_pending.extend(articles)
             if articles:
                 feed_names.append(feed_name)
+
+        # Clean up orphaned articles
+        for orphaned_feed in orphaned_feeds:
+            cleared = clear_pending_articles_for_feed(guild_id_str, interaction.channel_id, orphaned_feed)
+            logger.info(f"Cleaned up {cleared} orphaned articles from removed feed: {orphaned_feed}")
 
         if not all_pending and not force:
             await interaction.followup.send(
@@ -1151,7 +1173,7 @@ class NewsCog(commands.Cog):
             )
             return
 
-        # Build filter map
+        # Build filter map (feeds are guaranteed to exist in channel_feeds now)
         filter_map = {
             name: channel_feeds[name].get('filter_instructions')
             for name in feed_names
