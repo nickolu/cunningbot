@@ -791,6 +791,7 @@ async def generate_news_summary(
         from bot.domain.news.feed_diversity import apply_feed_diversity_strategy
 
         logger.info(f"Applying feed diversity strategy: {diversity_config.get('strategy')}")
+        before_diversity = len(articles)
 
         # Re-group articles by feed
         articles_by_feed = {}
@@ -816,6 +817,9 @@ async def generate_news_summary(
             min_per_feed=diversity_config.get("min_articles_per_feed", 0)
         )
 
+        # Track how many articles were filtered by diversity
+        stats["filtered_by_limit"] = before_diversity - len(articles)
+
         # Track feed distribution for stats
         feed_counts = {}
         for article in articles:
@@ -827,12 +831,12 @@ async def generate_news_summary(
     else:
         stats["feed_distribution"] = None
 
-    # Step 0: Limit to most recent N articles if there are too many
-    # (Only applies if diversity not enabled, since diversity already limits)
-    if len(articles) > initial_limit:
-        logger.info(f"Limiting from {len(articles)} to {initial_limit} most recent articles")
-        stats["filtered_by_limit"] = len(articles) - initial_limit
-        articles = articles[:initial_limit]
+        # Step 0: Limit to most recent N articles if there are too many
+        # (Only applies if diversity not enabled, since diversity already limits)
+        if len(articles) > initial_limit:
+            logger.info(f"Limiting from {len(articles)} to {initial_limit} most recent articles")
+            stats["filtered_by_limit"] = len(articles) - initial_limit
+            articles = articles[:initial_limit]
 
     stats["after_initial_limit"] = len(articles)
 
