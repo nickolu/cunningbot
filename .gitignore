@@ -3,9 +3,9 @@
 .env
 logs
 bot/core/app_state.json
+bot/app/app_state.json
+bot/app/pending_news.json
 generated_images
 edited_images
 **.pyc
 .guild_config.json
-./bot/app/app_state.json
-./bot/app/pending_news.json
