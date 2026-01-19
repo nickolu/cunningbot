@@ -46,11 +46,21 @@ SUMMARY_TIMES = [
 ]
 
 
-def should_post_summary_for_channel(channel_schedule: List[tuple[int, int]] = None) -> tuple[bool, str]:
+def should_post_summary_for_channel(
+    guild_id: int,
+    channel_id: int,
+    channel_schedule: List[tuple[int, int]] = None
+) -> tuple[bool, str]:
     """
-    Check if current time matches a channel's summary schedule.
+    Check if it's time to post a summary for a channel using flexible time windows.
+
+    Instead of strict time matching, this checks if enough time has passed since
+    the last summary of each edition (Morning/Evening), allowing summaries that
+    take longer than 10 minutes to complete without missing the next scheduled post.
 
     Args:
+        guild_id: Guild ID
+        channel_id: Channel ID
         channel_schedule: List of (hour, minute) tuples for this channel, or None for default
 
     Returns:
@@ -64,21 +74,56 @@ def should_post_summary_for_channel(channel_schedule: List[tuple[int, int]] = No
     pacific_tz = ZoneInfo("America/Los_Angeles")
     now = dt.datetime.now(pacific_tz)
 
-    # Round to nearest 10-minute interval
-    rounded_minute = (now.minute // 10) * 10
+    # Load last summary times for this channel
+    from bot.app.app_state import get_state_value
+    guild_id_str = str(guild_id)
+    all_last_summaries = get_state_value("channel_last_summaries", guild_id_str) or {}
+    channel_last_summaries = all_last_summaries.get(str(channel_id), {})
 
-    # Check against channel's schedule
+    # Check each scheduled time to see if we should post
     for hour, minute in channel_schedule:
-        if now.hour == hour and rounded_minute == minute:
-            # Determine edition based on time of day
-            if hour < 12:
-                edition = "Morning"
-            elif hour < 18:
-                edition = "Afternoon"
-            else:
-                edition = "Evening"
+        # Determine edition based on time of day
+        if hour < 12:
+            edition = "Morning"
+        elif hour < 18:
+            edition = "Afternoon"
+        else:
+            edition = "Evening"
 
-            logger.info(f"Time check: {now.hour}:{rounded_minute:02d} matches {hour}:{minute:02d} - {edition} edition")
+        # Check if current time is past the scheduled time
+        scheduled_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+        # Only consider this edition if we're past the scheduled time (within reason)
+        # Allow up to 2 hours after scheduled time
+        if now < scheduled_time or (now - scheduled_time).total_seconds() > 7200:
+            continue
+
+        # Check when we last posted this edition
+        last_summary_str = channel_last_summaries.get(edition)
+
+        if not last_summary_str:
+            # Never posted this edition, go ahead
+            logger.info(f"Time check: Never posted {edition} edition for channel {channel_id} - posting now")
+            return True, edition
+
+        try:
+            # Parse last summary time
+            last_summary = dt.datetime.fromisoformat(last_summary_str)
+            if last_summary.tzinfo is None:
+                last_summary = last_summary.replace(tzinfo=pacific_tz)
+
+            hours_since_last = (now - last_summary).total_seconds() / 3600
+
+            # Post if it's been more than 11 hours since last summary of this edition
+            if hours_since_last > 11:
+                logger.info(f"Time check: {hours_since_last:.1f}h since last {edition} edition for channel {channel_id} - posting now")
+                return True, edition
+            else:
+                logger.debug(f"Time check: Only {hours_since_last:.1f}h since last {edition} edition for channel {channel_id} - skipping")
+
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Could not parse last summary time '{last_summary_str}': {e}")
+            # If we can't parse, assume it's time to post
             return True, edition
 
     return False, ""
@@ -209,17 +254,17 @@ async def post_summaries() -> None:
 
         for channel_id, data in channel_articles.items():
             try:
+                articles = data["articles"]
+                feed_names = data["feed_names"]
+                guild_id = data["guild_id"]
+
                 # Check if it's time to post for THIS channel
                 channel_schedule = all_schedules.get(channel_id)  # None = use default
-                should_post, edition = should_post_summary_for_channel(channel_schedule)
+                should_post, edition = should_post_summary_for_channel(guild_id, channel_id, channel_schedule)
 
                 if not should_post:
                     logger.info(f"Not time for summary in channel {channel_id}, skipping")
                     continue
-
-                articles = data["articles"]
-                feed_names = data["feed_names"]
-                guild_id = data["guild_id"]
 
                 # Filter out articles from removed feeds
                 all_guild_states = get_all_guild_states()
@@ -358,6 +403,25 @@ async def post_summaries() -> None:
                     # Save updated feeds back to state
                     set_state_value("rss_feeds", all_feeds, guild_id)
                     logger.info(f"Updated last_summary for {len(feed_names)} feeds in guild {guild_id}")
+
+                    # Update channel_last_summaries with edition timestamp
+                    pacific_tz = ZoneInfo("America/Los_Angeles")
+                    current_time = dt.datetime.now(pacific_tz).isoformat()
+
+                    # Load current channel_last_summaries
+                    guild_id_str = str(guild_id)
+                    all_last_summaries = get_state_value("channel_last_summaries", guild_id_str) or {}
+
+                    # Update for this channel and edition
+                    channel_id_str = str(channel_id)
+                    if channel_id_str not in all_last_summaries:
+                        all_last_summaries[channel_id_str] = {}
+
+                    all_last_summaries[channel_id_str][edition] = current_time
+
+                    # Save back to state
+                    set_state_value("channel_last_summaries", all_last_summaries, guild_id_str)
+                    logger.info(f"Updated {edition} edition timestamp for channel {channel_id}")
 
                 except Exception as e:
                     logger.error(f"Failed to clear pending articles or update state for channel {channel_id}: {e}")
