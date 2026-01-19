@@ -14,7 +14,7 @@ logger = get_logger()
 # Article processing limit defaults
 DEFAULT_INITIAL_LIMIT = 50
 DEFAULT_TOP_ARTICLES_LIMIT = 18
-DEFAULT_CLUSTER_LIMIT = 8
+DEFAULT_CLUSTER_LIMIT = 6
 
 # Validation bounds
 MIN_INITIAL_LIMIT = 10
@@ -480,15 +480,56 @@ Return JSON: {{"has_significant_updates": true/false, "reason": "brief explanati
         return False  # Conservative: don't show if error
 
 
+async def _process_cluster_for_dedup(
+    cluster: Dict[str, Any],
+    historical_titles: List[str],
+    story_history: List[Dict[str, Any]]
+) -> tuple[Dict[str, Any] | None, str]:
+    """
+    Process a single cluster for deduplication.
+
+    Returns:
+        Tuple of (cluster if should keep or None if should filter, preliminary_title)
+    """
+    articles = cluster["articles"]
+
+    # Generate preliminary title
+    prelim_title = await generate_preliminary_title(articles)
+
+    # Check similarity
+    is_duplicate, similar_story = await check_story_similarity(
+        prelim_title,
+        articles,
+        historical_titles,
+        story_history
+    )
+
+    if is_duplicate and similar_story:
+        # Similar story found, check for updates
+        logger.info(f"Story '{prelim_title}' similar to '{similar_story.get('title')}' - checking for updates")
+
+        has_updates = await check_significant_updates(articles, similar_story)
+
+        if has_updates:
+            logger.info(f"Significant updates found - keeping story")
+            return cluster, prelim_title
+        else:
+            logger.info(f"No significant updates - filtering duplicate story")
+            return None, prelim_title
+    else:
+        # Unique story, keep it
+        return cluster, prelim_title
+
+
 async def filter_duplicate_stories(
     story_clusters: List[Dict[str, Any]],
     story_history: List[Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
     """
     Filter duplicate stories using hybrid approach:
-    1. Generate preliminary titles for each cluster
-    2. Check semantic similarity against today's history
-    3. If similar, check for significant updates
+    1. Generate preliminary titles for each cluster (parallel)
+    2. Check semantic similarity against today's history (parallel)
+    3. If similar, check for significant updates (parallel)
     4. Keep unique stories and stories with significant updates
 
     Returns filtered list of story clusters.
@@ -500,73 +541,42 @@ async def filter_duplicate_stories(
     historical_titles = [s["title"] for s in story_history]
     logger.info(f"Checking {len(story_clusters)} new clusters against {len(historical_titles)} historical stories")
 
-    filtered_clusters = []
+    # Process all clusters in parallel
+    import asyncio
+    results = await asyncio.gather(*[
+        _process_cluster_for_dedup(cluster, historical_titles, story_history)
+        for cluster in story_clusters
+    ])
 
-    for cluster in story_clusters:
-        articles = cluster["articles"]
-
-        # Generate preliminary title
-        prelim_title = await generate_preliminary_title(articles)
-
-        # Check similarity
-        is_duplicate, similar_story = await check_story_similarity(
-            prelim_title,
-            articles,
-            historical_titles,
-            story_history
-        )
-
-        if is_duplicate and similar_story:
-            # Similar story found, check for updates
-            logger.info(f"Story '{prelim_title}' similar to '{similar_story.get('title')}' - checking for updates")
-
-            has_updates = await check_significant_updates(articles, similar_story)
-
-            if has_updates:
-                logger.info(f"Significant updates found - keeping story")
-                filtered_clusters.append(cluster)
-            else:
-                logger.info(f"No significant updates - filtering duplicate story")
-                # Skip this cluster
-        else:
-            # Unique story, keep it
-            filtered_clusters.append(cluster)
+    # Filter out None values (duplicate stories without updates)
+    filtered_clusters = [cluster for cluster, _ in results if cluster is not None]
 
     logger.info(f"Story-level dedup: {len(story_clusters)} -> {len(filtered_clusters)} clusters")
     return filtered_clusters
 
 
-async def generate_story_summaries(
-    story_clusters: List[Dict[str, Any]]
-) -> List[Dict[str, Any]]:
+async def _generate_single_story_summary(cluster: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Generate unified summaries for each story cluster.
+    Generate summary for a single story cluster.
 
     Args:
-        story_clusters: List of clusters with articles
+        cluster: Cluster dict with articles
 
     Returns:
-        List of dicts with title, summary, links for each story
+        Dict with title, summary, links
     """
-    if not story_clusters:
-        return []
+    articles = cluster["articles"]
 
-    try:
-        summaries = []
+    if len(articles) > 1:
+        # Multi-article: synthesize unified story
+        article_details = [
+            f"{i+1}. Title: {a.get('title', 'Untitled')}\n"
+            f"   Source: {a.get('source', 'Unknown')}\n"
+            f"   Description: {a.get('description', '')[:300]}"
+            for i, a in enumerate(articles)
+        ]
 
-        for cluster in story_clusters:
-            articles = cluster["articles"]
-
-            if len(articles) > 1:
-                # Multi-article: synthesize unified story
-                article_details = [
-                    f"{i+1}. Title: {a.get('title', 'Untitled')}\n"
-                    f"   Source: {a.get('source', 'Unknown')}\n"
-                    f"   Description: {a.get('description', '')[:300]}"
-                    for i, a in enumerate(articles)
-                ]
-
-                prompt = f"""Create unified summary for story covered by multiple sources.
+        prompt = f"""Create unified summary for story covered by multiple sources.
 
 Story articles:
 {chr(10).join(article_details)}
@@ -579,10 +589,10 @@ Format:
 TITLE: [Your title here]
 SUMMARY: [Your summary here]"""
 
-            else:
-                # Single article: refine presentation
-                article = articles[0]
-                prompt = f"""Refine this story for concise presentation.
+    else:
+        # Single article: refine presentation
+        article = articles[0]
+        prompt = f"""Refine this story for concise presentation.
 
 Title: {article.get('title', 'Untitled')}
 Description: {article.get('description', '')}
@@ -595,40 +605,64 @@ Format:
 TITLE: [Your title here]
 SUMMARY: [Your summary here]"""
 
-            # Generate title and summary
-            llm = ChatCompletionsClient.factory("gpt-4o-mini")
-            response = await llm.chat([
-                {"role": "system", "content": "You are a news editor creating concise summaries."},
-                {"role": "user", "content": prompt}
-            ])
+    # Generate title and summary
+    llm = ChatCompletionsClient.factory("gpt-4o-mini")
+    response = await llm.chat([
+        {"role": "system", "content": "You are a news editor creating concise summaries."},
+        {"role": "user", "content": prompt}
+    ])
 
-            # Parse response
-            title_match = re.search(r'TITLE:\s*(.+)', response)
-            summary_match = re.search(r'SUMMARY:\s*(.+)', response)
+    # Parse response
+    title_match = re.search(r'TITLE:\s*(.+)', response)
+    summary_match = re.search(r'SUMMARY:\s*(.+)', response)
 
-            title = title_match.group(1).strip() if title_match else articles[0].get('title', 'Breaking News')
-            summary = summary_match.group(1).strip() if summary_match else articles[0].get('description', '')[:100]
+    title = title_match.group(1).strip() if title_match else articles[0].get('title', 'Breaking News')
+    summary = summary_match.group(1).strip() if summary_match else articles[0].get('description', '')[:100]
 
-            # Collect all source links and deduplicate by URL
-            seen_urls = set()
-            links = []
-            for a in articles:
-                url = a.get('link', '')
-                if url and url not in seen_urls:
-                    seen_urls.add(url)
-                    links.append({
-                        "source": a.get('source', 'Unknown'),
-                        "url": url
-                    })
-
-            summaries.append({
-                "title": title,
-                "summary": summary,
-                "links": links
+    # Collect all source links and deduplicate by URL
+    seen_urls = set()
+    links = []
+    for a in articles:
+        url = a.get('link', '')
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            links.append({
+                "source": a.get('source', 'Unknown'),
+                "url": url
             })
 
+    return {
+        "title": title,
+        "summary": summary,
+        "links": links
+    }
+
+
+async def generate_story_summaries(
+    story_clusters: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """
+    Generate unified summaries for each story cluster (in parallel).
+
+    Args:
+        story_clusters: List of clusters with articles
+
+    Returns:
+        List of dicts with title, summary, links for each story
+    """
+    if not story_clusters:
+        return []
+
+    try:
+        # Generate all summaries in parallel
+        import asyncio
+        summaries = await asyncio.gather(*[
+            _generate_single_story_summary(cluster)
+            for cluster in story_clusters
+        ])
+
         logger.info(f"Generated {len(summaries)} story summaries")
-        return summaries
+        return list(summaries)
 
     except Exception as e:
         logger.error(f"Error generating summaries: {e}")
