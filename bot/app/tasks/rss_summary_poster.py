@@ -22,7 +22,7 @@ from zoneinfo import ZoneInfo
 from collections import defaultdict
 
 import discord
-from bot.app.app_state import get_all_guild_states, set_state_value
+from bot.app.app_state import get_all_guild_states, set_state_value, get_state_value
 from bot.app.pending_news import get_all_pending_by_channel, clear_pending_articles_for_channel
 from bot.app.story_history import (
     get_todays_story_history,
@@ -75,7 +75,6 @@ def should_post_summary_for_channel(
     now = dt.datetime.now(pacific_tz)
 
     # Load last summary times for this channel
-    from bot.app.app_state import get_state_value
     guild_id_str = str(guild_id)
     all_last_summaries = get_state_value("channel_last_summaries", guild_id_str) or {}
     channel_last_summaries = all_last_summaries.get(str(channel_id), {})
@@ -443,6 +442,8 @@ async def post_summaries() -> None:
         try:
             await openai.close()
             logger.info("Closed OpenAI client connections")
+            # Give extra time for HTTP connections to fully close
+            await asyncio.sleep(1.0)
         except Exception as e:
             logger.warning(f"Error closing OpenAI client: {e}")
 
