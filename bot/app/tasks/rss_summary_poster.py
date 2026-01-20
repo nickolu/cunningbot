@@ -116,15 +116,17 @@ def should_post_summary_for_channel(
 
             # Post if it's been more than 11 hours since last summary of this edition
             if hours_since_last > 11:
-                logger.info(f"Time check: {hours_since_last:.1f}h since last {edition} edition for channel {channel_id} - posting now")
+                logger.info(f"Time check: {hours_since_last:.1f}h since last {edition} edition (posted at {last_summary_str}) for channel {channel_id} - posting now")
                 return True, edition
             else:
-                logger.debug(f"Time check: Only {hours_since_last:.1f}h since last {edition} edition for channel {channel_id} - skipping")
+                logger.info(f"Time check: Only {hours_since_last:.1f}h since last {edition} edition (posted at {last_summary_str}) for channel {channel_id} - skipping")
 
         except (ValueError, TypeError) as e:
-            logger.warning(f"Could not parse last summary time '{last_summary_str}': {e}")
-            # If we can't parse, assume it's time to post
-            return True, edition
+            logger.error(f"CRITICAL: Could not parse last summary time '{last_summary_str}' for channel {channel_id}: {e}")
+            logger.error(f"channel_last_summaries data: {channel_last_summaries}")
+            # Return FALSE to prevent repeated posts due to parsing errors
+            # This is conservative - better to skip than spam
+            return False, ""
 
     return False, ""
 
@@ -386,6 +388,30 @@ async def post_summaries() -> None:
                     logger.error(f"Unexpected error posting to channel {channel_id}: {exc}")
                     continue
 
+                # CRITICAL: Save timestamp FIRST to prevent repeated posts if anything fails below
+                try:
+                    pacific_tz = ZoneInfo("America/Los_Angeles")
+                    current_time = dt.datetime.now(pacific_tz).isoformat()
+
+                    # Load current channel_last_summaries
+                    guild_id_str = str(guild_id)
+                    all_last_summaries = get_state_value("channel_last_summaries", guild_id_str) or {}
+
+                    # Update for this channel and edition
+                    channel_id_str = str(channel_id)
+                    if channel_id_str not in all_last_summaries:
+                        all_last_summaries[channel_id_str] = {}
+
+                    all_last_summaries[channel_id_str][edition] = current_time
+
+                    # Save back to state
+                    set_state_value("channel_last_summaries", all_last_summaries, guild_id_str)
+                    logger.info(f"Updated {edition} edition timestamp for channel {channel_id} to {current_time}")
+
+                except Exception as e:
+                    logger.error(f"CRITICAL: Failed to save timestamp for channel {channel_id}: {e}")
+                    # Don't continue - we need to investigate why timestamp save failed
+
                 # Clear pending articles from pending_news.json
                 try:
                     cleared_count = clear_pending_articles_for_channel(guild_id, channel_id)
@@ -404,32 +430,21 @@ async def post_summaries() -> None:
                     set_state_value("rss_feeds", all_feeds, guild_id)
                     logger.info(f"Updated last_summary for {len(feed_names)} feeds in guild {guild_id}")
 
-                    # Update channel_last_summaries with edition timestamp
-                    pacific_tz = ZoneInfo("America/Los_Angeles")
-                    current_time = dt.datetime.now(pacific_tz).isoformat()
-
-                    # Load current channel_last_summaries
-                    guild_id_str = str(guild_id)
-                    all_last_summaries = get_state_value("channel_last_summaries", guild_id_str) or {}
-
-                    # Update for this channel and edition
-                    channel_id_str = str(channel_id)
-                    if channel_id_str not in all_last_summaries:
-                        all_last_summaries[channel_id_str] = {}
-
-                    all_last_summaries[channel_id_str][edition] = current_time
-
-                    # Save back to state
-                    set_state_value("channel_last_summaries", all_last_summaries, guild_id_str)
-                    logger.info(f"Updated {edition} edition timestamp for channel {channel_id}")
-
                 except Exception as e:
-                    logger.error(f"Failed to clear pending articles or update state for channel {channel_id}: {e}")
+                    logger.error(f"Failed to clear pending articles or update feed state for channel {channel_id}: {e}")
 
             except Exception as e:
                 logger.error(f"Error processing channel {channel_id}: {e}")
 
         logger.info("=== RSS Summary Poster Finished ===")
+
+        # Close OpenAI client to prevent connection leaks
+        from bot.api.openai.chat_completions_client import openai
+        try:
+            await openai.close()
+            logger.info("Closed OpenAI client connections")
+        except Exception as e:
+            logger.warning(f"Error closing OpenAI client: {e}")
 
         # Give a moment for any pending operations to complete
         await asyncio.sleep(0.5)
