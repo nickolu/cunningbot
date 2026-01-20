@@ -39,6 +39,12 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
+# Discord API error codes
+DISCORD_ERROR_UNKNOWN_CHANNEL = 10003
+DISCORD_ERROR_UNKNOWN_GUILD = 10004
+DISCORD_ERROR_MISSING_ACCESS = 50001
+DISCORD_ERROR_MISSING_PERMISSIONS = 50013
+
 # Summary times in Pacific timezone (24-hour format)
 SUMMARY_TIMES = [
     (8, 0),   # 8:00 AM
@@ -128,6 +134,30 @@ def should_post_summary_for_channel(
             return False, ""
 
     return False, ""
+
+
+def _cleanup_inaccessible_channel(guild_id: int, channel_id: int, reason: str) -> None:
+    """
+    Clean up pending articles and state for channels that are permanently inaccessible.
+
+    Args:
+        guild_id: Guild ID
+        channel_id: Channel ID that's inaccessible
+        reason: Human-readable reason (for logging)
+    """
+    logger.info(f"Cleaning up inaccessible channel {channel_id}: {reason}")
+
+    try:
+        # Clear pending articles to prevent future retry attempts
+        cleared_count = clear_pending_articles_for_channel(guild_id, channel_id)
+        logger.info(f"Cleared {cleared_count} pending articles for deleted/inaccessible channel {channel_id}")
+
+        # Optionally: Remove channel from any custom configurations
+        # (schedules, limits, diversity settings, etc.)
+        # This prevents accumulation of config for deleted channels
+
+    except Exception as e:
+        logger.error(f"Error cleaning up channel {channel_id}: {e}")
 
 
 def create_summary_embed(
@@ -349,7 +379,29 @@ async def post_summaries() -> None:
                     stats=stats
                 )
 
-                # Fetch channel and post
+                # CRITICAL: Save timestamp FIRST to prevent infinite retries
+                # Even if posting fails, we won't retry for 11+ hours
+                try:
+                    pacific_tz = ZoneInfo("America/Los_Angeles")
+                    current_time = dt.datetime.now(pacific_tz).isoformat()
+
+                    guild_id_str = str(guild_id)
+                    all_last_summaries = get_state_value("channel_last_summaries", guild_id_str) or {}
+                    channel_id_str = str(channel_id)
+
+                    if channel_id_str not in all_last_summaries:
+                        all_last_summaries[channel_id_str] = {}
+
+                    all_last_summaries[channel_id_str][edition] = current_time
+                    set_state_value("channel_last_summaries", all_last_summaries, guild_id_str)
+                    logger.info(f"Pre-saved {edition} edition timestamp for channel {channel_id}")
+
+                except Exception as e:
+                    logger.error(f"CRITICAL: Failed to pre-save timestamp for channel {channel_id}: {e}")
+                    # Don't continue - if we can't save timestamp, we'll have infinite retries
+                    continue
+
+                # NOW try to post (if this fails, timestamp is already saved)
                 try:
                     channel = client.get_channel(channel_id)
                     if channel is None:
@@ -377,39 +429,31 @@ async def post_summaries() -> None:
                     add_stories_to_history(guild_id_str, channel_id, story_data)
                     logger.info(f"Saved {len(story_data)} stories to history for channel {channel_id}")
 
-                except discord.Forbidden:
-                    logger.error(f"Missing permissions to post in channel {channel_id}")
+                except discord.Forbidden as exc:
+                    logger.error(f"PERMANENT: Missing permissions for channel {channel_id}: {exc}")
+                    # Clean up - this channel is inaccessible
+                    _cleanup_inaccessible_channel(guild_id, channel_id, "Missing permissions")
                     continue
+
                 except discord.HTTPException as exc:
-                    logger.error(f"HTTP error posting to channel {channel_id}: {exc}")
-                    continue
+                    # Check if this is a permanent failure (404, 403)
+                    if exc.code == DISCORD_ERROR_UNKNOWN_CHANNEL:  # 10003: Unknown Channel
+                        logger.error(f"PERMANENT: Channel {channel_id} does not exist (404)")
+                        _cleanup_inaccessible_channel(guild_id, channel_id, "Channel deleted")
+                        continue
+                    elif exc.code == DISCORD_ERROR_MISSING_PERMISSIONS:  # 50013: Missing Access
+                        logger.error(f"PERMANENT: No access to channel {channel_id} (403)")
+                        _cleanup_inaccessible_channel(guild_id, channel_id, "Access denied")
+                        continue
+                    else:
+                        # Transient error (rate limit, server error, etc)
+                        logger.warning(f"TRANSIENT: HTTP error for channel {channel_id} (code {exc.code}): {exc}")
+                        logger.warning(f"Will retry next scheduled run")
+                        continue
+
                 except Exception as exc:
                     logger.error(f"Unexpected error posting to channel {channel_id}: {exc}")
                     continue
-
-                # CRITICAL: Save timestamp FIRST to prevent repeated posts if anything fails below
-                try:
-                    pacific_tz = ZoneInfo("America/Los_Angeles")
-                    current_time = dt.datetime.now(pacific_tz).isoformat()
-
-                    # Load current channel_last_summaries
-                    guild_id_str = str(guild_id)
-                    all_last_summaries = get_state_value("channel_last_summaries", guild_id_str) or {}
-
-                    # Update for this channel and edition
-                    channel_id_str = str(channel_id)
-                    if channel_id_str not in all_last_summaries:
-                        all_last_summaries[channel_id_str] = {}
-
-                    all_last_summaries[channel_id_str][edition] = current_time
-
-                    # Save back to state
-                    set_state_value("channel_last_summaries", all_last_summaries, guild_id_str)
-                    logger.info(f"Updated {edition} edition timestamp for channel {channel_id} to {current_time}")
-
-                except Exception as e:
-                    logger.error(f"CRITICAL: Failed to save timestamp for channel {channel_id}: {e}")
-                    # Don't continue - we need to investigate why timestamp save failed
 
                 # Clear pending articles from pending_news.json
                 try:
