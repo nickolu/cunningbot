@@ -99,8 +99,11 @@ def should_post_summary_for_channel(
         scheduled_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
         # Only consider this edition if we're past the scheduled time (within reason)
-        # Allow up to 2 hours after scheduled time
-        if now < scheduled_time or (now - scheduled_time).total_seconds() > 7200:
+        # Allow up to 30 minutes after scheduled time to handle:
+        # - Bot being down for a few minutes
+        # - Long-running summary generation (can take 10-15 min)
+        # But not so long that restarts hours later trigger posts
+        if now < scheduled_time or (now - scheduled_time).total_seconds() > 1800:
             continue
 
         # Check when we last posted this edition
@@ -297,6 +300,41 @@ async def post_summaries() -> None:
                     logger.info(f"Not time for summary in channel {channel_id}, skipping")
                     continue
 
+                # IMPORTANT: Check if channel exists BEFORE generating expensive summary
+                try:
+                    channel = client.get_channel(channel_id)
+                    if channel is None:
+                        channel = await client.fetch_channel(channel_id)  # type: ignore[attr-defined]
+
+                    if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+                        logger.warning(f"Channel ID {channel_id} is not a text channel, skipping")
+                        continue
+
+                except discord.Forbidden as exc:
+                    logger.error(f"PERMANENT: Missing permissions for channel {channel_id}: {exc}")
+                    _cleanup_inaccessible_channel(guild_id, channel_id, "Missing permissions")
+                    continue
+
+                except discord.HTTPException as exc:
+                    if exc.code == DISCORD_ERROR_UNKNOWN_CHANNEL:  # 10003: Unknown Channel
+                        logger.error(f"PERMANENT: Channel {channel_id} does not exist (404)")
+                        _cleanup_inaccessible_channel(guild_id, channel_id, "Channel deleted")
+                        continue
+                    elif exc.code == DISCORD_ERROR_MISSING_PERMISSIONS:  # 50013: Missing Access
+                        logger.error(f"PERMANENT: No access to channel {channel_id} (403)")
+                        _cleanup_inaccessible_channel(guild_id, channel_id, "Access denied")
+                        continue
+                    else:
+                        # Transient error - log and skip this run
+                        logger.warning(f"TRANSIENT: HTTP error accessing channel {channel_id} (code {exc.code}): {exc}")
+                        continue
+
+                except Exception as exc:
+                    logger.error(f"Unexpected error checking channel {channel_id}: {exc}")
+                    continue
+
+                logger.info(f"Channel {channel_id} verified, proceeding with summary generation")
+
                 # Filter out articles from removed feeds
                 all_guild_states = get_all_guild_states()
                 guild_state = all_guild_states.get(str(guild_id), {})
@@ -401,16 +439,8 @@ async def post_summaries() -> None:
                     # Don't continue - if we can't save timestamp, we'll have infinite retries
                     continue
 
-                # NOW try to post (if this fails, timestamp is already saved)
+                # NOW try to post (channel already verified, timestamp already saved)
                 try:
-                    channel = client.get_channel(channel_id)
-                    if channel is None:
-                        channel = await client.fetch_channel(channel_id)  # type: ignore[attr-defined]
-
-                    if not isinstance(channel, (discord.TextChannel, discord.Thread)):
-                        logger.warning(f"Channel ID {channel_id} is not a text channel")
-                        continue
-
                     await channel.send(embed=embed)
                     logger.info(f"Posted {edition} summary to channel {channel_id}")
 
@@ -430,25 +460,21 @@ async def post_summaries() -> None:
                     logger.info(f"Saved {len(story_data)} stories to history for channel {channel_id}")
 
                 except discord.Forbidden as exc:
-                    logger.error(f"PERMANENT: Missing permissions for channel {channel_id}: {exc}")
-                    # Clean up - this channel is inaccessible
-                    _cleanup_inaccessible_channel(guild_id, channel_id, "Missing permissions")
+                    # Permissions changed since we verified - cleanup
+                    logger.error(f"PERMANENT: Lost permissions for channel {channel_id}: {exc}")
+                    _cleanup_inaccessible_channel(guild_id, channel_id, "Lost permissions")
                     continue
 
                 except discord.HTTPException as exc:
-                    # Check if this is a permanent failure (404, 403)
-                    if exc.code == DISCORD_ERROR_UNKNOWN_CHANNEL:  # 10003: Unknown Channel
-                        logger.error(f"PERMANENT: Channel {channel_id} does not exist (404)")
+                    # Unlikely since we already verified channel exists, but handle anyway
+                    if exc.code == DISCORD_ERROR_UNKNOWN_CHANNEL:
+                        logger.error(f"PERMANENT: Channel {channel_id} deleted after verification: {exc}")
                         _cleanup_inaccessible_channel(guild_id, channel_id, "Channel deleted")
-                        continue
-                    elif exc.code == DISCORD_ERROR_MISSING_PERMISSIONS:  # 50013: Missing Access
-                        logger.error(f"PERMANENT: No access to channel {channel_id} (403)")
-                        _cleanup_inaccessible_channel(guild_id, channel_id, "Access denied")
                         continue
                     else:
                         # Transient error (rate limit, server error, etc)
-                        logger.warning(f"TRANSIENT: HTTP error for channel {channel_id} (code {exc.code}): {exc}")
-                        logger.warning(f"Will retry next scheduled run")
+                        logger.warning(f"TRANSIENT: HTTP error posting to channel {channel_id} (code {exc.code}): {exc}")
+                        logger.warning(f"Will retry next scheduled run (timestamp already saved)")
                         continue
 
                 except Exception as exc:
