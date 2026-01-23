@@ -17,7 +17,8 @@ async def submit_trivia_answer(
     bot: discord.ext.commands.Bot,
     interaction: discord.Interaction,
     answer_text: str,
-    guild_id: str
+    guild_id: str,
+    game_id: str = None
 ) -> None:
     """
     Submit an answer to an active trivia game.
@@ -27,25 +28,35 @@ async def submit_trivia_answer(
         interaction: The Discord interaction (from slash command or modal)
         answer_text: The user's answer
         guild_id: The guild ID as a string
+        game_id: Optional game ID to submit to (if known)
     """
     # Find active game for this channel (thread or parent channel)
     active_games = get_state_value_from_interaction(
         "active_trivia_games", guild_id
     ) or {}
 
-    # Find game by thread_id (if in thread) or channel_id (if in channel)
-    game_id = None
     game_data = None
-    channel_id = interaction.channel.id
 
-    for gid, gdata in active_games.items():
-        # Match by thread_id if we're in a thread, or by channel_id if in the parent channel
-        if gdata.get("thread_id") == channel_id or gdata.get("channel_id") == channel_id:
-            game_id = gid
-            game_data = gdata
-            break
+    # If game_id is provided, use it directly
+    if game_id:
+        game_data = active_games.get(game_id)
+        if not game_data:
+            await interaction.response.send_message(
+                "❌ This trivia game is no longer active.", ephemeral=True
+            )
+            return
+    else:
+        # Fall back to finding game by thread_id or channel_id
+        channel_id = interaction.channel.id
 
-    if not game_id:
+        for gid, gdata in active_games.items():
+            # Match by thread_id if we're in a thread, or by channel_id if in the parent channel
+            if gdata.get("thread_id") == channel_id or gdata.get("channel_id") == channel_id:
+                game_id = gid
+                game_data = gdata
+                break
+
+    if not game_id or not game_data:
         await interaction.response.send_message(
             "❌ No active trivia game found for this channel.", ephemeral=True
         )
@@ -91,6 +102,7 @@ async def submit_trivia_answer(
 
     try:
         logger.info(f"Validating answer for user {user_id_str} in game {game_id[:8]}")
+        logger.info(f"Question: {question[:50]}... | Correct answer: {correct_answer}")
         validation_result = await validate_answer(answer_text, correct_answer, question)
 
         # Update submission with validation results
