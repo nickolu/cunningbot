@@ -1424,8 +1424,8 @@ class NewsCog(commands.Cog):
             existing_config["enabled"] = False
             set_state_value_from_interaction(
                 "breaking_news_config",
-                interaction.guild_id,
-                existing_config
+                existing_config,
+                interaction.guild_id
             )
 
             await interaction.response.send_message(
@@ -1479,8 +1479,8 @@ class NewsCog(commands.Cog):
 
         set_state_value_from_interaction(
             "breaking_news_config",
-            interaction.guild_id,
-            new_config
+            new_config,
+            interaction.guild_id
         )
 
         # Format confirmation message
