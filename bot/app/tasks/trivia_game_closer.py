@@ -59,13 +59,25 @@ async def close_expired_games() -> None:
             continue
 
         active_games = guild_state.get("active_trivia_games", {})
+        logger.info("Guild %s has %d active games", guild_id_str, len(active_games))
+
         for game_id, game_data in active_games.items():
             ends_at_str = game_data.get("ends_at")
             if not ends_at_str:
+                logger.warning("Game %s has no ends_at field", game_id[:8])
                 continue
 
             try:
                 ends_at = dt.datetime.fromisoformat(ends_at_str)
+                logger.info(
+                    "Game %s: ends_at=%s (tz=%s), now_utc=%s (tz=%s), expired=%s",
+                    game_id[:8],
+                    ends_at.isoformat(),
+                    ends_at.tzinfo,
+                    now_utc.isoformat(),
+                    now_utc.tzinfo,
+                    now_utc >= ends_at
+                )
                 if now_utc >= ends_at:
                     to_close.append({
                         "guild_id": guild_id_str,
