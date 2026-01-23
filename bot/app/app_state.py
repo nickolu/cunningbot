@@ -90,14 +90,17 @@ def _is_valid_guild(guild_id: str) -> bool:
 def get_state_value(key: str, guild_id: Optional[str] = None) -> Optional[Any]:
     """
     Retrieves a value from the app state.
-    
+
     Args:
         key: The state key to retrieve
         guild_id: The guild ID. If None, uses global state.
                  If provided, checks guild state first, then falls back to global.
-    
+
     Returns:
         The value from guild state, global state (if not found in guild), or None
+    """
+    # Reload state from disk to catch updates from other processes (e.g., trivia poster)
+    _load_state_from_file()
     """
     # Default to global if no guild_id provided
     if guild_id is None:
