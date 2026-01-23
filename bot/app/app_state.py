@@ -1,5 +1,6 @@
 # bot/core/app_state.py
 from typing import Optional, Any, Dict
+import copy
 import json
 import os
 
@@ -204,14 +205,14 @@ def set_default_persona(persona_key: str, interaction_guild_id: Optional[int] = 
 
 def get_all_guild_states() -> Dict[str, Dict[str, Any]]:
     """
-    Returns a copy of all guild states for read-only access.
+    Returns a deep copy of all guild states for read-only access.
 
     Returns:
         Dictionary mapping guild_id -> guild_state
     """
     # Reload state from disk to catch updates from other processes
     _load_state_from_file()
-    return _app_state.copy()
+    return copy.deepcopy(_app_state)
 
 # Load the state from file when the module is first imported
 _load_state_from_file()

@@ -62,6 +62,11 @@ async def close_expired_games() -> None:
         logger.info("Guild %s has %d active games", guild_id_str, len(active_games))
 
         for game_id, game_data in active_games.items():
+            # Skip if already closed (prevents duplicate processing)
+            if game_data.get("closed_at"):
+                logger.info("Skipping game %s (already closed at %s)", game_id[:8], game_data.get("closed_at"))
+                continue
+
             ends_at_str = game_data.get("ends_at")
             if not ends_at_str:
                 logger.warning("Game %s has no ends_at field", game_id[:8])
@@ -93,6 +98,29 @@ async def close_expired_games() -> None:
 
     logger.info("Found %d expired games to close", len(to_close))
 
+    # Reload state from disk to capture any submissions that happened
+    # after initial load but before we start processing
+    logger.info("Reloading state to capture latest submissions...")
+    all_guild_states = get_all_guild_states()
+
+    # Update game_data in to_close with latest state
+    for game_info in to_close:
+        guild_id = game_info["guild_id"]
+        game_id = game_info["game_id"]
+
+        # Get latest version of this game
+        latest_guild_state = all_guild_states.get(guild_id, {})
+        latest_active_games = latest_guild_state.get("active_trivia_games", {})
+        latest_game_data = latest_active_games.get(game_id)
+
+        if latest_game_data:
+            game_info["game_data"] = latest_game_data
+            logger.info(
+                "Updated game %s with latest state (submissions: %d)",
+                game_id[:8],
+                len(latest_game_data.get("submissions", {}))
+            )
+
     intents = discord.Intents.none()
     client = discord.Client(intents=intents)
 
@@ -114,6 +142,7 @@ async def close_expired_games() -> None:
 
             try:
                 # Validate all submissions
+                logger.info("Game %s has %d submissions to validate", game_id[:8], len(submissions))
                 validated_submissions = {}
                 for user_id, submission in submissions.items():
                     user_answer = submission.get("answer", "")
@@ -203,6 +232,16 @@ async def close_expired_games() -> None:
 
                             embed.set_footer(text=f"Category: {category} • Game ID: {game_id[:8]}")
 
+                            # Mark game as closed BEFORE posting results to prevent duplicate processing
+                            logger.info("Marking game %s as closed at %s", game_id[:8], now_utc.isoformat())
+                            game_data["closed_at"] = now_utc.isoformat()
+
+                            # Update the game in state immediately
+                            guild_state = all_guild_states[guild_id]
+                            guild_state["active_trivia_games"][game_id] = game_data
+                            set_state_value("active_trivia_games", guild_state["active_trivia_games"], guild_id)
+
+                            logger.info("Posting results for game %s to thread %s", game_id[:8], thread_id)
                             await thread.send(embed=embed)
                             logger.info("Posted results to thread %s", thread_id)
 
