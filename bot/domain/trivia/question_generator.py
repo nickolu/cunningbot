@@ -9,6 +9,8 @@ from bot.app.utils.logger import get_logger
 
 logger = get_logger()
 
+MAX_RETRIES = 3
+
 
 async def generate_trivia_question(seed: str) -> Dict[str, str]:
     """
@@ -24,14 +26,22 @@ async def generate_trivia_question(seed: str) -> Dict[str, str]:
             "category": str (one of CATEGORIES),
             "explanation": str
         }
-    """
-    try:
-        # Parse seed to extract context
-        parts = seed.split("_")
-        topic = parts[0].replace("_", " ")
-        context = parts[1].replace("_", " ") if len(parts) > 1 else "general"
 
-        prompt = f"""Generate a trivia question based on this seed:
+    Raises:
+        Exception: If generation fails after MAX_RETRIES attempts
+    """
+    last_error = None
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            logger.info(f"Generating trivia question for seed {seed} (attempt {attempt}/{MAX_RETRIES})")
+
+            # Parse seed to extract context
+            parts = seed.split("_")
+            topic = parts[0].replace("_", " ")
+            context = parts[1].replace("_", " ") if len(parts) > 1 else "general"
+
+            prompt = f"""Generate a trivia question based on this seed:
 Topic: {topic}
 Context: {context}
 
@@ -51,48 +61,47 @@ QUESTION: [Your question here]
 ANSWER: [Correct answer - be specific but accept reasonable variations]
 EXPLANATION: [2-3 sentence explanation]"""
 
-        llm = ChatCompletionsClient.factory("gpt-4.1")
-        response = await llm.chat([
-            {"role": "system", "content": "You are a trivia question creator. Follow the format exactly."},
-            {"role": "user", "content": prompt}
-        ])
+            llm = ChatCompletionsClient.factory("gpt-4.1")
+            response = await llm.chat([
+                {"role": "system", "content": "You are a trivia question creator. Follow the format exactly."},
+                {"role": "user", "content": prompt}
+            ])
 
-        # Parse response with regex
-        category_match = re.search(r'CATEGORY:\s*(.+)', response)
-        question_match = re.search(r'QUESTION:\s*(.+)', response)
-        answer_match = re.search(r'ANSWER:\s*(.+)', response)
-        explanation_match = re.search(r'EXPLANATION:\s*(.+)', response, re.DOTALL)
+            # Parse response with regex
+            category_match = re.search(r'CATEGORY:\s*(.+)', response)
+            question_match = re.search(r'QUESTION:\s*(.+)', response)
+            answer_match = re.search(r'ANSWER:\s*(.+)', response)
+            explanation_match = re.search(r'EXPLANATION:\s*(.+)', response, re.DOTALL)
 
-        if not (category_match and question_match and answer_match):
-            logger.error(f"Failed to parse LLM response for seed {seed}")
-            # Return a fallback question
+            if not (category_match and question_match and answer_match):
+                logger.warning(f"Failed to parse LLM response for seed {seed} on attempt {attempt}")
+                last_error = ValueError(f"LLM response did not match expected format. Response: {response[:200]}...")
+                continue
+
+            category = category_match.group(1).strip()
+            # Validate category is one of the allowed categories
+            if category not in CATEGORIES:
+                # Find closest match or default to first category
+                category = CATEGORIES[0]
+                logger.warning(f"Invalid category from LLM, defaulting to {category}")
+
+            # Success! Return the parsed question
+            logger.info(f"Successfully generated trivia question for seed {seed}")
             return {
-                "question": "What is the capital of France?",
-                "correct_answer": "Paris",
-                "category": "Geography",
-                "explanation": "Paris is the capital and largest city of France."
+                "question": question_match.group(1).strip(),
+                "correct_answer": answer_match.group(1).strip(),
+                "category": category,
+                "explanation": explanation_match.group(1).strip() if explanation_match else ""
             }
 
-        category = category_match.group(1).strip()
-        # Validate category is one of the allowed categories
-        if category not in CATEGORIES:
-            # Find closest match or default to first category
-            category = CATEGORIES[0]
-            logger.warning(f"Invalid category from LLM, defaulting to {category}")
+        except Exception as e:
+            logger.error(f"Error generating trivia question for seed {seed} on attempt {attempt}: {e}")
+            last_error = e
+            if attempt < MAX_RETRIES:
+                logger.info(f"Retrying... ({attempt}/{MAX_RETRIES})")
+                continue
 
-        return {
-            "question": question_match.group(1).strip(),
-            "correct_answer": answer_match.group(1).strip(),
-            "category": category,
-            "explanation": explanation_match.group(1).strip() if explanation_match else ""
-        }
-
-    except Exception as e:
-        logger.error(f"Error generating trivia question for seed {seed}: {e}")
-        # Return a fallback question
-        return {
-            "question": "What is the capital of France?",
-            "correct_answer": "Paris",
-            "category": "Geography",
-            "explanation": "Paris is the capital and largest city of France."
-        }
+    # If we get here, all retries failed
+    error_msg = f"Failed to generate trivia question after {MAX_RETRIES} attempts. Last error: {last_error}"
+    logger.error(error_msg)
+    raise Exception(error_msg)
