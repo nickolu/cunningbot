@@ -48,3 +48,21 @@ services:
     volumes:
       - ./bot/app:/app/bot/app
     command: bash -c "while true; do python -m bot.app.tasks.breaking_news_validator; sleep 120; done"
+  trivia-poster:
+    build: .
+    restart: unless-stopped
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - ./bot/app:/app/bot/app
+    command: bash -c "while true; do python -m bot.app.tasks.trivia_game_poster; sleep 600; done"
+  trivia-closer:
+    build: .
+    restart: unless-stopped
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - ./bot/app:/app/bot/app
+    command: bash -c "while true; do python -m bot.app.tasks.trivia_game_closer; sleep 60; done"
