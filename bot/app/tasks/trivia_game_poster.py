@@ -111,7 +111,18 @@ async def post_trivia_questions() -> None:
             continue
 
         registrations = guild_state.get("trivia_registrations", {})
+        if registrations:
+            logger.info(
+                "Guild %s has %d trivia registration(s)",
+                guild_id_str, len(registrations)
+            )
+
         for reg_id, registration in registrations.items():
+            schedule_times = registration.get("schedule_times", [])
+            logger.info(
+                "Checking registration %s with schedule times: %s",
+                reg_id[:8], schedule_times
+            )
             if not registration.get("enabled", True):
                 continue
 
@@ -121,9 +132,17 @@ async def post_trivia_questions() -> None:
             for time_slot in time_slots_to_check:
                 if time_slot in schedule_times:
                     matched_time = time_slot
+                    logger.info(
+                        "Registration %s matches time slot %s",
+                        reg_id[:8], matched_time
+                    )
                     break
 
             if not matched_time:
+                logger.debug(
+                    "Registration %s schedule %s does not match any of %s",
+                    reg_id[:8], schedule_times, time_slots_to_check
+                )
                 continue
 
             # Check if we've already posted this game recently (within last 15 minutes)
