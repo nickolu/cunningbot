@@ -522,6 +522,116 @@ class TriviaCog(commands.Cog):
             "✅ Your answer has been recorded!", ephemeral=True
         )
 
+    @trivia.command(name="status", description="Show status of the current trivia question.")
+    async def status(self, interaction: discord.Interaction) -> None:
+        """Show status of current trivia game in this thread."""
+        # Check if we're in a thread
+        if not isinstance(interaction.channel, discord.Thread):
+            await interaction.response.send_message(
+                "❌ You can only check status in trivia game threads.", ephemeral=True
+            )
+            return
+
+        # Find active game for this thread
+        active_games = get_state_value_from_interaction(
+            "active_trivia_games", interaction.guild_id
+        ) or {}
+
+        # Find game by thread_id
+        game_id = None
+        game_data = None
+        for gid, gdata in active_games.items():
+            if gdata.get("thread_id") == interaction.channel.id:
+                game_id = gid
+                game_data = gdata
+                break
+
+        if not game_id:
+            await interaction.response.send_message(
+                "❌ No active trivia game found in this thread.", ephemeral=True
+            )
+            return
+
+        # Get submission count
+        submissions = game_data.get("submissions", {})
+        submission_count = len(submissions)
+
+        # Check if game has ended
+        ends_at_str = game_data.get("ends_at")
+        game_ended = False
+        time_remaining = None
+
+        if ends_at_str:
+            try:
+                ends_at = dt.datetime.fromisoformat(ends_at_str)
+                now = dt.datetime.now(dt.timezone.utc)
+                if now > ends_at:
+                    game_ended = True
+                else:
+                    time_remaining = ends_at - now
+            except (ValueError, TypeError):
+                pass
+
+        # Create status embed
+        embed = discord.Embed(
+            title="📊 Trivia Question Status",
+            color=0x00FF00 if not game_ended else 0xFF0000
+        )
+
+        # Add category and question info
+        category = game_data.get("category", "Unknown")
+        embed.add_field(name="Category", value=category, inline=True)
+
+        # Add submission count
+        participants_text = f"**{submission_count}** {'player' if submission_count == 1 else 'players'}"
+        embed.add_field(name="Answers Submitted", value=participants_text, inline=True)
+
+        # Add time status
+        if game_ended:
+            embed.add_field(name="Status", value="⏰ **Closed** - Waiting for results", inline=False)
+        elif time_remaining:
+            total_seconds = int(time_remaining.total_seconds())
+            hours, remainder = divmod(total_seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+
+            if hours > 0:
+                time_str = f"{hours}h {minutes}m"
+            elif minutes > 0:
+                time_str = f"{minutes}m {seconds}s"
+            else:
+                time_str = f"{seconds}s"
+
+            embed.add_field(name="Time Remaining", value=f"⏱️ **{time_str}**", inline=False)
+
+        # List participants (without showing answers)
+        if submission_count > 0:
+            participant_names = []
+            for user_id in submissions.keys():
+                try:
+                    user = await self.bot.fetch_user(int(user_id))
+                    participant_names.append(user.display_name)
+                except:
+                    participant_names.append(f"User {user_id}")
+
+            # Show up to 10 participants
+            if len(participant_names) <= 10:
+                embed.add_field(
+                    name="Participants",
+                    value=", ".join(participant_names),
+                    inline=False
+                )
+            else:
+                shown_names = participant_names[:10]
+                embed.add_field(
+                    name="Participants",
+                    value=", ".join(shown_names) + f" and {len(participant_names) - 10} more...",
+                    inline=False
+                )
+
+        embed.set_footer(text=f"Game ID: {game_id[:8]}")
+
+        await interaction.response.send_message(embed=embed)
+
     @trivia.command(name="leaderboard", description="Show trivia leaderboard.")
     @app_commands.describe(
         category="Filter by category (optional)",
