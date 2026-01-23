@@ -1445,9 +1445,9 @@ class NewsCog(commands.Cog):
             )
             return
 
-        if len(topic_list) > 10:
+        if len(topic_list) > 35:
             await interaction.response.send_message(
-                f"Too many topics ({len(topic_list)}). Maximum is 10 topics.",
+                f"Too many topics ({len(topic_list)}). Maximum is 35 topics.",
                 ephemeral=True
             )
             return
