@@ -17,6 +17,8 @@ from bot.domain.trivia.trivia_stats_service import TriviaStatsService
 from bot.domain.trivia.question_seeds import CATEGORIES, get_unused_seed
 from bot.domain.trivia.question_generator import generate_trivia_question
 from bot.app.utils.logger import get_logger
+from bot.app.commands.trivia.trivia_views import TriviaQuestionView
+from bot.app.commands.trivia.trivia_submission_handler import submit_trivia_answer
 
 logger = get_logger()
 PACIFIC_TZ = zoneinfo.ZoneInfo("America/Los_Angeles")
@@ -104,7 +106,7 @@ def create_question_embed(question_data: dict, game_id: str, ends_at: dt.datetim
     embed.add_field(name="Ends At", value=f"<t:{int(ends_at.timestamp())}:R>", inline=True)
     embed.add_field(
         name="How to Answer",
-        value="Use `/trivia answer message:\"your answer\"` in this thread",
+        value="Click the 'Submit Answer' button below or use `/trivia answer`",
         inline=False
     )
 
@@ -251,8 +253,11 @@ class TriviaCog(commands.Cog):
             # Create embed
             embed = create_question_embed(question_data, game_id, ends_at)
 
-            # Post message
-            message = await target_channel.send(embed=embed)
+            # Create view with button
+            view = TriviaQuestionView(game_id, str(interaction.guild_id), self.bot)
+
+            # Post message with view
+            message = await target_channel.send(embed=embed, view=view)
             logger.info(f"Posted trivia question to channel {target_channel.id}")
 
             # Create thread
@@ -462,64 +467,8 @@ class TriviaCog(commands.Cog):
     @app_commands.describe(message="Your answer to the trivia question")
     async def answer(self, interaction: discord.Interaction, message: str) -> None:
         """Submit an answer to an active trivia game."""
-        # Check if we're in a thread
-        if not isinstance(interaction.channel, discord.Thread):
-            await interaction.response.send_message(
-                "❌ You can only submit answers in trivia game threads.", ephemeral=True
-            )
-            return
-
-        # Find active game for this thread
-        active_games = get_state_value_from_interaction(
-            "active_trivia_games", interaction.guild_id
-        ) or {}
-
-        # Find game by thread_id
-        game_id = None
-        game_data = None
-        for gid, gdata in active_games.items():
-            if gdata.get("thread_id") == interaction.channel.id:
-                game_id = gid
-                game_data = gdata
-                break
-
-        if not game_id:
-            await interaction.response.send_message(
-                "❌ No active trivia game found in this thread.", ephemeral=True
-            )
-            return
-
-        # Check if game has ended
-        ends_at_str = game_data.get("ends_at")
-        if ends_at_str:
-            try:
-                ends_at = dt.datetime.fromisoformat(ends_at_str)
-                if dt.datetime.now(dt.timezone.utc) > ends_at:
-                    await interaction.response.send_message(
-                        "❌ The answer window has closed. Wait for results!", ephemeral=True
-                    )
-                    return
-            except (ValueError, TypeError):
-                pass
-
-        # Store submission (allow updates)
-        if "submissions" not in game_data:
-            game_data["submissions"] = {}
-
-        game_data["submissions"][str(interaction.user.id)] = {
-            "answer": message,
-            "submitted_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-            "is_correct": None  # Will be evaluated when game closes
-        }
-
-        # Save updated game state
-        active_games[game_id] = game_data
-        set_state_value_from_interaction(
-            "active_trivia_games", active_games, interaction.guild_id
-        )
-
-        await interaction.response.send_message(
-            "✅ Your answer has been recorded!", ephemeral=True
+        await submit_trivia_answer(
+            self.bot, interaction, message, str(interaction.guild_id)
         )
 
     @trivia.command(name="status", description="Show status of the current trivia question.")
