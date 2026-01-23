@@ -47,13 +47,13 @@ Context: {context}
 
 Requirements:
 - Create a clear, factual question with a single definitive answer
-- The question should be CHALLENGING and require deeper knowledge
+- The question should be moderately challenging and not have an obvious answer
 - Avoid basic/common knowledge that most people would know
 - Focus on interesting details, connections, or lesser-known facts
 - The question should be engaging and educational
+- The question should have an objective answer
 - Choose the most appropriate category from: {', '.join(CATEGORIES)}
 - Provide a brief explanation of the answer
-- The answer should be specific but allow for reasonable variations
 
 Return in this EXACT format:
 CATEGORY: [category name]
