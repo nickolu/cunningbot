@@ -24,30 +24,26 @@ async def submit_trivia_answer(
         answer_text: The user's answer
         guild_id: The guild ID as a string
     """
-    # Check if we're in a thread
-    if not isinstance(interaction.channel, discord.Thread):
-        await interaction.response.send_message(
-            "❌ You can only submit answers in trivia game threads.", ephemeral=True
-        )
-        return
-
-    # Find active game for this thread
+    # Find active game for this channel (thread or parent channel)
     active_games = get_state_value_from_interaction(
         "active_trivia_games", guild_id
     ) or {}
 
-    # Find game by thread_id
+    # Find game by thread_id (if in thread) or channel_id (if in channel)
     game_id = None
     game_data = None
+    channel_id = interaction.channel.id
+
     for gid, gdata in active_games.items():
-        if gdata.get("thread_id") == interaction.channel.id:
+        # Match by thread_id if we're in a thread, or by channel_id if in the parent channel
+        if gdata.get("thread_id") == channel_id or gdata.get("channel_id") == channel_id:
             game_id = gid
             game_data = gdata
             break
 
     if not game_id:
         await interaction.response.send_message(
-            "❌ No active trivia game found in this thread.", ephemeral=True
+            "❌ No active trivia game found for this channel.", ephemeral=True
         )
         return
 
