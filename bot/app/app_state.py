@@ -101,7 +101,7 @@ def get_state_value(key: str, guild_id: Optional[str] = None) -> Optional[Any]:
     """
     # Reload state from disk to catch updates from other processes (e.g., trivia poster)
     _load_state_from_file()
-    """
+    
     # Default to global if no guild_id provided
     if guild_id is None:
         guild_id = "global"
