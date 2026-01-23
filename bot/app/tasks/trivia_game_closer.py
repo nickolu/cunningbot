@@ -141,26 +141,46 @@ async def close_expired_games() -> None:
             submissions = game_data.get("submissions", {})
 
             try:
-                # Validate all submissions
-                logger.info("Game %s has %d submissions to validate", game_id[:8], len(submissions))
+                # Validate submissions (reuse cached validations when available)
+                logger.info("Game %s has %d submissions to process", game_id[:8], len(submissions))
                 validated_submissions = {}
+                cached_count = 0
+                new_validation_count = 0
+
                 for user_id, submission in submissions.items():
                     user_answer = submission.get("answer", "")
+                    is_correct = submission.get("is_correct")
 
-                    # Validate answer using LLM
-                    validation_result = await validate_answer(
-                        user_answer, correct_answer, question
-                    )
+                    # Reuse cached validation if available
+                    if is_correct is not None:
+                        logger.info(f"Reusing cached validation for user {user_id}: {is_correct}")
+                        validated_submissions[user_id] = {
+                            "answer": user_answer,
+                            "is_correct": is_correct
+                        }
+                        cached_count += 1
+                    else:
+                        # Validate answers that weren't validated immediately (fallback cases)
+                        logger.info(f"Validating unvalidated answer for user {user_id}")
+                        validation_result = await validate_answer(
+                            user_answer, correct_answer, question
+                        )
 
-                    validated_submissions[user_id] = {
-                        "answer": user_answer,
-                        "is_correct": validation_result["is_correct"]
-                    }
+                        validated_submissions[user_id] = {
+                            "answer": user_answer,
+                            "is_correct": validation_result["is_correct"]
+                        }
+                        new_validation_count += 1
 
-                    logger.info(
-                        "Validated answer for user %s: %s -> %s",
-                        user_id, user_answer, validation_result["is_correct"]
-                    )
+                        logger.info(
+                            "Validated answer for user %s: %s -> %s",
+                            user_id, user_answer, validation_result["is_correct"]
+                        )
+
+                logger.info(
+                    "Processing game %s: %d cached validations, %d new validations",
+                    game_id[:8], cached_count, new_validation_count
+                )
 
                 # Get thread
                 if thread_id:
