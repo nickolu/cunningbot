@@ -77,22 +77,12 @@ async def post_trivia_questions() -> None:
         logger.info("App state empty – nothing to post.")
         return
 
-    # Determine current time slot in Pacific time
+    # Determine current time in Pacific time
     now_pt = dt.datetime.now(PACIFIC_TZ)
 
-    # Check a window of time slots (last 12 minutes) to avoid missing scheduled games
-    # This accounts for clock drift and ensures we catch games even if timing is slightly off
-    time_slots_to_check = []
-    for minutes_ago in range(0, 15, 10):  # Check 0, 10 minutes ago (covers 15 min window)
-        check_time = now_pt - dt.timedelta(minutes=minutes_ago)
-        rounded_minute = (check_time.minute // 10) * 10
-        time_slot = f"{check_time.hour:02d}:{rounded_minute:02d}"
-        if time_slot not in time_slots_to_check:
-            time_slots_to_check.append(time_slot)
-
     logger.info(
-        "Current Pacific time: %02d:%02d (checking slots: %s)",
-        now_pt.hour, now_pt.minute, ", ".join(time_slots_to_check)
+        "Current Pacific time: %02d:%02d",
+        now_pt.hour, now_pt.minute
     )
 
     # Build list of trivia games to post
@@ -126,27 +116,56 @@ async def post_trivia_questions() -> None:
             if not registration.get("enabled", True):
                 continue
 
-            # Check if any schedule time matches any of our time slots
+            # Check each scheduled time to see if it should have been posted
             schedule_times = registration.get("schedule_times", [])
             matched_time = None
-            for time_slot in time_slots_to_check:
-                if time_slot in schedule_times:
-                    matched_time = time_slot
+
+            for scheduled_time_str in schedule_times:
+                # Parse the scheduled time (e.g., "8:00" or "16:00")
+                try:
+                    hour, minute = scheduled_time_str.split(":")
+                    scheduled_hour = int(hour)
+                    scheduled_minute = int(minute)
+                except (ValueError, AttributeError):
+                    logger.warning("Invalid schedule time format: %s", scheduled_time_str)
+                    continue
+
+                # Create a datetime for today at the scheduled time
+                scheduled_dt = now_pt.replace(
+                    hour=scheduled_hour,
+                    minute=scheduled_minute,
+                    second=0,
+                    microsecond=0
+                )
+
+                # Calculate how many minutes past the scheduled time we are
+                time_diff = (now_pt - scheduled_dt).total_seconds() / 60
+
+                # If we're within 0-20 minutes past the scheduled time, this game should be posted
+                # This gives us a 20-minute window to catch any missed games
+                if 0 <= time_diff <= 20:
+                    matched_time = scheduled_time_str
                     logger.info(
-                        "Registration %s matches time slot %s",
-                        reg_id[:8], matched_time
+                        "Registration %s matches scheduled time %s (%.1f minutes ago)",
+                        reg_id[:8], matched_time, time_diff
                     )
                     break
+                elif time_diff < 0:
+                    logger.debug(
+                        "Registration %s scheduled time %s is in the future (%.1f minutes from now)",
+                        reg_id[:8], scheduled_time_str, abs(time_diff)
+                    )
+                else:
+                    logger.debug(
+                        "Registration %s scheduled time %s is too far in the past (%.1f minutes ago)",
+                        reg_id[:8], scheduled_time_str, time_diff
+                    )
 
             if not matched_time:
-                logger.debug(
-                    "Registration %s schedule %s does not match any of %s",
-                    reg_id[:8], schedule_times, time_slots_to_check
-                )
                 continue
 
-            # Check if we've already posted this game recently (within last 15 minutes)
-            game_key = f"{guild_id_str}:{reg_id}:{matched_time}"
+            # Check if we've already posted this game recently
+            game_key = f"{guild_id_str}:{reg_id}"
 
             # Check active games to see if we've already posted this time slot recently
             active_games = guild_state.get("active_trivia_games", {})
