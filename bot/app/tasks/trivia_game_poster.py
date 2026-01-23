@@ -77,17 +77,27 @@ async def post_trivia_questions() -> None:
         logger.info("App state empty – nothing to post.")
         return
 
-    # Determine current time slot in Pacific time (round to nearest 10-minute interval)
+    # Determine current time slot in Pacific time
     now_pt = dt.datetime.now(PACIFIC_TZ)
-    current_time = f"{now_pt.hour:02d}:{(now_pt.minute // 10) * 10:02d}"
+
+    # Check a window of time slots (last 12 minutes) to avoid missing scheduled games
+    # This accounts for clock drift and ensures we catch games even if timing is slightly off
+    time_slots_to_check = []
+    for minutes_ago in range(0, 15, 10):  # Check 0, 10 minutes ago (covers 15 min window)
+        check_time = now_pt - dt.timedelta(minutes=minutes_ago)
+        rounded_minute = (check_time.minute // 10) * 10
+        time_slot = f"{check_time.hour:02d}:{rounded_minute:02d}"
+        if time_slot not in time_slots_to_check:
+            time_slots_to_check.append(time_slot)
 
     logger.info(
-        "Current Pacific time: %02d:%02d (checking for %s)",
-        now_pt.hour, now_pt.minute, current_time
+        "Current Pacific time: %02d:%02d (checking slots: %s)",
+        now_pt.hour, now_pt.minute, ", ".join(time_slots_to_check)
     )
 
     # Build list of trivia games to post
     to_post: List[Dict[str, Any]] = []
+    already_posted = set()  # Track games we've already queued to avoid duplicates
 
     for guild_id_str, guild_state in all_guild_states.items():
         if guild_id_str == "global":
@@ -105,10 +115,42 @@ async def post_trivia_questions() -> None:
             if not registration.get("enabled", True):
                 continue
 
-            # Check if any schedule time matches current time
+            # Check if any schedule time matches any of our time slots
             schedule_times = registration.get("schedule_times", [])
-            if current_time not in schedule_times:
+            matched_time = None
+            for time_slot in time_slots_to_check:
+                if time_slot in schedule_times:
+                    matched_time = time_slot
+                    break
+
+            if not matched_time:
                 continue
+
+            # Check if we've already posted this game recently (within last 15 minutes)
+            game_key = f"{guild_id_str}:{reg_id}:{matched_time}"
+
+            # Check active games to see if we've already posted this time slot recently
+            active_games = guild_state.get("active_trivia_games", {})
+            recently_posted = False
+            for game in active_games.values():
+                if game.get("registration_id") == reg_id:
+                    started_at = dt.datetime.fromisoformat(game["started_at"].replace("Z", "+00:00"))
+                    time_since_post = dt.datetime.now(dt.timezone.utc) - started_at
+                    if time_since_post.total_seconds() < 900:  # 15 minutes
+                        recently_posted = True
+                        break
+
+            if recently_posted:
+                logger.info(
+                    "Skipping game %s (already posted within last 15 minutes)",
+                    reg_id
+                )
+                continue
+
+            if game_key in already_posted:
+                continue
+
+            already_posted.add(game_key)
 
             # Get used seeds for this guild
             used_seeds = guild_state.get("trivia_seeds_used", [])
