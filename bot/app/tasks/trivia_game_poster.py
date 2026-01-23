@@ -24,6 +24,7 @@ from zoneinfo import ZoneInfo
 from bot.app.app_state import get_all_guild_states, set_state_value
 from bot.domain.trivia.question_seeds import get_unused_seed
 from bot.domain.trivia.question_generator import generate_trivia_question
+from bot.app.commands.trivia.trivia_views import TriviaQuestionView
 
 logger = logging.getLogger("TriviaGamePoster")
 logging.basicConfig(level=logging.INFO)
@@ -56,7 +57,7 @@ def create_question_embed(question_data: dict, game_id: str, ends_at: dt.datetim
     embed.add_field(name="Ends At", value=f"<t:{int(ends_at.timestamp())}:R>", inline=True)
     embed.add_field(
         name="How to Answer",
-        value="Use `/trivia answer message:\"your answer\"` in this thread",
+        value="Click the 'Submit Answer' button below or use `/trivia answer`",
         inline=False
     )
 
@@ -263,8 +264,11 @@ async def post_trivia_questions() -> None:
                 # Create embed
                 embed = create_question_embed(question_data, game_id, ends_at)
 
-                # Post message
-                message = await channel.send(embed=embed)
+                # Create view with button
+                view = TriviaQuestionView(game_id, guild_id, client)
+
+                # Post message with view
+                message = await channel.send(embed=embed, view=view)
                 logger.info("Posted trivia question to channel %s", channel.id)
 
                 # Create thread
