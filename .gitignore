@@ -6,6 +6,7 @@ bot/core/app_state.json
 bot/app/app_state.json
 bot/app/pending_news.json
 bot/app/story_history.json
+bot/app/pending_breaking_news.json
 generated_images
 edited_images
 **.pyc

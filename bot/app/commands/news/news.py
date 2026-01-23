@@ -1383,6 +1383,128 @@ class NewsCog(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @news.command(name="breaking", description="Configure breaking news alerts for this channel.")
+    @app_commands.describe(
+        topics="Comma-separated topics (e.g., 'hurricane, wildfire, earthquake'). Use 'disable' to turn off."
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def breaking(
+        self,
+        interaction: discord.Interaction,
+        topics: str
+    ) -> None:
+        """Configure breaking news monitoring for this server."""
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        # Ensure this is a text channel
+        if not isinstance(interaction.channel, (discord.TextChannel, discord.Thread)):
+            await interaction.response.send_message(
+                "Breaking news can only be configured in text channels.",
+                ephemeral=True
+            )
+            return
+
+        guild_id_str = str(interaction.guild_id)
+        channel_id = interaction.channel_id
+
+        # Handle "disable" command
+        if topics.lower().strip() == "disable":
+            # Get existing config
+            existing_config = get_state_value_from_interaction("breaking_news_config", interaction.guild_id)
+
+            if not existing_config or not existing_config.get("enabled"):
+                await interaction.response.send_message(
+                    "Breaking news alerts are not currently enabled for this server.",
+                    ephemeral=True
+                )
+                return
+
+            # Disable breaking news
+            existing_config["enabled"] = False
+            set_state_value_from_interaction(
+                "breaking_news_config",
+                interaction.guild_id,
+                existing_config
+            )
+
+            await interaction.response.send_message(
+                "Breaking news alerts have been disabled for this server.",
+                ephemeral=True
+            )
+            return
+
+        # Parse topics
+        topic_list = [t.strip().lower() for t in topics.split(',') if t.strip()]
+
+        # Validate topic count
+        if not topic_list:
+            await interaction.response.send_message(
+                "Please provide at least one topic keyword.\n\nExample: `/news breaking topics:\"hurricane, wildfire, earthquake\"`",
+                ephemeral=True
+            )
+            return
+
+        if len(topic_list) > 10:
+            await interaction.response.send_message(
+                f"Too many topics ({len(topic_list)}). Maximum is 10 topics.",
+                ephemeral=True
+            )
+            return
+
+        # Check if another channel already has breaking news configured
+        existing_config = get_state_value_from_interaction("breaking_news_config", interaction.guild_id)
+
+        if existing_config and existing_config.get("enabled"):
+            existing_channel_id = existing_config.get("channel_id")
+            if existing_channel_id and existing_channel_id != channel_id:
+                await interaction.response.send_message(
+                    f"Breaking news alerts are already configured for <#{existing_channel_id}>.\n\n"
+                    f"Each server can only have one breaking news channel.\n"
+                    f"To configure this channel instead, first run `/news breaking topics:disable` in the other channel.",
+                    ephemeral=True
+                )
+                return
+
+        # Create new config
+        pacific_tz = ZoneInfo("America/Los_Angeles")
+        now = datetime.now(pacific_tz)
+
+        new_config = {
+            "channel_id": channel_id,
+            "topics": topic_list,
+            "enabled": True,
+            "created_at": now.isoformat()
+        }
+
+        set_state_value_from_interaction(
+            "breaking_news_config",
+            interaction.guild_id,
+            new_config
+        )
+
+        # Format confirmation message
+        topics_formatted = ", ".join(f"**{t}**" for t in topic_list)
+
+        embed = discord.Embed(
+            title="🚨 Breaking News Alerts Configured",
+            description=(
+                f"This channel will now receive breaking news alerts for:\n{topics_formatted}\n\n"
+                f"**How it works:**\n"
+                f"• Monitors all enabled RSS feeds across this server\n"
+                f"• Checks articles for topic matches (case-insensitive)\n"
+                f"• Validates with AI to avoid false positives\n"
+                f"• Posts only fresh articles (< 2 hours old)\n"
+                f"• Prevents duplicate alerts\n\n"
+                f"Breaking news will be posted immediately (within 2 minutes of RSS check)."
+            ),
+            color=0xFF0000
+        )
+
+        embed.set_footer(text="To disable: /news breaking topics:disable")
+
+        await interaction.response.send_message(embed=embed)
+
 
 def _format_article_list(articles: list[dict[str, Any]], start_number: int = 1) -> str:
     """Format articles as compact numbered list."""

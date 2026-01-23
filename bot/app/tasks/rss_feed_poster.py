@@ -376,6 +376,29 @@ async def collect_rss_updates() -> None:
                 if new_entries:
                     logger.info("Found %d new items from feed '%s' (mode: %s)", len(new_entries), feed_name, post_mode)
 
+                    # Check for breaking news matches (only if feed is enabled)
+                    if feed_info.get('enabled', True):
+                        from bot.domain.news.breaking_news_service import matches_breaking_news_topics
+                        from bot.app.pending_breaking_news import add_pending_breaking_news_item
+                        from bot.app.app_state import get_state_value
+
+                        breaking_config = get_state_value("breaking_news_config", guild_id_str)
+                        if breaking_config and breaking_config.get("enabled"):
+                            topics = breaking_config.get("topics", [])
+                            if topics:
+                                for entry in new_entries:
+                                    matched_topic = matches_breaking_news_topics(entry, topics)
+                                    if matched_topic:
+                                        # Extract article data
+                                        article_data = extract_article_data(entry, feed, feed_name)
+                                        add_pending_breaking_news_item(
+                                            guild_id_str,
+                                            article_data,
+                                            matched_topic,
+                                            feed_name
+                                        )
+                                        logger.info(f"Breaking news match: '{matched_topic}' in {feed_name}")
+
                     # Route based on post_mode
                     if post_mode == "direct":
                         # Direct posting: queue for immediate Discord post
