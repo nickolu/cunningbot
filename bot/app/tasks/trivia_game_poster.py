@@ -164,30 +164,44 @@ async def post_trivia_questions() -> None:
             if not matched_time:
                 continue
 
-            # Check if we've already posted this game recently
-            game_key = f"{guild_id_str}:{reg_id}"
-
-            # Check active games to see if we've already posted this time slot recently
+            # Check if we've already posted a game for this registration today after the scheduled time
+            # This prevents duplicate posts for the same scheduled time slot
             active_games = guild_state.get("active_trivia_games", {})
-            recently_posted = False
+            already_posted_today = False
+
+            # Parse the matched scheduled time to get the scheduled datetime
+            scheduled_hour = int(matched_time.split(":")[0])
+            scheduled_minute = int(matched_time.split(":")[1])
+            scheduled_dt = now_pt.replace(
+                hour=scheduled_hour,
+                minute=scheduled_minute,
+                second=0,
+                microsecond=0
+            )
+
             for game in active_games.values():
                 if game.get("registration_id") == reg_id:
                     started_at = dt.datetime.fromisoformat(game["started_at"].replace("Z", "+00:00"))
-                    time_since_post = dt.datetime.now(dt.timezone.utc) - started_at
-                    if time_since_post.total_seconds() < 900:  # 15 minutes
-                        recently_posted = True
+                    started_at_pt = started_at.astimezone(PACIFIC_TZ)
+
+                    # Check if this game was posted today after the scheduled time
+                    # This means we already posted for this scheduled time slot
+                    if (started_at_pt.date() == now_pt.date() and
+                        started_at_pt >= scheduled_dt):
+                        already_posted_today = True
+                        logger.info(
+                            "Skipping game %s for scheduled time %s (already posted today at %s)",
+                            reg_id[:8], matched_time, started_at_pt.strftime("%H:%M")
+                        )
                         break
 
-            if recently_posted:
-                logger.info(
-                    "Skipping game %s (already posted within last 15 minutes)",
-                    reg_id
-                )
+            if already_posted_today:
                 continue
 
+            # Track games we're queuing in this run to avoid duplicates
+            game_key = f"{guild_id_str}:{reg_id}:{matched_time}"
             if game_key in already_posted:
                 continue
-
             already_posted.add(game_key)
 
             # Get used seeds for this guild

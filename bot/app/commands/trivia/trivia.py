@@ -14,7 +14,8 @@ from bot.app.app_state import (
     get_state_value_from_interaction,
 )
 from bot.domain.trivia.trivia_stats_service import TriviaStatsService
-from bot.domain.trivia.question_seeds import CATEGORIES
+from bot.domain.trivia.question_seeds import CATEGORIES, get_unused_seed
+from bot.domain.trivia.question_generator import generate_trivia_question
 from bot.app.utils.logger import get_logger
 
 logger = get_logger()
@@ -76,6 +77,40 @@ def parse_duration(duration_str: str) -> int:
         )
 
     return minutes
+
+
+def create_question_embed(question_data: dict, game_id: str, ends_at: dt.datetime) -> discord.Embed:
+    """Create rich embed for trivia question."""
+    # Map categories to colors
+    category_colors = {
+        "History": 0x8B4513,
+        "Science": 0x4169E1,
+        "Sports": 0xFF4500,
+        "Entertainment": 0xFF1493,
+        "Arts & Literature": 0x9370DB,
+        "Geography": 0x228B22
+    }
+
+    color = category_colors.get(question_data["category"], 0x0099FF)
+
+    embed = discord.Embed(
+        title="🎯 Trivia Question",
+        description=question_data["question"],
+        color=color,
+        timestamp=dt.datetime.now(dt.timezone.utc)
+    )
+
+    embed.add_field(name="Category", value=question_data["category"], inline=True)
+    embed.add_field(name="Ends At", value=f"<t:{int(ends_at.timestamp())}:R>", inline=True)
+    embed.add_field(
+        name="How to Answer",
+        value="Use `/trivia answer message:\"your answer\"` in this thread",
+        inline=False
+    )
+
+    embed.set_footer(text=f"Game ID: {game_id[:8]}")
+
+    return embed
 
 
 class TriviaCog(commands.Cog):
@@ -158,6 +193,128 @@ class TriviaCog(commands.Cog):
             f"• Registration ID: `{registration_id[:8]}...`",
             ephemeral=True
         )
+
+    @trivia.command(name="post", description="Post a trivia question immediately.")
+    @app_commands.describe(
+        channel="Channel to post in (defaults to current channel)",
+        answer_window="How long users can answer (e.g., '1h', '30m', '2h') - defaults to 1h"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def post_now(
+        self,
+        interaction: discord.Interaction,
+        channel: Optional[discord.TextChannel] = None,
+        answer_window: Optional[str] = None
+    ) -> None:
+        """Post a trivia question immediately."""
+        # Defer response since question generation takes time
+        await interaction.response.defer(ephemeral=True)
+
+        # Default to current channel
+        target_channel = channel or interaction.channel
+        if not isinstance(target_channel, discord.TextChannel):
+            await interaction.followup.send(
+                "Can only post trivia in text channels.", ephemeral=True
+            )
+            return
+
+        try:
+            # Parse answer window (default to 1 hour)
+            answer_window_minutes = parse_duration(answer_window) if answer_window else 60
+
+        except ValueError as e:
+            await interaction.followup.send(
+                f"❌ {str(e)}", ephemeral=True
+            )
+            return
+
+        try:
+            # Get used seeds
+            used_seeds = get_state_value_from_interaction(
+                "trivia_seeds_used", interaction.guild_id
+            ) or []
+
+            # Generate new seed
+            seed = get_unused_seed(used_seeds)
+
+            # Generate question
+            logger.info(f"Generating trivia question with seed: {seed}")
+            question_data = await generate_trivia_question(seed)
+
+            # Calculate end time
+            now_utc = dt.datetime.now(dt.timezone.utc)
+            ends_at = now_utc + dt.timedelta(minutes=answer_window_minutes)
+
+            # Generate game ID
+            game_id = str(uuid.uuid4())
+
+            # Create embed
+            embed = create_question_embed(question_data, game_id, ends_at)
+
+            # Post message
+            message = await target_channel.send(embed=embed)
+            logger.info(f"Posted trivia question to channel {target_channel.id}")
+
+            # Create thread
+            now_pt = dt.datetime.now(PACIFIC_TZ)
+            thread_name = f"Trivia – {question_data['category']} – {now_pt:%Y-%m-%d %H:%M}"
+            thread = None
+            try:
+                thread = await message.create_thread(
+                    name=thread_name,
+                    auto_archive_duration=1440  # 24 hours
+                )
+                logger.info(f"Created thread '{thread_name}' for trivia game")
+            except discord.HTTPException as exc:
+                logger.error(f"Failed to create thread: {exc}")
+
+            # Store in active_trivia_games
+            active_games = get_state_value_from_interaction(
+                "active_trivia_games", interaction.guild_id
+            ) or {}
+
+            active_games[game_id] = {
+                "registration_id": None,  # Manual post, not from a registration
+                "channel_id": target_channel.id,
+                "thread_id": thread.id if thread else None,
+                "question": question_data["question"],
+                "correct_answer": question_data["correct_answer"],
+                "category": question_data["category"],
+                "explanation": question_data["explanation"],
+                "seed": seed,
+                "started_at": now_utc.isoformat(),
+                "ends_at": ends_at.isoformat(),
+                "message_id": message.id,
+                "submissions": {}
+            }
+
+            # Add seed to used_seeds
+            used_seeds.append(seed)
+
+            # Save state
+            set_state_value_from_interaction(
+                "active_trivia_games", active_games, interaction.guild_id
+            )
+            set_state_value_from_interaction(
+                "trivia_seeds_used", used_seeds, interaction.guild_id
+            )
+
+            logger.info(f"Saved game state for game_id {game_id[:8]}")
+
+            await interaction.followup.send(
+                f"✅ Trivia question posted!\n"
+                f"• Channel: {target_channel.mention}\n"
+                f"• Category: {question_data['category']}\n"
+                f"• Answer window: {answer_window_minutes} minutes\n"
+                f"• Ends: <t:{int(ends_at.timestamp())}:R>",
+                ephemeral=True
+            )
+
+        except Exception as e:
+            logger.error(f"Error posting trivia question: {e}", exc_info=True)
+            await interaction.followup.send(
+                f"❌ Failed to post trivia question: {str(e)}", ephemeral=True
+            )
 
     @trivia.command(name="list", description="List all registered trivia games.")
     async def list_games(self, interaction: discord.Interaction) -> None:

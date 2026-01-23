@@ -37,7 +37,10 @@ Context: {context}
 
 Requirements:
 - Create a clear, factual question with a single definitive answer
-- The question should be moderately challenging but not obscure
+- The question should be CHALLENGING and require deeper knowledge
+- Avoid basic/common knowledge that most people would know
+- Focus on interesting details, connections, or lesser-known facts
+- The question should be engaging and educational
 - Choose the most appropriate category from: {', '.join(CATEGORIES)}
 - Provide a brief explanation of the answer
 - The answer should be specific but allow for reasonable variations
@@ -48,7 +51,7 @@ QUESTION: [Your question here]
 ANSWER: [Correct answer - be specific but accept reasonable variations]
 EXPLANATION: [2-3 sentence explanation]"""
 
-        llm = ChatCompletionsClient.factory("gpt-4o-mini")
+        llm = ChatCompletionsClient.factory("gpt-4.1")
         response = await llm.chat([
             {"role": "system", "content": "You are a trivia question creator. Follow the format exactly."},
             {"role": "user", "content": prompt}
