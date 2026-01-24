@@ -99,8 +99,8 @@ class RedisClient:
     async def execute_script(self, script_name: str, keys: list, args: list):
         """Execute a loaded Lua script.
 
-        Converts Lua table returns to Python dictionaries.
-        Redis converts Lua tables like {ok="value"} to arrays like ["ok", "value"].
+        Converts Lua array returns to Python dictionaries.
+        Scripts should return arrays like ["key", "value"] which get converted to {"key": "value"}.
         """
         if script_name not in self._scripts:
             raise ValueError(f"Lua script not loaded: {script_name}")
@@ -108,9 +108,8 @@ class RedisClient:
         script_sha = self._scripts[script_name]
         result = await self._redis.evalsha(script_sha, len(keys), *keys, *args)
 
-        # Convert array result to dictionary (Lua tables become arrays in Redis)
+        # Convert 2-element array to dictionary
         if isinstance(result, list) and len(result) == 2:
-            # Convert ["key", "value"] to {"key": "value"}
             return {result[0]: result[1]}
 
         return result
