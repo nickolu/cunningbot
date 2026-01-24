@@ -78,8 +78,8 @@ async def on_ready() -> None:
 
     # Register persistent trivia views
     from bot.app.commands.trivia.trivia_views import register_persistent_trivia_views
-    register_persistent_trivia_views(bot)
-    logger.info("Registered persistent trivia views")
+    await register_persistent_trivia_views(bot)
+    logger.info("Persistent trivia views registration complete")
 
     # Log local commands before sync
     local_cmds = [cmd.name for cmd in bot.tree.walk_commands()]
