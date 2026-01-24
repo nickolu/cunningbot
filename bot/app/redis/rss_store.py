@@ -188,6 +188,26 @@ class RSSRedisStore:
 
         return 0
 
+    async def clear_seen(self, guild_id: str, feed_name: str) -> int:
+        """Clear all seen items for a feed (used for reset).
+
+        Args:
+            guild_id: Guild ID as string
+            feed_name: Feed name
+
+        Returns:
+            Number of items cleared
+        """
+        key = f"rss:{guild_id}:feed:{feed_name}:seen"
+        count = await self.redis.scard(key)
+
+        if count > 0:
+            await self.redis.delete(key)
+            logger.info(f"Cleared {count} seen items for feed '{feed_name}'")
+            return count
+
+        return 0
+
     # --- Pending Articles (Redis List for queue-like behavior) ---
 
     async def add_pending(
@@ -274,6 +294,31 @@ class RSSRedisStore:
             deleted = await self.redis.delete(*keys)
             logger.info(f"Cleared {deleted} pending article lists for channel {channel_id}")
             return deleted
+
+        return 0
+
+    async def clear_pending_for_feed(
+        self, guild_id: str, channel_id: int, feed_name: str
+    ) -> int:
+        """Clear pending articles for a specific feed.
+
+        Args:
+            guild_id: Guild ID as string
+            channel_id: Channel ID
+            feed_name: Feed name
+
+        Returns:
+            Number of articles cleared (length of list before deletion)
+        """
+        key = f"rss:{guild_id}:pending:{channel_id}:{feed_name}"
+
+        # Get count before deleting
+        count = await self.redis.llen(key)
+
+        if count > 0:
+            await self.redis.delete(key)
+            logger.info(f"Cleared {count} pending articles for feed '{feed_name}' in channel {channel_id}")
+            return count
 
         return 0
 

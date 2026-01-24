@@ -13,6 +13,8 @@ from bot.app.app_state import (
     set_state_value_from_interaction,
     get_state_value_from_interaction,
 )
+from bot.app.redis.rss_store import RSSRedisStore
+from bot.app.redis.serialization import guild_id_to_str
 from bot.app.story_history import (
     get_todays_story_history,
     get_stories_within_window,
@@ -23,6 +25,9 @@ from bot.app.story_history import (
 )
 
 logger = logging.getLogger("NewsCommands")
+
+# Feature flag for Redis migration
+USE_REDIS = True
 
 
 def _is_valid_url(url: str) -> bool:
@@ -241,11 +246,17 @@ class NewsCog(commands.Cog):
             return
 
         # Fetch current feeds dict
-        feeds: dict[str, Any] | None = get_state_value_from_interaction(
-            "rss_feeds", interaction.guild_id
-        )
-        if feeds is None:
-            feeds = {}
+        guild_id_str = guild_id_to_str(interaction.guild_id)
+
+        if USE_REDIS:
+            store = RSSRedisStore()
+            feeds = await store.get_feeds(guild_id_str)
+        else:
+            feeds: dict[str, Any] | None = get_state_value_from_interaction(
+                "rss_feeds", interaction.guild_id
+            )
+            if feeds is None:
+                feeds = {}
 
         # Check if feed name exists in another channel
         if feed_name in feeds and feeds[feed_name]["channel_id"] != channel.id:
@@ -264,14 +275,16 @@ class NewsCog(commands.Cog):
             "post_mode": "summary",  # "summary" or "direct"
             "filter_instructions": None,  # Custom filter instructions (e.g., "only San Diego articles")
             "last_check": datetime.utcnow().isoformat(),
-            "seen_items": [],
+            "seen_items": [],  # For JSON compatibility (unused in Redis)
             "max_seen_items": 500,
         }
 
-        feeds[feed_name] = feed_info
-
-        # Save back to state
-        set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
+        # Save to Redis or JSON
+        if USE_REDIS:
+            await store.save_feed(guild_id_str, feed_name, feed_info)
+        else:
+            feeds[feed_name] = feed_info
+            set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
 
         await interaction.followup.send(
             f"✅ RSS feed **{feed_name}** registered!\n"
@@ -285,16 +298,32 @@ class NewsCog(commands.Cog):
     @app_commands.describe(feed_name="The name of the feed to enable")
     @app_commands.checks.has_permissions(administrator=True)
     async def enable(self, interaction: discord.Interaction, feed_name: str) -> None:
-        feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+        guild_id_str = guild_id_to_str(interaction.guild_id)
 
-        if feed_name not in feeds:
-            await interaction.response.send_message(
-                f"No feed named '{feed_name}' found for this guild.", ephemeral=True
-            )
-            return
+        if USE_REDIS:
+            store = RSSRedisStore()
+            feed = await store.get_feed(guild_id_str, feed_name)
 
-        feeds[feed_name]["enabled"] = True
-        set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
+            if not feed:
+                await interaction.response.send_message(
+                    f"No feed named '{feed_name}' found for this guild.", ephemeral=True
+                )
+                return
+
+            feed["enabled"] = True
+            await store.save_feed(guild_id_str, feed_name, feed)
+        else:
+            feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+
+            if feed_name not in feeds:
+                await interaction.response.send_message(
+                    f"No feed named '{feed_name}' found for this guild.", ephemeral=True
+                )
+                return
+
+            feeds[feed_name]["enabled"] = True
+            set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
+
         await interaction.response.send_message(
             f"✅ The feed '{feed_name}' has been enabled.", ephemeral=True
         )
@@ -303,16 +332,32 @@ class NewsCog(commands.Cog):
     @app_commands.describe(feed_name="The name of the feed to disable")
     @app_commands.checks.has_permissions(administrator=True)
     async def disable(self, interaction: discord.Interaction, feed_name: str) -> None:
-        feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+        guild_id_str = guild_id_to_str(interaction.guild_id)
 
-        if feed_name not in feeds:
-            await interaction.response.send_message(
-                f"No feed named '{feed_name}' found for this guild.", ephemeral=True
-            )
-            return
+        if USE_REDIS:
+            store = RSSRedisStore()
+            feed = await store.get_feed(guild_id_str, feed_name)
 
-        feeds[feed_name]["enabled"] = False
-        set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
+            if not feed:
+                await interaction.response.send_message(
+                    f"No feed named '{feed_name}' found for this guild.", ephemeral=True
+                )
+                return
+
+            feed["enabled"] = False
+            await store.save_feed(guild_id_str, feed_name, feed)
+        else:
+            feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+
+            if feed_name not in feeds:
+                await interaction.response.send_message(
+                    f"No feed named '{feed_name}' found for this guild.", ephemeral=True
+                )
+                return
+
+            feeds[feed_name]["enabled"] = False
+            set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
+
         await interaction.response.send_message(
             f"🚫 The feed '{feed_name}' has been disabled.", ephemeral=True
         )
@@ -323,30 +368,53 @@ class NewsCog(commands.Cog):
     async def remove(self, interaction: discord.Interaction, feed_name: str) -> None:
         from bot.app.pending_news import clear_pending_articles_for_feed
 
-        feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+        guild_id_str = guild_id_to_str(interaction.guild_id)
 
-        if feed_name not in feeds:
-            await interaction.response.send_message(
-                f"No feed named '{feed_name}' found for this guild.", ephemeral=True
-            )
-            return
+        if USE_REDIS:
+            store = RSSRedisStore()
+            feed_info = await store.get_feed(guild_id_str, feed_name)
 
-        # Store feed info for confirmation message
-        feed_info = feeds[feed_name]
-        channel_id = feed_info.get("channel_id")
+            if not feed_info:
+                await interaction.response.send_message(
+                    f"No feed named '{feed_name}' found for this guild.", ephemeral=True
+                )
+                return
 
-        # Delete the feed from the dictionary
-        del feeds[feed_name]
+            # Store channel_id for confirmation message
+            channel_id = feed_info.get("channel_id")
 
-        # Save back to state
-        set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
+            # Delete the feed (also clears seen items automatically)
+            await store.delete_feed(guild_id_str, feed_name)
 
-        # Clean up any pending articles for this feed
-        guild_id_str = str(interaction.guild_id)
-        if channel_id:
-            cleared_count = clear_pending_articles_for_feed(guild_id_str, channel_id, feed_name)
-            if cleared_count > 0:
-                logger.info(f"Cleared {cleared_count} pending articles from removed feed {feed_name}")
+            # Clean up any pending articles for this feed
+            if channel_id:
+                cleared_count = await store.clear_pending_for_feed(guild_id_str, channel_id, feed_name)
+                if cleared_count > 0:
+                    logger.info(f"Cleared {cleared_count} pending articles from removed feed {feed_name}")
+        else:
+            feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+
+            if feed_name not in feeds:
+                await interaction.response.send_message(
+                    f"No feed named '{feed_name}' found for this guild.", ephemeral=True
+                )
+                return
+
+            # Store feed info for confirmation message
+            feed_info = feeds[feed_name]
+            channel_id = feed_info.get("channel_id")
+
+            # Delete the feed from the dictionary
+            del feeds[feed_name]
+
+            # Save back to state
+            set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
+
+            # Clean up any pending articles for this feed
+            if channel_id:
+                cleared_count = clear_pending_articles_for_feed(guild_id_str, channel_id, feed_name)
+                if cleared_count > 0:
+                    logger.info(f"Cleared {cleared_count} pending articles from removed feed {feed_name}")
 
         # Confirmation message
         channel_mention = f"<#{channel_id}>" if channel_id else "Unknown channel"
@@ -359,20 +427,35 @@ class NewsCog(commands.Cog):
     @app_commands.describe(feed_name="The name of the feed to reset")
     @app_commands.checks.has_permissions(administrator=True)
     async def reset(self, interaction: discord.Interaction, feed_name: str) -> None:
-        feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+        guild_id_str = guild_id_to_str(interaction.guild_id)
 
-        if feed_name not in feeds:
-            await interaction.response.send_message(
-                f"No feed named '{feed_name}' found for this guild.", ephemeral=True
-            )
-            return
+        if USE_REDIS:
+            store = RSSRedisStore()
+            feed = await store.get_feed(guild_id_str, feed_name)
 
-        # Clear the seen items list
-        old_count = len(feeds[feed_name].get("seen_items", []))
-        feeds[feed_name]["seen_items"] = []
+            if not feed:
+                await interaction.response.send_message(
+                    f"No feed named '{feed_name}' found for this guild.", ephemeral=True
+                )
+                return
 
-        # Save back to state
-        set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
+            # Clear the seen items from Redis Set
+            old_count = await store.clear_seen(guild_id_str, feed_name)
+        else:
+            feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+
+            if feed_name not in feeds:
+                await interaction.response.send_message(
+                    f"No feed named '{feed_name}' found for this guild.", ephemeral=True
+                )
+                return
+
+            # Clear the seen items list
+            old_count = len(feeds[feed_name].get("seen_items", []))
+            feeds[feed_name]["seen_items"] = []
+
+            # Save back to state
+            set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
 
         await interaction.response.send_message(
             f"🔄 Feed **{feed_name}** has been reset! Cleared {old_count} seen items.\n"
@@ -397,20 +480,39 @@ class NewsCog(commands.Cog):
         mode: str
     ) -> None:
         """Set the posting mode for an RSS feed."""
-        feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+        guild_id_str = guild_id_to_str(interaction.guild_id)
 
-        if feed_name not in feeds:
-            await interaction.response.send_message(
-                f"No feed named '{feed_name}' found for this guild.", ephemeral=True
-            )
-            return
+        if USE_REDIS:
+            store = RSSRedisStore()
+            feed = await store.get_feed(guild_id_str, feed_name)
 
-        # Update the mode
-        old_mode = feeds[feed_name].get("post_mode", "summary")
-        feeds[feed_name]["post_mode"] = mode
+            if not feed:
+                await interaction.response.send_message(
+                    f"No feed named '{feed_name}' found for this guild.", ephemeral=True
+                )
+                return
 
-        # Save back to state
-        set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
+            # Update the mode
+            old_mode = feed.get("post_mode", "summary")
+            feed["post_mode"] = mode
+
+            # Save back to Redis
+            await store.save_feed(guild_id_str, feed_name, feed)
+        else:
+            feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+
+            if feed_name not in feeds:
+                await interaction.response.send_message(
+                    f"No feed named '{feed_name}' found for this guild.", ephemeral=True
+                )
+                return
+
+            # Update the mode
+            old_mode = feeds[feed_name].get("post_mode", "summary")
+            feeds[feed_name]["post_mode"] = mode
+
+            # Save back to state
+            set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
 
         mode_description = {
             "summary": "📊 **Summary Mode** - Articles will be aggregated and posted as AI-generated summaries at 8am and 8pm PT",
@@ -436,32 +538,63 @@ class NewsCog(commands.Cog):
         instructions: str
     ) -> None:
         """Set or clear custom filter instructions for a feed."""
-        feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+        guild_id_str = guild_id_to_str(interaction.guild_id)
 
-        if feed_name not in feeds:
-            await interaction.response.send_message(
-                f"No feed named '{feed_name}' found for this guild.", ephemeral=True
-            )
-            return
+        if USE_REDIS:
+            store = RSSRedisStore()
+            feed = await store.get_feed(guild_id_str, feed_name)
 
-        # Clear filter if "none"
-        if instructions.lower() == "none":
-            feeds[feed_name]["filter_instructions"] = None
-            set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
-            await interaction.response.send_message(
-                f"✅ Filter cleared for **{feed_name}**\n"
-                f"All articles from this feed will be included in summaries.",
-                ephemeral=True
-            )
+            if not feed:
+                await interaction.response.send_message(
+                    f"No feed named '{feed_name}' found for this guild.", ephemeral=True
+                )
+                return
+
+            # Clear filter if "none"
+            if instructions.lower() == "none":
+                feed["filter_instructions"] = None
+                await store.save_feed(guild_id_str, feed_name, feed)
+                await interaction.response.send_message(
+                    f"✅ Filter cleared for **{feed_name}**\n"
+                    f"All articles from this feed will be included in summaries.",
+                    ephemeral=True
+                )
+            else:
+                feed["filter_instructions"] = instructions
+                await store.save_feed(guild_id_str, feed_name, feed)
+                await interaction.response.send_message(
+                    f"✅ Filter set for **{feed_name}**\n"
+                    f"Active filter: \"{instructions}\"\n\n"
+                    f"Articles will be filtered using AI based on these instructions during summary generation.",
+                    ephemeral=True
+                )
         else:
-            feeds[feed_name]["filter_instructions"] = instructions
-            set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
-            await interaction.response.send_message(
-                f"✅ Filter set for **{feed_name}**\n"
-                f"Active filter: \"{instructions}\"\n\n"
-                f"Articles will be filtered using AI based on these instructions during summary generation.",
-                ephemeral=True
-            )
+            feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+
+            if feed_name not in feeds:
+                await interaction.response.send_message(
+                    f"No feed named '{feed_name}' found for this guild.", ephemeral=True
+                )
+                return
+
+            # Clear filter if "none"
+            if instructions.lower() == "none":
+                feeds[feed_name]["filter_instructions"] = None
+                set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
+                await interaction.response.send_message(
+                    f"✅ Filter cleared for **{feed_name}**\n"
+                    f"All articles from this feed will be included in summaries.",
+                    ephemeral=True
+                )
+            else:
+                feeds[feed_name]["filter_instructions"] = instructions
+                set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
+                await interaction.response.send_message(
+                    f"✅ Filter set for **{feed_name}**\n"
+                    f"Active filter: \"{instructions}\"\n\n"
+                    f"Articles will be filtered using AI based on these instructions during summary generation.",
+                    ephemeral=True
+                )
 
     @news.command(name="set-schedule", description="Set summary posting times for this channel.")
     @app_commands.describe(
@@ -890,7 +1023,13 @@ class NewsCog(commands.Cog):
 
     @news.command(name="list", description="List all RSS feeds in this channel.")
     async def list_feeds(self, interaction: discord.Interaction) -> None:
-        feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+        guild_id_str = guild_id_to_str(interaction.guild_id)
+
+        if USE_REDIS:
+            store = RSSRedisStore()
+            feeds = await store.get_feeds(guild_id_str)
+        else:
+            feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
 
         if not feeds:
             await interaction.response.send_message(
@@ -1039,15 +1178,28 @@ class NewsCog(commands.Cog):
     @news.command(name="preview", description="Preview what a feed post will look like.")
     @app_commands.describe(feed_name="The name of the feed to preview")
     async def preview(self, interaction: discord.Interaction, feed_name: str) -> None:
-        feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+        guild_id_str = guild_id_to_str(interaction.guild_id)
 
-        if feed_name not in feeds:
-            await interaction.response.send_message(
-                f"No feed named '{feed_name}' found for this guild.", ephemeral=True
-            )
-            return
+        if USE_REDIS:
+            store = RSSRedisStore()
+            feed_info = await store.get_feed(guild_id_str, feed_name)
 
-        feed_info = feeds[feed_name]
+            if not feed_info:
+                await interaction.response.send_message(
+                    f"No feed named '{feed_name}' found for this guild.", ephemeral=True
+                )
+                return
+        else:
+            feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+
+            if feed_name not in feeds:
+                await interaction.response.send_message(
+                    f"No feed named '{feed_name}' found for this guild.", ephemeral=True
+                )
+                return
+
+            feed_info = feeds[feed_name]
+
         feed_url = feed_info.get("url")
 
         # Defer response as fetching might take time
@@ -1127,8 +1279,15 @@ class NewsCog(commands.Cog):
         # Defer response (this may take time)
         await interaction.response.defer(ephemeral=True)
 
+        guild_id_str = guild_id_to_str(interaction.guild_id)
+
         # Get feeds for current channel (to check if configured)
-        feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+        if USE_REDIS:
+            store = RSSRedisStore()
+            feeds = await store.get_feeds(guild_id_str)
+        else:
+            feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+
         channel_feeds = {
             name: info for name, info in feeds.items()
             if info.get("channel_id") == interaction.channel_id
@@ -1273,13 +1432,19 @@ class NewsCog(commands.Cog):
             cleared_count = clear_pending_articles_for_channel(guild_id_str, interaction.channel_id)
             logger.info(f"Cleared {cleared_count} pending articles for channel {interaction.channel_id}")
 
-            # Update last_summary timestamp in app_state
-            for name in feed_names:
-                if name in feeds:
-                    feeds[name]["last_summary"] = datetime.utcnow().isoformat()
+            # Update last_summary timestamp
+            if USE_REDIS:
+                for name in feed_names:
+                    if name in feeds:
+                        feeds[name]["last_summary"] = datetime.utcnow().isoformat()
+                        await store.save_feed(guild_id_str, name, feeds[name])
+            else:
+                for name in feed_names:
+                    if name in feeds:
+                        feeds[name]["last_summary"] = datetime.utcnow().isoformat()
 
-            # Save state
-            set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
+                # Save state
+                set_state_value_from_interaction("rss_feeds", feeds, interaction.guild_id)
 
             await interaction.followup.send(
                 f"✅ Summary posted! Processed {article_count} articles.",
@@ -1308,9 +1473,15 @@ class NewsCog(commands.Cog):
         from bot.app.pending_news import get_pending_articles_for_channel
 
         ARTICLES_PER_PAGE = 10
+        guild_id_str = guild_id_to_str(interaction.guild_id)
 
         # Validate channel has feeds
-        feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+        if USE_REDIS:
+            store = RSSRedisStore()
+            feeds = await store.get_feeds(guild_id_str)
+        else:
+            feeds = get_state_value_from_interaction("rss_feeds", interaction.guild_id) or {}
+
         channel_feeds = {name: info for name, info in feeds.items() if info.get("channel_id") == interaction.channel_id}
 
         if not channel_feeds:
