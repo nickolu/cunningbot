@@ -24,6 +24,10 @@ from collections import defaultdict
 import discord
 from bot.app.app_state import get_all_guild_states, set_state_value, get_state_value
 from bot.app.pending_news import get_all_pending_by_channel, clear_pending_articles_for_channel
+from bot.app.redis.rss_store import RSSRedisStore
+from bot.app.redis.locks import redis_lock
+from bot.app.redis.client import get_redis_client, initialize_redis, close_redis
+from bot.app.redis.exceptions import LockAcquisitionError
 from bot.app.story_history import (
     get_todays_story_history,
     get_stories_within_window,
@@ -38,6 +42,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+
 
 # Discord API error codes
 DISCORD_ERROR_UNKNOWN_CHANNEL = 10003
@@ -244,7 +249,17 @@ def create_summary_embed(
 
 async def post_summaries() -> None:
     """Main entry point called once per invocation."""
-    logger.info("=== RSS Summary Poster Starting ===")
+    await _post_with_redis()
+
+
+async def _post_with_redis() -> None:
+    """Post summaries using Redis (atomic, with distributed locks)."""
+    logger.info("=== RSS Summary Poster Starting (Redis mode) ===")
+
+    # Initialize Redis
+    await initialize_redis()
+    store = RSSRedisStore()
+    redis_client = get_redis_client()
 
     # Clean up old story history from previous days
     cleanup_old_history()
@@ -252,24 +267,58 @@ async def post_summaries() -> None:
     token = os.getenv("DISCORD_TOKEN")
     if not token:
         logger.error("DISCORD_TOKEN environment variable not set – aborting.")
+        await close_redis()
         return
 
-    # Get all pending articles grouped by channel
-    channel_articles = get_all_pending_by_channel()
+    # Get all pending articles from Redis, grouped by guild and channel
+    all_guild_states = get_all_guild_states()
+    channel_articles = {}
+
+    for guild_id_str in all_guild_states.keys():
+        if guild_id_str == "global" or not isinstance(all_guild_states[guild_id_str], dict):
+            continue
+
+        # Get feeds for this guild to know which channels have feeds
+        feeds = await store.get_feeds(guild_id_str)
+        channel_feeds = {}
+
+        # Group feeds by channel
+        for feed_name, feed_config in feeds.items():
+            channel_id = feed_config.get("channel_id")
+            if channel_id:
+                if channel_id not in channel_feeds:
+                    channel_feeds[channel_id] = []
+                channel_feeds[channel_id].append(feed_name)
+
+        # Get pending articles for each channel
+        for channel_id, feed_names in channel_feeds.items():
+            pending = await store.get_pending(guild_id_str, channel_id)
+
+            if pending:
+                # Flatten all articles from all feeds for this channel
+                all_articles = []
+                for articles in pending.values():
+                    all_articles.extend(articles)
+
+                if all_articles:
+                    channel_articles[channel_id] = {
+                        "guild_id": guild_id_str,
+                        "articles": all_articles,
+                        "feed_names": list(pending.keys())
+                    }
 
     if not channel_articles:
         logger.info("No pending articles to summarize.")
+        await close_redis()
         return
 
     logger.info(f"Found {len(channel_articles)} channels with pending articles")
 
     # Load all channel schedules from app_state
-    all_guild_states = get_all_guild_states()
     all_schedules = {}
     for guild_id_str in all_guild_states.keys():
         if guild_id_str != "global" and isinstance(all_guild_states[guild_id_str], dict):
             guild_schedules = all_guild_states[guild_id_str].get("channel_summary_schedules", {})
-            # Convert string channel_ids to int and merge
             for ch_id_str, schedule in guild_schedules.items():
                 try:
                     all_schedules[int(ch_id_str)] = schedule
@@ -284,226 +333,231 @@ async def post_summaries() -> None:
 
     @client.event  # type: ignore[misc]
     async def on_ready():
-        logger.info("Discord client logged in as %s", client.user)
+        logger.info("Discord client logged in as %s (Redis mode)", client.user)
 
         for channel_id, data in channel_articles.items():
+            # Distributed lock per channel to prevent duplicate summaries
+            lock_resource = f"rss:{data['guild_id']}:summary:{channel_id}"
+
             try:
-                articles = data["articles"]
-                feed_names = data["feed_names"]
-                guild_id = data["guild_id"]
+                async with redis_lock(redis_client, lock_resource, timeout=600):
+                    logger.info(f"Acquired summary lock for channel {channel_id}")
 
-                # Check if it's time to post for THIS channel
-                channel_schedule = all_schedules.get(channel_id)  # None = use default
-                should_post, edition = should_post_summary_for_channel(guild_id, channel_id, channel_schedule)
+                    articles = data["articles"]
+                    feed_names = data["feed_names"]
+                    guild_id = data["guild_id"]
 
-                if not should_post:
-                    logger.info(f"Not time for summary in channel {channel_id}, skipping")
-                    continue
+                    # Check if it's time to post for THIS channel
+                    channel_schedule = all_schedules.get(channel_id)
+                    should_post, edition = should_post_summary_for_channel(guild_id, channel_id, channel_schedule)
 
-                # IMPORTANT: Check if channel exists BEFORE generating expensive summary
-                try:
-                    channel = client.get_channel(channel_id)
-                    if channel is None:
-                        channel = await client.fetch_channel(channel_id)  # type: ignore[attr-defined]
-
-                    if not isinstance(channel, (discord.TextChannel, discord.Thread)):
-                        logger.warning(f"Channel ID {channel_id} is not a text channel, skipping")
+                    if not should_post:
+                        logger.info(f"Not time for summary in channel {channel_id}, skipping")
                         continue
 
-                except discord.Forbidden as exc:
-                    logger.error(f"PERMANENT: Missing permissions for channel {channel_id}: {exc}")
-                    _cleanup_inaccessible_channel(guild_id, channel_id, "Missing permissions")
-                    continue
+                    # IMPORTANT: Check if channel exists BEFORE generating expensive summary
+                    try:
+                        channel = client.get_channel(channel_id)
+                        if channel is None:
+                            channel = await client.fetch_channel(channel_id)  # type: ignore[attr-defined]
 
-                except discord.HTTPException as exc:
-                    if exc.code == DISCORD_ERROR_UNKNOWN_CHANNEL:  # 10003: Unknown Channel
-                        logger.error(f"PERMANENT: Channel {channel_id} does not exist (404)")
-                        _cleanup_inaccessible_channel(guild_id, channel_id, "Channel deleted")
-                        continue
-                    elif exc.code == DISCORD_ERROR_MISSING_PERMISSIONS:  # 50013: Missing Access
-                        logger.error(f"PERMANENT: No access to channel {channel_id} (403)")
-                        _cleanup_inaccessible_channel(guild_id, channel_id, "Access denied")
-                        continue
-                    else:
-                        # Transient error - log and skip this run
-                        logger.warning(f"TRANSIENT: HTTP error accessing channel {channel_id} (code {exc.code}): {exc}")
+                        if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+                            logger.warning(f"Channel ID {channel_id} is not a text channel, skipping")
+                            continue
+
+                    except discord.Forbidden as exc:
+                        logger.error(f"PERMANENT: Missing permissions for channel {channel_id}: {exc}")
+                        _cleanup_inaccessible_channel(guild_id, channel_id, "Missing permissions")
                         continue
 
-                except Exception as exc:
-                    logger.error(f"Unexpected error checking channel {channel_id}: {exc}")
-                    continue
+                    except discord.HTTPException as exc:
+                        if exc.code == DISCORD_ERROR_UNKNOWN_CHANNEL:  # 10003: Unknown Channel
+                            logger.error(f"PERMANENT: Channel {channel_id} does not exist (404)")
+                            _cleanup_inaccessible_channel(guild_id, channel_id, "Channel deleted")
+                            continue
+                        elif exc.code == DISCORD_ERROR_MISSING_PERMISSIONS:  # 50013: Missing Access
+                            logger.error(f"PERMANENT: No access to channel {channel_id} (403)")
+                            _cleanup_inaccessible_channel(guild_id, channel_id, "Access denied")
+                            continue
+                        else:
+                            # Transient error - log and skip this run
+                            logger.warning(f"TRANSIENT: HTTP error accessing channel {channel_id} (code {exc.code}): {exc}")
+                            continue
 
-                logger.info(f"Channel {channel_id} verified, proceeding with summary generation")
-
-                # Filter out articles from removed feeds
-                all_guild_states = get_all_guild_states()
-                guild_state = all_guild_states.get(str(guild_id), {})
-                all_feeds = guild_state.get('rss_feeds', {})
-
-                # Check for orphaned feeds (feeds with pending articles but removed from config)
-                valid_feed_names = [name for name in feed_names if name in all_feeds]
-                orphaned_feeds = [name for name in feed_names if name not in all_feeds]
-
-                if orphaned_feeds:
-                    from bot.app.pending_news import clear_pending_articles_for_feed
-                    logger.warning(f"Found orphaned feeds in channel {channel_id}: {orphaned_feeds}")
-                    for orphaned_feed in orphaned_feeds:
-                        cleared = clear_pending_articles_for_feed(str(guild_id), channel_id, orphaned_feed)
-                        logger.info(f"Cleaned up {cleared} orphaned articles from removed feed: {orphaned_feed}")
-
-                    # Update feed_names to only include valid feeds
-                    feed_names = valid_feed_names
-
-                    # Filter articles to only include those from valid feeds
-                    articles = [a for a in articles if a.get('feed_name') in valid_feed_names]
-
-                    if not articles:
-                        logger.info(f"No articles remaining after filtering orphaned feeds for channel {channel_id}")
+                    except Exception as exc:
+                        logger.error(f"Unexpected error checking channel {channel_id}: {exc}")
                         continue
 
-                logger.info(f"Generating {edition} summary for channel {channel_id}: {len(articles)} articles from {len(feed_names)} feeds")
+                    logger.info(f"Channel {channel_id} verified, proceeding with summary generation")
 
-                # Load story history within deduplication window
-                guild_id_str = str(guild_id)
-                window_hours = get_channel_dedup_window(guild_id, channel_id)
-                story_history = get_stories_within_window(guild_id_str, channel_id, window_hours)
-                logger.info(f"Using {window_hours}h dedup window for channel {channel_id}")
-
-                # Load article processing limits for this channel
-                from bot.domain.news.news_summary_service import get_channel_article_limits
-                limits = get_channel_article_limits(guild_id, channel_id)
-                logger.info(f"Using limits for channel {channel_id}: {limits['initial_limit']} → {limits['top_articles_limit']} → {limits['cluster_limit']}")
-
-                # Load feed diversity config for this channel
-                from bot.domain.news.feed_diversity import get_channel_feed_diversity
-                diversity_config = get_channel_feed_diversity(guild_id, channel_id)
-                if diversity_config.get("strategy") != "disabled":
-                    logger.info(f"Feed diversity enabled for channel {channel_id}: {diversity_config}")
-
-                # Build filter map from feed configs (all_feeds already loaded above)
-                filter_map = {
-                    name: feed.get('filter_instructions')
-                    for name, feed in all_feeds.items()
-                    if name in feed_names and feed.get('filter_instructions')
-                }
-
-                # Generate AI summary with deduplication
-                try:
-                    summary_result = await generate_news_summary(
-                        articles=articles,
-                        feed_names=feed_names,
-                        filter_map=filter_map,
-                        story_history=story_history,
-                        edition=edition,
-                        initial_limit=limits["initial_limit"],
-                        top_articles_limit=limits["top_articles_limit"],
-                        cluster_limit=limits["cluster_limit"],
-                        diversity_config=diversity_config
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to generate summary for channel {channel_id}: {e}")
-                    continue
-
-                # Get stats and story summaries
-                story_summaries = summary_result.get("story_summaries", [])
-                stats = summary_result.get("stats", {})
-
-                # Create embed (always post, even if no stories)
-                embed = create_summary_embed(
-                    summary_text=summary_result["summary_text"],
-                    article_count=summary_result["total_articles"],
-                    feed_count=summary_result["feed_count"],
-                    edition=edition,
-                    stats=stats
-                )
-
-                # CRITICAL: Save timestamp FIRST to prevent infinite retries
-                # Even if posting fails, we won't retry for 11+ hours
-                try:
-                    pacific_tz = ZoneInfo("America/Los_Angeles")
-                    current_time = dt.datetime.now(pacific_tz).isoformat()
-
-                    guild_id_str = str(guild_id)
-                    all_last_summaries = get_state_value("channel_last_summaries", guild_id_str) or {}
-                    channel_id_str = str(channel_id)
-
-                    if channel_id_str not in all_last_summaries:
-                        all_last_summaries[channel_id_str] = {}
-
-                    all_last_summaries[channel_id_str][edition] = current_time
-                    set_state_value("channel_last_summaries", all_last_summaries, guild_id_str)
-                    logger.info(f"Pre-saved {edition} edition timestamp for channel {channel_id}")
-
-                except Exception as e:
-                    logger.error(f"CRITICAL: Failed to pre-save timestamp for channel {channel_id}: {e}")
-                    # Don't continue - if we can't save timestamp, we'll have infinite retries
-                    continue
-
-                # NOW try to post (channel already verified, timestamp already saved)
-                try:
-                    await channel.send(embed=embed)
-                    logger.info(f"Posted {edition} summary to channel {channel_id}")
-
-                    # Save story data to history for deduplication
-                    pacific_tz = ZoneInfo("America/Los_Angeles")
-                    story_data = [
-                        {
-                            "title": story["title"],
-                            "summary": story["summary"],
-                            "article_urls": [link["url"] for link in story["links"]],
-                            "posted_at": dt.datetime.now(pacific_tz).isoformat(),
-                            "edition": edition
-                        }
-                        for story in story_summaries
-                    ]
-                    add_stories_to_history(guild_id_str, channel_id, story_data)
-                    logger.info(f"Saved {len(story_data)} stories to history for channel {channel_id}")
-
-                except discord.Forbidden as exc:
-                    # Permissions changed since we verified - cleanup
-                    logger.error(f"PERMANENT: Lost permissions for channel {channel_id}: {exc}")
-                    _cleanup_inaccessible_channel(guild_id, channel_id, "Lost permissions")
-                    continue
-
-                except discord.HTTPException as exc:
-                    # Unlikely since we already verified channel exists, but handle anyway
-                    if exc.code == DISCORD_ERROR_UNKNOWN_CHANNEL:
-                        logger.error(f"PERMANENT: Channel {channel_id} deleted after verification: {exc}")
-                        _cleanup_inaccessible_channel(guild_id, channel_id, "Channel deleted")
-                        continue
-                    else:
-                        # Transient error (rate limit, server error, etc)
-                        logger.warning(f"TRANSIENT: HTTP error posting to channel {channel_id} (code {exc.code}): {exc}")
-                        logger.warning(f"Will retry next scheduled run (timestamp already saved)")
-                        continue
-
-                except Exception as exc:
-                    logger.error(f"Unexpected error posting to channel {channel_id}: {exc}")
-                    continue
-
-                # Clear pending articles from pending_news.json
-                try:
-                    cleared_count = clear_pending_articles_for_channel(guild_id, channel_id)
-                    logger.info(f"Cleared {cleared_count} pending articles for channel {channel_id}")
-
-                    # Update last_summary timestamp in app_state for feeds in this channel
+                    # Filter out articles from removed feeds
                     all_guild_states = get_all_guild_states()
-                    guild_state = all_guild_states.get(guild_id, {})
+                    guild_state = all_guild_states.get(str(guild_id), {})
                     all_feeds = guild_state.get('rss_feeds', {})
 
-                    for feed_name in feed_names:
-                        if feed_name in all_feeds:
-                            all_feeds[feed_name]["last_summary"] = dt.datetime.utcnow().isoformat()
+                    # Check for orphaned feeds (feeds with pending articles but removed from config)
+                    valid_feed_names = [name for name in feed_names if name in all_feeds]
+                    orphaned_feeds = [name for name in feed_names if name not in all_feeds]
 
-                    # Save updated feeds back to state
-                    set_state_value("rss_feeds", all_feeds, guild_id)
-                    logger.info(f"Updated last_summary for {len(feed_names)} feeds in guild {guild_id}")
+                    if orphaned_feeds:
+                        from bot.app.pending_news import clear_pending_articles_for_feed
+                        logger.warning(f"Found orphaned feeds in channel {channel_id}: {orphaned_feeds}")
+                        for orphaned_feed in orphaned_feeds:
+                            cleared = clear_pending_articles_for_feed(str(guild_id), channel_id, orphaned_feed)
+                            logger.info(f"Cleaned up {cleared} orphaned articles from removed feed: {orphaned_feed}")
 
-                except Exception as e:
-                    logger.error(f"Failed to clear pending articles or update feed state for channel {channel_id}: {e}")
+                        # Update feed_names to only include valid feeds
+                        feed_names = valid_feed_names
+
+                        # Filter articles to only include those from valid feeds
+                        articles = [a for a in articles if a.get('feed_name') in valid_feed_names]
+
+                        if not articles:
+                            logger.info(f"No articles remaining after filtering orphaned feeds for channel {channel_id}")
+                            continue
+
+                    logger.info(f"Generating {edition} summary for channel {channel_id}: {len(articles)} articles from {len(feed_names)} feeds")
+
+                    # Load story history within deduplication window
+                    guild_id_str = str(guild_id)
+                    window_hours = get_channel_dedup_window(guild_id, channel_id)
+                    story_history = get_stories_within_window(guild_id_str, channel_id, window_hours)
+                    logger.info(f"Using {window_hours}h dedup window for channel {channel_id}")
+
+                    # Load article processing limits for this channel
+                    from bot.domain.news.news_summary_service import get_channel_article_limits
+                    limits = get_channel_article_limits(guild_id, channel_id)
+                    logger.info(f"Using limits for channel {channel_id}: {limits['initial_limit']} → {limits['top_articles_limit']} → {limits['cluster_limit']}")
+
+                    # Load feed diversity config for this channel
+                    from bot.domain.news.feed_diversity import get_channel_feed_diversity
+                    diversity_config = get_channel_feed_diversity(guild_id, channel_id)
+                    if diversity_config.get("strategy") != "disabled":
+                        logger.info(f"Feed diversity enabled for channel {channel_id}: {diversity_config}")
+
+                    # Build filter map from feed configs (all_feeds already loaded above)
+                    filter_map = {
+                        name: feed.get('filter_instructions')
+                        for name, feed in all_feeds.items()
+                        if name in feed_names and feed.get('filter_instructions')
+                    }
+
+                    # Generate AI summary with deduplication
+                    try:
+                        summary_result = await generate_news_summary(
+                            articles=articles,
+                            feed_names=feed_names,
+                            filter_map=filter_map,
+                            story_history=story_history,
+                            edition=edition,
+                            initial_limit=limits["initial_limit"],
+                            top_articles_limit=limits["top_articles_limit"],
+                            cluster_limit=limits["cluster_limit"],
+                            diversity_config=diversity_config
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to generate summary for channel {channel_id}: {e}")
+                        continue
+
+                    # Get stats and story summaries
+                    story_summaries = summary_result.get("story_summaries", [])
+                    stats = summary_result.get("stats", {})
+
+                    # Create embed (always post, even if no stories)
+                    embed = create_summary_embed(
+                        summary_text=summary_result["summary_text"],
+                        article_count=summary_result["total_articles"],
+                        feed_count=summary_result["feed_count"],
+                        edition=edition,
+                        stats=stats
+                    )
+
+                    # CRITICAL: Save timestamp FIRST to prevent infinite retries
+                    # Even if posting fails, we won't retry for 11+ hours
+                    try:
+                        pacific_tz = ZoneInfo("America/Los_Angeles")
+                        current_time = dt.datetime.now(pacific_tz).isoformat()
+                        guild_id_str = str(guild_id)
+
+                        # Save to Redis
+                        await store.set_last_summary(guild_id_str, channel_id, edition, current_time)
+                        logger.info(f"Pre-saved {edition} edition timestamp for channel {channel_id} in Redis")
+
+                    except Exception as e:
+                        logger.error(f"CRITICAL: Failed to pre-save timestamp for channel {channel_id}: {e}")
+                        # Don't continue - if we can't save timestamp, we'll have infinite retries
+                        continue
+
+                    # NOW try to post (channel already verified, timestamp already saved)
+                    try:
+                        await channel.send(embed=embed)
+                        logger.info(f"Posted {edition} summary to channel {channel_id}")
+
+                        # Save story data to history for deduplication
+                        pacific_tz = ZoneInfo("America/Los_Angeles")
+                        story_data = [
+                            {
+                                "title": story["title"],
+                                "summary": story["summary"],
+                                "article_urls": [link["url"] for link in story["links"]],
+                                "posted_at": dt.datetime.now(pacific_tz).isoformat(),
+                                "edition": edition
+                            }
+                            for story in story_summaries
+                        ]
+                        add_stories_to_history(guild_id_str, channel_id, story_data)
+                        logger.info(f"Saved {len(story_data)} stories to history for channel {channel_id}")
+
+                    except discord.Forbidden as exc:
+                        # Permissions changed since we verified - cleanup
+                        logger.error(f"PERMANENT: Lost permissions for channel {channel_id}: {exc}")
+                        _cleanup_inaccessible_channel(guild_id, channel_id, "Lost permissions")
+                        continue
+
+                    except discord.HTTPException as exc:
+                        # Unlikely since we already verified channel exists, but handle anyway
+                        if exc.code == DISCORD_ERROR_UNKNOWN_CHANNEL:
+                            logger.error(f"PERMANENT: Channel {channel_id} deleted after verification: {exc}")
+                            _cleanup_inaccessible_channel(guild_id, channel_id, "Channel deleted")
+                            continue
+                        else:
+                            # Transient error (rate limit, server error, etc)
+                            logger.warning(f"TRANSIENT: HTTP error posting to channel {channel_id} (code {exc.code}): {exc}")
+                            logger.warning(f"Will retry next scheduled run (timestamp already saved)")
+                            continue
+
+                    except Exception as exc:
+                        logger.error(f"Unexpected error posting to channel {channel_id}: {exc}")
+                        continue
+
+                    # Clear pending articles from Redis
+                    try:
+                        cleared_count = await store.clear_pending(guild_id_str, channel_id)
+                        logger.info(f"Cleared {cleared_count} pending article lists for channel {channel_id}")
+
+                        # Update last_summary timestamp in app_state for feeds in this channel
+                        all_guild_states = get_all_guild_states()
+                        guild_state = all_guild_states.get(guild_id, {})
+                        all_feeds = guild_state.get('rss_feeds', {})
+
+                        for feed_name in feed_names:
+                            if feed_name in all_feeds:
+                                all_feeds[feed_name]["last_summary"] = dt.datetime.utcnow().isoformat()
+
+                        # Save updated feeds back to state
+                        set_state_value("rss_feeds", all_feeds, guild_id)
+                        logger.info(f"Updated last_summary for {len(feed_names)} feeds in guild {guild_id}")
+
+                    except Exception as e:
+                        logger.error(f"Failed to clear pending articles or update feed state for channel {channel_id}: {e}")
+
+            except LockAcquisitionError:
+                logger.info(f"Channel {channel_id} is being processed by another container, skipping")
+                continue
 
             except Exception as e:
                 logger.error(f"Error processing channel {channel_id}: {e}")
+                continue
 
         logger.info("=== RSS Summary Poster Finished ===")
 
@@ -528,7 +582,8 @@ async def post_summaries() -> None:
         # Ensure client is closed even if start() fails
         if not client.is_closed():
             await client.close()
-
+        # Close Redis connection
+        await close_redis()
 
 if __name__ == "__main__":
     asyncio.run(post_summaries())
