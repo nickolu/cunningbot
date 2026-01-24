@@ -263,6 +263,60 @@ class TriviaRedisStore:
         deleted = await self.redis.hdel(key, reg_id)
         return deleted > 0
 
+    # --- Used Seeds (Redis Set for O(1) lookups and atomic adds) ---
+
+    async def mark_seed_used(self, guild_id: str, seed: str) -> int:
+        """Mark a question seed as used (atomic operation).
+
+        Args:
+            guild_id: Guild ID as string
+            seed: Question seed to mark as used
+
+        Returns:
+            1 if seed was newly added, 0 if already existed
+        """
+        key = f"trivia:{guild_id}:seeds:used"
+        added = await self.redis.sadd(key, seed)
+        return added
+
+    async def is_seed_used(self, guild_id: str, seed: str) -> bool:
+        """Check if a question seed has been used before.
+
+        Args:
+            guild_id: Guild ID as string
+            seed: Question seed to check
+
+        Returns:
+            True if seed was used before, False otherwise
+        """
+        key = f"trivia:{guild_id}:seeds:used"
+        return await self.redis.sismember(key, seed)
+
+    async def get_used_seeds(self, guild_id: str) -> list[str]:
+        """Get all used question seeds for a guild.
+
+        Args:
+            guild_id: Guild ID as string
+
+        Returns:
+            List of used seed strings
+        """
+        key = f"trivia:{guild_id}:seeds:used"
+        seeds_set = await self.redis.smembers(key)
+        return list(seeds_set)
+
+    async def get_used_seeds_count(self, guild_id: str) -> int:
+        """Get count of used seeds.
+
+        Args:
+            guild_id: Guild ID as string
+
+        Returns:
+            Number of used seeds
+        """
+        key = f"trivia:{guild_id}:seeds:used"
+        return await self.redis.scard(key)
+
     # --- History ---
 
     async def move_to_history(

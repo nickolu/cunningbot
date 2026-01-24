@@ -9,10 +9,7 @@ import re
 import datetime as dt
 import zoneinfo
 
-from bot.app.app_state import (
-    set_state_value_from_interaction,
-    get_state_value_from_interaction,
-)
+from bot.app.app_state import get_state_value_from_interaction
 from bot.app.redis.trivia_store import TriviaRedisStore
 from bot.domain.trivia.trivia_stats_service import TriviaStatsService
 from bot.domain.trivia.question_seeds import CATEGORIES, get_unused_seed
@@ -224,10 +221,9 @@ class TriviaCog(commands.Cog):
             return
 
         try:
-            # Get used seeds
-            used_seeds = get_state_value_from_interaction(
-                "trivia_seeds_used", interaction.guild_id
-            ) or []
+            # Get used seeds from Redis
+            store = TriviaRedisStore()
+            used_seeds = await store.get_used_seeds(str(interaction.guild_id))
 
             # Generate new seed
             seed = get_unused_seed(used_seeds)
@@ -282,15 +278,12 @@ class TriviaCog(commands.Cog):
             }
 
             # Store in Redis
-            store = TriviaRedisStore()
             await store.create_game(str(interaction.guild_id), game_id, game_data)
-            logger.info(f"Saved game state for game_id {game_id[:8]}")
 
-            # Add seed to used_seeds (still in JSON for now)
-            used_seeds.append(seed)
-            set_state_value_from_interaction(
-                "trivia_seeds_used", used_seeds, interaction.guild_id
-            )
+            # Mark seed as used in Redis (atomic operation)
+            await store.mark_seed_used(str(interaction.guild_id), seed)
+
+            logger.info(f"Saved game state for game_id {game_id[:8]}")
 
             await interaction.followup.send(
                 f"✅ Trivia question posted!\n"
