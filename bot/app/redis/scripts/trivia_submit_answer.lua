@@ -13,10 +13,10 @@
 -- ARGV[4]: current_timestamp (epoch seconds as float)
 --
 -- Returns:
---   {ok = "SUBMITTED"} on success
---   {err = "GAME_NOT_FOUND"} if game doesn't exist
---   {err = "GAME_CLOSED"} if game has closed_at flag set
---   {err = "WINDOW_CLOSED"} if current time > ends_at
+--   {"ok", "SUBMITTED"} on success
+--   {"err", "GAME_NOT_FOUND"} if game doesn't exist
+--   {"err", "GAME_CLOSED"} if game has closed_at flag set
+--   {"err", "WINDOW_CLOSED"} if current time > ends_at
 
 local games_hash_key = KEYS[1]
 local submissions_key = KEYS[2]
@@ -29,7 +29,7 @@ local current_time = tonumber(ARGV[4])
 local game_json = redis.call('HGET', games_hash_key, game_id)
 
 if not game_json then
-    return {err = "GAME_NOT_FOUND"}
+    return {"err", "GAME_NOT_FOUND"}
 end
 
 -- Parse game data
@@ -37,7 +37,7 @@ local game = cjson.decode(game_json)
 
 -- Check if game is already closed (closer has marked it)
 if game.closed_at then
-    return {err = "GAME_CLOSED"}
+    return {"err", "GAME_CLOSED"}
 end
 
 -- Check if answer window has passed
@@ -46,11 +46,11 @@ end
 local ends_at = game.ends_at_epoch
 
 if ends_at and current_time > ends_at then
-    return {err = "WINDOW_CLOSED"}
+    return {"err", "WINDOW_CLOSED"}
 end
 
 -- All checks passed - record submission atomically
 -- HSET allows overwrite (user can update their answer)
 redis.call('HSET', submissions_key, user_id, submission_data)
 
-return {ok = "SUBMITTED"}
+return {"ok", "SUBMITTED"}
