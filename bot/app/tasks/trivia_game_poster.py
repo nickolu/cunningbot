@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 # Load environment variables from .env
 load_dotenv()
 
-from bot.app.app_state import get_all_guild_states, set_state_value
+from bot.app.app_state import get_all_guild_states
 from bot.app.redis.trivia_store import TriviaRedisStore
 from bot.app.redis.client import initialize_redis, close_redis
 from bot.domain.trivia.question_seeds import get_unused_seed
@@ -197,8 +197,8 @@ async def post_trivia_questions() -> None:
                 continue
             already_posted.add(game_key)
 
-            # Get used seeds from guild state (still in JSON for now)
-            used_seeds = guild_state.get("trivia_seeds_used", [])
+            # Get used seeds from Redis
+            used_seeds = await store.get_used_seeds(guild_id_str)
             seed = get_unused_seed(used_seeds)
 
             to_post.append({
@@ -291,14 +291,10 @@ async def post_trivia_questions() -> None:
 
                 await store.create_game(guild_id, game_id, game_data)
 
-                # Add seed to used_seeds (still in JSON for now)
-                guild_state = all_guild_states[guild_id]
-                if "trivia_seeds_used" not in guild_state:
-                    guild_state["trivia_seeds_used"] = []
-                guild_state["trivia_seeds_used"].append(seed)
-                set_state_value("trivia_seeds_used", guild_state["trivia_seeds_used"], guild_id)
+                # Mark seed as used in Redis (atomic operation)
+                await store.mark_seed_used(guild_id, seed)
 
-                logger.info("Saved game state for game_id %s in Redis", game_id[:8])
+                logger.info("Saved game state for game_id %s", game_id[:8])
 
             except discord.Forbidden:
                 logger.error("Missing permissions to post in channel %s", channel_id)
