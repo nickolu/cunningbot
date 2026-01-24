@@ -248,13 +248,8 @@ def create_summary_embed(
 
 
 async def post_summaries() -> None:
-    """Main entry point called once per invocation."""
-    await _post_with_redis()
-
-
-async def _post_with_redis() -> None:
-    """Post summaries using Redis (atomic, with distributed locks)."""
-    logger.info("=== RSS Summary Poster Starting (Redis mode) ===")
+    """Main entry point - posts summaries using Redis with distributed locks."""
+    logger.info("=== RSS Summary Poster Starting ===")
 
     # Initialize Redis
     await initialize_redis()
