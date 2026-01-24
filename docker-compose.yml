@@ -1,4 +1,20 @@
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: cunningbot_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --appendfsync everysec --maxmemory 2gb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"  # Expose for local development
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
   cunningbot:
     build: .
     restart: unless-stopped
@@ -7,10 +23,17 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - CLIENT_ID=${CLIENT_ID}
       - INVITE_URL=${INVITE_URL}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_PASSWORD=
     volumes:
       - ./bot/app:/app/bot/app
       - ./logs:/app/logs
       - ./generated_images:/app/generated_images
+    depends_on:
+      redis:
+        condition: service_healthy
     # Note: Using volumes for the core directory allows state persistence
     # between container restarts without rebuilding the image
     # The specific app_state.json mapping ensures personality settings remain intact
@@ -19,16 +42,30 @@ services:
     restart: unless-stopped
     environment:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_PASSWORD=
     volumes:
       - ./bot/app:/app/bot/app
+    depends_on:
+      redis:
+        condition: service_healthy
     command: bash -c "while true; do python -m bot.app.tasks.daily_game_poster; sleep 600; done"
   rssfeed:
     build: .
     restart: unless-stopped
     environment:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_PASSWORD=
     volumes:
       - ./bot/app:/app/bot/app
+    depends_on:
+      redis:
+        condition: service_healthy
     command: bash -c "while true; do python -m bot.app.tasks.rss_feed_poster; sleep 600; done"
   rsssummary:
     build: .
@@ -36,8 +73,15 @@ services:
     environment:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_PASSWORD=
     volumes:
       - ./bot/app:/app/bot/app
+    depends_on:
+      redis:
+        condition: service_healthy
     command: bash -c "while true; do python -m bot.app.tasks.rss_summary_poster; sleep 600; done"
   breaking-news-validator:
     build: .
@@ -45,8 +89,15 @@ services:
     environment:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_PASSWORD=
     volumes:
       - ./bot/app:/app/bot/app
+    depends_on:
+      redis:
+        condition: service_healthy
     command: bash -c "while true; do python -m bot.app.tasks.breaking_news_validator; sleep 120; done"
   trivia-poster:
     build: .
@@ -54,8 +105,15 @@ services:
     environment:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_PASSWORD=
     volumes:
       - ./bot/app:/app/bot/app
+    depends_on:
+      redis:
+        condition: service_healthy
     command: bash -c "while true; do python -m bot.app.tasks.trivia_game_poster; sleep 600; done"
   trivia-closer:
     build: .
@@ -63,6 +121,17 @@ services:
     environment:
       - DISCORD_TOKEN=${DISCORD_TOKEN}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_PASSWORD=
     volumes:
       - ./bot/app:/app/bot/app
+    depends_on:
+      redis:
+        condition: service_healthy
     command: bash -c "while true; do python -m bot.app.tasks.trivia_game_closer; sleep 60; done"
+
+volumes:
+  redis_data:
+    driver: local

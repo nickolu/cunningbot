@@ -1,0 +1,2 @@
+# Lua scripts for atomic Redis operations will be placed here
+# Example: trivia_submit_answer.lua, cleanup_history.lua
