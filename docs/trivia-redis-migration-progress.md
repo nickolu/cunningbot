@@ -84,12 +84,40 @@ Refactored with feature flag pattern:
 - ✅ No race conditions during game creation
 - ✅ Safe rollback capability (set `USE_REDIS=False`)
 
-## ⏳ Pending
+## ✅ Completed (continued)
 
 ### 6. Migration Script
 **File**: `bot/app/redis/migrations/migrate_trivia.py`
 
-One-time script to move existing trivia games from JSON to Redis.
+One-time migration script to move existing data from JSON to Redis:
+
+**Features**:
+- Migrates active_trivia_games from JSON to Redis
+- Migrates all submissions for each game
+- Migrates trivia_registrations
+- Validates migration was successful (compares counts)
+- Supports dry-run mode (`--dry-run`)
+- Optional JSON data deletion (`--delete`) or keeps as backup (default)
+
+**Usage**:
+```bash
+# Dry run to see what would be migrated
+python -m bot.app.redis.migrations.migrate_trivia --dry-run
+
+# Perform migration (keeps JSON as backup)
+python -m bot.app.redis.migrations.migrate_trivia
+
+# Perform migration and delete JSON data
+python -m bot.app.redis.migrations.migrate_trivia --delete
+```
+
+**Benefits**:
+- ✅ Safe migration with validation
+- ✅ Dry-run mode prevents mistakes
+- ✅ Keeps JSON backup by default
+- ✅ Detailed logging of migration progress
+
+## ⏳ Pending
 
 ### 7. Testing
 - Concurrent submission stress test (100+ simultaneous submissions)
