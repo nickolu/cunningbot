@@ -25,6 +25,10 @@ from typing import Any, Dict, List
 
 import discord
 from zoneinfo import ZoneInfo
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
 from bot.app.app_state import get_all_guild_states
 
 logger = logging.getLogger("DailyGamePoster")

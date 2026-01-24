@@ -25,6 +25,10 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import discord
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
 
 from bot.app.app_state import get_all_guild_states, set_state_value
 from bot.app.pending_breaking_news import (
