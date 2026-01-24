@@ -1,20 +1,10 @@
 """pending_breaking_news.py
-Manages pending breaking news items separate from app_state.
+DEPRECATED: This module has been replaced by Redis storage.
 
-Items are stored in pending_breaking_news.json with structure:
-{
-    "guild_id": {
-        "pending_items": [
-            {
-                "article": {...},
-                "matched_topic": "hurricane",
-                "collected_at": "2026-01-22T10:15:00Z",
-                "feed_name": "CNN Breaking News",
-                "retry_count": 0
-            }
-        ]
-    }
-}
+Breaking news pending items are now stored in Redis via RSSRedisStore.
+See bot/app/redis/rss_store.py for the new implementation.
+
+This file is kept for reference only and should not be imported.
 """
 from __future__ import annotations
 
