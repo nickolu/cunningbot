@@ -513,3 +513,152 @@ class RSSRedisStore:
         """
         key = f"rss:{guild_id}:story_history:{channel_id}"
         return await self.redis.zcard(key)
+
+    # --- Breaking News Pending Items ---
+
+    async def add_pending_breaking_news(
+        self,
+        guild_id: str,
+        article: Dict[str, Any],
+        matched_topic: str,
+        feed_name: str
+    ) -> None:
+        """Add a pending breaking news item for a guild.
+
+        Args:
+            guild_id: Guild ID as string
+            article: Article data dictionary
+            matched_topic: The topic keyword that triggered the match
+            feed_name: Name of the RSS feed
+        """
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        key = f"rss:{guild_id}:breaking_news:pending"
+
+        pending_item = {
+            "article": article,
+            "matched_topic": matched_topic,
+            "collected_at": datetime.now(ZoneInfo("UTC")).isoformat(),
+            "feed_name": feed_name,
+            "retry_count": 0
+        }
+
+        # Add to end of list (RPUSH)
+        await self.redis.rpush(key, json.dumps(pending_item))
+        logger.info(f"Added breaking news item for guild {guild_id}: '{article.get('title', 'Unknown')}' (topic: {matched_topic})")
+
+    async def get_pending_breaking_news(self, guild_id: str) -> List[Dict[str, Any]]:
+        """Get all pending breaking news items for a guild.
+
+        Args:
+            guild_id: Guild ID as string
+
+        Returns:
+            List of pending item dictionaries
+        """
+        key = f"rss:{guild_id}:breaking_news:pending"
+
+        # Get all items from list
+        items_json = await self.redis.lrange(key, 0, -1)
+
+        items = []
+        for item_json in items_json:
+            try:
+                items.append(json.loads(item_json))
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to decode pending breaking news item: {e}")
+
+        return items
+
+    async def clear_pending_breaking_news_item(self, guild_id: str, index: int) -> bool:
+        """Remove a specific pending breaking news item by index.
+
+        Args:
+            guild_id: Guild ID as string
+            index: Index of item to remove
+
+        Returns:
+            True if item was removed, False if not found
+        """
+        key = f"rss:{guild_id}:breaking_news:pending"
+
+        # Get the item first for logging
+        items_json = await self.redis.lrange(key, index, index)
+        if not items_json:
+            return False
+
+        try:
+            removed_item = json.loads(items_json[0])
+            logger.info(f"Removing breaking news item from guild {guild_id}: '{removed_item.get('article', {}).get('title', 'Unknown')}'")
+        except json.JSONDecodeError:
+            pass
+
+        # Mark item for deletion by setting it to a special value
+        placeholder = json.dumps({"__deleted__": True})
+        await self.redis.lset(key, index, placeholder)
+
+        # Remove all placeholders
+        await self.redis.lrem(key, 0, placeholder)
+
+        return True
+
+    async def increment_breaking_news_retry_count(self, guild_id: str, index: int) -> int:
+        """Increment retry count for a pending breaking news item.
+
+        Args:
+            guild_id: Guild ID as string
+            index: Index of item to update
+
+        Returns:
+            New retry count, or -1 if not found
+        """
+        key = f"rss:{guild_id}:breaking_news:pending"
+
+        # Get the item
+        items_json = await self.redis.lrange(key, index, index)
+        if not items_json:
+            return -1
+
+        try:
+            item = json.loads(items_json[0])
+            item["retry_count"] = item.get("retry_count", 0) + 1
+            new_count = item["retry_count"]
+
+            # Update the item
+            await self.redis.lset(key, index, json.dumps(item))
+
+            return new_count
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to decode pending breaking news item: {e}")
+            return -1
+
+    async def get_guilds_with_pending_breaking_news(self) -> List[str]:
+        """Get list of all guild IDs that have pending breaking news items.
+
+        Returns:
+            List of guild ID strings
+        """
+        # Scan for all breaking news pending keys
+        pattern = "rss:*:breaking_news:pending"
+        guilds = []
+
+        cursor = 0
+        while True:
+            cursor, keys = await self.redis.scan(cursor, match=pattern, count=100)
+
+            for key in keys:
+                # Extract guild_id from key pattern "rss:{guild_id}:breaking_news:pending"
+                parts = key.split(":")
+                if len(parts) >= 2:
+                    guild_id = parts[1]
+
+                    # Check if list is non-empty
+                    list_len = await self.redis.llen(key)
+                    if list_len > 0:
+                        guilds.append(guild_id)
+
+            if cursor == 0:
+                break
+
+        return guilds

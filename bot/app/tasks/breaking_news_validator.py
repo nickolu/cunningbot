@@ -31,12 +31,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from bot.app.app_state import get_all_guild_states, set_state_value
-from bot.app.pending_breaking_news import (
-    get_pending_breaking_news_items,
-    clear_pending_breaking_news_item,
-    increment_retry_count,
-    get_all_guilds_with_pending
-)
 from bot.domain.news.breaking_news_service import (
     validate_breaking_news_relevance,
     is_article_fresh,
@@ -196,8 +190,8 @@ async def process_pending_breaking_news() -> None:
         await close_redis()
         return
 
-    # Get all guilds with pending items
-    guilds_with_pending = get_all_guilds_with_pending()
+    # Get all guilds with pending items from Redis
+    guilds_with_pending = await store.get_guilds_with_pending_breaking_news()
     if not guilds_with_pending:
         logger.info("No pending breaking news items")
         await close_redis()
@@ -226,8 +220,8 @@ async def process_pending_breaking_news() -> None:
             logger.warning(f"Guild {guild_id_str} breaking news config missing channel_id")
             continue
 
-        # Get pending items
-        pending_items = get_pending_breaking_news_items(guild_id_str)
+        # Get pending items from Redis
+        pending_items = await store.get_pending_breaking_news(guild_id_str)
         logger.info(f"Guild {guild_id_str} has {len(pending_items)} pending items")
 
         # Process each pending item (in reverse order so we can safely remove)
@@ -246,22 +240,22 @@ async def process_pending_breaking_news() -> None:
                 is_newsworthy = await validate_breaking_news_relevance(article, matched_topic)
             except Exception as e:
                 logger.error(f"LLM validation error: {e}")
-                # Increment retry count
-                new_count = increment_retry_count(guild_id_str, i)
+                # Increment retry count in Redis
+                new_count = await store.increment_breaking_news_retry_count(guild_id_str, i)
                 if new_count >= MAX_CONSECUTIVE_LLM_FAILURES:
                     logger.warning(f"Max retries reached for '{article_title}', removing from queue")
-                    clear_pending_breaking_news_item(guild_id_str, i)
+                    await store.clear_pending_breaking_news_item(guild_id_str, i)
                 continue
 
             if not is_newsworthy:
                 logger.info(f"LLM rejected: '{article_title}' is not newsworthy")
-                clear_pending_breaking_news_item(guild_id_str, i)
+                await store.clear_pending_breaking_news_item(guild_id_str, i)
                 continue
 
             # Stage 2: Time Filtering
             if not is_article_fresh(article):
                 logger.info(f"Article rejected: '{article_title}' is too old")
-                clear_pending_breaking_news_item(guild_id_str, i)
+                await store.clear_pending_breaking_news_item(guild_id_str, i)
                 continue
 
             # Stage 3: Duplicate Detection
@@ -273,7 +267,7 @@ async def process_pending_breaking_news() -> None:
 
             if is_duplicate:
                 logger.info(f"Duplicate detected: '{article_title}'")
-                clear_pending_breaking_news_item(guild_id_str, i)
+                await store.clear_pending_breaking_news_item(guild_id_str, i)
                 continue
 
             # Stage 4: Post to Discord
@@ -298,8 +292,8 @@ async def process_pending_breaking_news() -> None:
                 except Exception as e:
                     logger.error(f"Error adding to story history: {e}")
 
-                # Remove from pending
-                clear_pending_breaking_news_item(guild_id_str, i)
+                # Remove from pending in Redis
+                await store.clear_pending_breaking_news_item(guild_id_str, i)
                 logger.info(f"Successfully processed breaking news: '{article_title}'")
 
             else:
