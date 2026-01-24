@@ -48,6 +48,11 @@ async def _submit_with_redis(
     game_id: str = None
 ) -> None:
     """Submit answer using Redis (atomic, no race conditions)."""
+    # Defer response immediately for modals (validation takes time)
+    # Check if this is from a modal (response not yet sent)
+    if not interaction.response.is_done():
+        await interaction.response.defer(ephemeral=True)
+
     store = TriviaRedisStore()
 
     # Find active game for this channel
@@ -59,7 +64,7 @@ async def _submit_with_redis(
     if game_id:
         game_data = active_games.get(game_id)
         if not game_data:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ This trivia game is no longer active.", ephemeral=True
             )
             return
@@ -74,7 +79,7 @@ async def _submit_with_redis(
                 break
 
     if not game_id or not game_data:
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "❌ No active trivia game found for this channel.", ephemeral=True
         )
         return
@@ -116,19 +121,19 @@ async def _submit_with_redis(
         error_code = result["err"]
 
         if error_code == "GAME_NOT_FOUND":
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ This trivia game is no longer active.", ephemeral=True
             )
         elif error_code == "GAME_CLOSED":
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ This game has already been closed.", ephemeral=True
             )
         elif error_code == "WINDOW_CLOSED":
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ The answer window has closed. Wait for results!", ephemeral=True
             )
         else:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ Failed to submit answer. Please try again.", ephemeral=True
             )
         return
@@ -155,7 +160,7 @@ async def _submit_with_redis(
             "We'll validate it when the answer window closes."
         )
 
-    await interaction.response.send_message(feedback_message, ephemeral=True)
+    await interaction.followup.send(feedback_message, ephemeral=True)
 
 
 async def _submit_with_json(
@@ -177,7 +182,7 @@ async def _submit_with_json(
     if game_id:
         game_data = active_games.get(game_id)
         if not game_data:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ This trivia game is no longer active.", ephemeral=True
             )
             return
@@ -204,7 +209,7 @@ async def _submit_with_json(
         try:
             ends_at = dt.datetime.fromisoformat(ends_at_str)
             if dt.datetime.now(dt.timezone.utc) > ends_at:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "❌ The answer window has closed. Wait for results!", ephemeral=True
                 )
                 return
@@ -270,7 +275,7 @@ async def _submit_with_json(
                 feedback_message += f"{explanation}\n\n"
             feedback_message += "You can submit a different answer if you'd like to try again."
 
-        await interaction.response.send_message(feedback_message, ephemeral=True)
+        await interaction.followup.send(feedback_message, ephemeral=True)
 
     except Exception as e:
         logger.warning(f"Failed to validate answer immediately: {e}")
