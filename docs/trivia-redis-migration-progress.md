@@ -120,10 +120,33 @@ python -m bot.app.redis.migrations.migrate_trivia --delete
 ## ⏳ Pending
 
 ### 7. Testing
-- Concurrent submission stress test (100+ simultaneous submissions)
-- Multiple closers test (verify only one posts results)
-- Submission during closing test (verify no lost data)
-- Load testing with real Discord bot
+Testing should be performed after deployment to verify race conditions are eliminated:
+
+**Recommended Tests**:
+1. **Concurrent Submission Test**
+   - Multiple users submit answers simultaneously
+   - Verify all submissions are recorded
+   - Verify no data loss during high traffic
+
+2. **Multiple Closers Test**
+   - Run multiple closer containers simultaneously
+   - Verify only one closer posts results per game
+   - Verify no duplicate result posts
+
+3. **Late Submission Test**
+   - Submit answer exactly when window closes
+   - Verify proper error handling (WINDOW_CLOSED or GAME_CLOSED)
+   - Verify no lost submissions
+
+4. **Load Testing**
+   - Monitor Redis memory usage
+   - Check response times under load
+   - Verify distributed locks release properly
+
+**Manual Verification**:
+- Check Redis keys exist: `redis-cli KEYS "trivia:*"`
+- Verify game data: `redis-cli HGETALL "trivia:{guild_id}:games:active"`
+- Monitor logs for lock acquisitions and releases
 
 ## Key Architectural Decisions
 
@@ -150,20 +173,103 @@ lock:trivia:{guild_id}:game:{game_id}             → String (distributed lock, 
 
 ## Deployment Plan
 
-1. **Deploy Infrastructure** ✅ DONE (Redis running on server)
-2. **Deploy Code** (this work)
-   - Rebuild Docker images
-   - Restart containers (Redis env vars already set)
-3. **Run Migration Script** (after game closer is updated)
-   - Migrate active games to Redis
-   - Keep JSON as backup
-4. **Monitor**
-   - Watch for lost submissions (should be ZERO)
-   - Check Redis memory usage
-   - Verify game closure logs
-5. **Cleanup** (after 1 week)
-   - Remove JSON fallback code
-   - Archive app_state.json
+1. **Deploy Infrastructure** ✅ DONE (Redis running on server 192.168.1.182)
+2. **Deploy Code** ✅ DONE (All Redis code committed)
+3. **Run Migration Script** ⏳ NEXT STEP
+4. **Monitor** ⏳ AFTER MIGRATION
+5. **Cleanup** (after 1 week of stable operation)
+
+### Step 3: Run Migration Script
+
+**On server 192.168.1.182:**
+
+```bash
+# SSH to server
+ssh dad@192.168.1.182
+cd /home/dad/cunningbot
+
+# Pull latest code
+git pull
+
+# Rebuild Docker images (to get new Redis code)
+docker-compose build
+
+# Stop containers
+docker-compose down
+
+# Start containers (Redis already configured in docker-compose.yml)
+docker-compose up -d
+
+# Wait for containers to be healthy
+docker-compose ps
+
+# Run migration in dry-run mode first
+docker-compose exec cunningbot python -m bot.app.redis.migrations.migrate_trivia --dry-run
+
+# Review dry-run output, then run actual migration
+docker-compose exec cunningbot python -m bot.app.redis.migrations.migrate_trivia
+
+# Verify migration succeeded (check logs)
+docker-compose logs cunningbot | tail -50
+
+# Verify Redis has data
+docker-compose exec redis redis-cli KEYS "trivia:*"
+```
+
+### Step 4: Monitor
+
+**Check for issues:**
+```bash
+# Watch logs for race condition indicators
+docker-compose logs -f cunningbot trivia-closer trivia-poster
+
+# Monitor Redis memory
+docker-compose exec redis redis-cli INFO memory
+
+# Check for lost submissions (should be ZERO)
+docker-compose logs cunningbot | grep "lost\|race\|error"
+
+# Verify distributed locks are working
+docker-compose logs trivia-closer | grep "Acquired lock\|Could not acquire lock"
+```
+
+**Redis CLI Commands:**
+```bash
+# List all trivia keys
+redis-cli KEYS "trivia:*"
+
+# View active games for a guild
+redis-cli HGETALL "trivia:{guild_id}:games:active"
+
+# View submissions for a game
+redis-cli HGETALL "trivia:{guild_id}:game:{game_id}:submissions"
+
+# Check lock status
+redis-cli GET "lock:trivia:{guild_id}:game:{game_id}"
+```
+
+### Step 5: Cleanup (After 1 Week)
+
+If monitoring shows zero issues:
+
+1. **Remove Feature Flags**
+   - Set `USE_REDIS = True` permanently in code
+   - Remove `_with_json()` fallback functions
+   - Remove JSON read/write code for trivia
+
+2. **Archive JSON Data**
+   ```bash
+   # Backup app_state.json
+   cp app_state.json app_state.json.pre-redis-backup
+
+   # Optionally remove trivia data from JSON
+   # (Script can do this: migrate_trivia.py --delete)
+   ```
+
+3. **Update Documentation**
+   - Remove "Feature Flag" sections
+   - Mark migration as complete
+   - Archive this progress document
 
 ## Race Condition Before/After
 
