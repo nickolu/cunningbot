@@ -15,8 +15,6 @@ from bot.app.app_state import (
 from bot.app.redis.rss_store import RSSRedisStore
 from bot.app.redis.serialization import guild_id_to_str
 from bot.app.story_history import (
-    get_todays_story_history,
-    get_stories_within_window,
     get_channel_dedup_window,
     MIN_DEDUP_WINDOW_HOURS,
     MAX_DEDUP_WINDOW_HOURS,
@@ -1170,9 +1168,9 @@ class NewsCog(commands.Cog):
             if channel_feeds[name].get('filter_instructions')
         }
 
-        # Load story history within deduplication window
+        # Load story history within deduplication window from Redis
         window_hours = get_channel_dedup_window(interaction.guild_id, interaction.channel_id)
-        story_history = get_stories_within_window(guild_id_str, interaction.channel_id, window_hours)
+        story_history = await store.get_stories_within_window(guild_id_str, interaction.channel_id, window_hours)
 
         # Load article processing limits for this channel
         from bot.domain.news.news_summary_service import get_channel_article_limits

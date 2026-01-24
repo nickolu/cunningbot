@@ -43,7 +43,8 @@ from bot.domain.news.breaking_news_service import (
     check_breaking_news_duplicate,
     MAX_CONSECUTIVE_LLM_FAILURES
 )
-from bot.app.story_history import add_stories_to_history
+from bot.app.redis.rss_store import RSSRedisStore
+from bot.app.redis.client import initialize_redis, close_redis
 
 logger = logging.getLogger("BreakingNewsValidator")
 logging.basicConfig(
@@ -177,22 +178,29 @@ async def process_pending_breaking_news() -> None:
     """Main entry point for breaking news validation."""
     logger.info("=== Breaking News Validator Starting ===")
 
+    # Initialize Redis
+    await initialize_redis()
+    store = RSSRedisStore()
+
     # Get Discord token
     token = os.getenv("DISCORD_TOKEN")
     if not token:
         logger.error("DISCORD_TOKEN not set, cannot process breaking news")
+        await close_redis()
         return
 
     # Load all guild states
     all_guild_states = get_all_guild_states()
     if not all_guild_states:
         logger.info("No guild states found")
+        await close_redis()
         return
 
     # Get all guilds with pending items
     guilds_with_pending = get_all_guilds_with_pending()
     if not guilds_with_pending:
         logger.info("No pending breaking news items")
+        await close_redis()
         return
 
     logger.info(f"Processing {len(guilds_with_pending)} guilds with pending breaking news")
@@ -258,7 +266,7 @@ async def process_pending_breaking_news() -> None:
 
             # Stage 3: Duplicate Detection
             try:
-                is_duplicate = await check_breaking_news_duplicate(article, guild_id_str, channel_id)
+                is_duplicate = await check_breaking_news_duplicate(article, guild_id_str, channel_id, store)
             except Exception as e:
                 logger.error(f"Duplicate check error: {e}")
                 is_duplicate = False  # Continue processing if check fails
@@ -285,7 +293,7 @@ async def process_pending_breaking_news() -> None:
                 }
 
                 try:
-                    add_stories_to_history(guild_id_str, channel_id, [story_entry])
+                    await store.add_stories_to_history(guild_id_str, channel_id, [story_entry])
                     logger.info(f"Added to story history: '{article_title}'")
                 except Exception as e:
                     logger.error(f"Error adding to story history: {e}")
@@ -300,6 +308,7 @@ async def process_pending_breaking_news() -> None:
                 logger.error(f"Failed to post '{article_title}' - may need to disable feature")
                 # Note: Channel deletion detection happens in post_to_discord logging
 
+    await close_redis()
     logger.info("=== Breaking News Validator Complete ===")
 
 
