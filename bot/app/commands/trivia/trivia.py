@@ -13,6 +13,7 @@ from bot.app.app_state import (
     set_state_value_from_interaction,
     get_state_value_from_interaction,
 )
+from bot.app.redis.trivia_store import TriviaRedisStore
 from bot.domain.trivia.trivia_stats_service import TriviaStatsService
 from bot.domain.trivia.question_seeds import CATEGORIES, get_unused_seed
 from bot.domain.trivia.question_generator import generate_trivia_question
@@ -22,6 +23,9 @@ from bot.app.commands.trivia.trivia_submission_handler import submit_trivia_answ
 
 logger = get_logger()
 PACIFIC_TZ = zoneinfo.ZoneInfo("America/Los_Angeles")
+
+# Feature flag for Redis migration
+USE_REDIS = True
 
 
 def parse_schedule(schedule_str: str) -> list[str]:
@@ -162,18 +166,11 @@ class TriviaCog(commands.Cog):
             )
             return
 
-        # Fetch current registrations
-        registrations = get_state_value_from_interaction(
-            "trivia_registrations", interaction.guild_id
-        )
-        if registrations is None:
-            registrations = {}
-
         # Generate unique registration ID
         registration_id = str(uuid.uuid4())
 
-        # Create registration
-        registrations[registration_id] = {
+        # Create registration data
+        reg_data = {
             "channel_id": target_channel.id,
             "schedule_times": schedule_times,
             "answer_window_minutes": answer_window_minutes,
@@ -181,10 +178,21 @@ class TriviaCog(commands.Cog):
             "created_at": dt.datetime.now(dt.timezone.utc).isoformat()
         }
 
-        # Save to state
-        set_state_value_from_interaction(
-            "trivia_registrations", registrations, interaction.guild_id
-        )
+        if USE_REDIS:
+            # Save to Redis
+            store = TriviaRedisStore()
+            await store.save_registration(str(interaction.guild_id), registration_id, reg_data)
+        else:
+            # Save to JSON (legacy)
+            registrations = get_state_value_from_interaction(
+                "trivia_registrations", interaction.guild_id
+            )
+            if registrations is None:
+                registrations = {}
+            registrations[registration_id] = reg_data
+            set_state_value_from_interaction(
+                "trivia_registrations", registrations, interaction.guild_id
+            )
 
         times_str = ", ".join(schedule_times)
         await interaction.response.send_message(
@@ -273,12 +281,8 @@ class TriviaCog(commands.Cog):
             except discord.HTTPException as exc:
                 logger.error(f"Failed to create thread: {exc}")
 
-            # Store in active_trivia_games
-            active_games = get_state_value_from_interaction(
-                "active_trivia_games", interaction.guild_id
-            ) or {}
-
-            active_games[game_id] = {
+            # Store game data
+            game_data = {
                 "registration_id": None,  # Manual post, not from a registration
                 "channel_id": target_channel.id,
                 "thread_id": thread.id if thread else None,
@@ -290,21 +294,30 @@ class TriviaCog(commands.Cog):
                 "started_at": now_utc.isoformat(),
                 "ends_at": ends_at.isoformat(),
                 "message_id": message.id,
-                "submissions": {}
             }
 
-            # Add seed to used_seeds
-            used_seeds.append(seed)
+            if USE_REDIS:
+                # Store in Redis
+                store = TriviaRedisStore()
+                await store.create_game(str(interaction.guild_id), game_id, game_data)
+                logger.info(f"Saved game state for game_id {game_id[:8]} in Redis")
+            else:
+                # Store in JSON (legacy)
+                active_games = get_state_value_from_interaction(
+                    "active_trivia_games", interaction.guild_id
+                ) or {}
+                game_data["submissions"] = {}  # JSON needs this field
+                active_games[game_id] = game_data
+                set_state_value_from_interaction(
+                    "active_trivia_games", active_games, interaction.guild_id
+                )
+                logger.info(f"Saved game state for game_id {game_id[:8]} in JSON")
 
-            # Save state
-            set_state_value_from_interaction(
-                "active_trivia_games", active_games, interaction.guild_id
-            )
+            # Add seed to used_seeds (still in JSON for now)
+            used_seeds.append(seed)
             set_state_value_from_interaction(
                 "trivia_seeds_used", used_seeds, interaction.guild_id
             )
-
-            logger.info(f"Saved game state for game_id {game_id[:8]}")
 
             await interaction.followup.send(
                 f"✅ Trivia question posted!\n"
@@ -324,9 +337,13 @@ class TriviaCog(commands.Cog):
     @trivia.command(name="list", description="List all registered trivia games.")
     async def list_games(self, interaction: discord.Interaction) -> None:
         """List all trivia game registrations for this guild."""
-        registrations = get_state_value_from_interaction(
-            "trivia_registrations", interaction.guild_id
-        )
+        if USE_REDIS:
+            store = TriviaRedisStore()
+            registrations = await store.get_registrations(str(interaction.guild_id))
+        else:
+            registrations = get_state_value_from_interaction(
+                "trivia_registrations", interaction.guild_id
+            )
 
         if not registrations:
             await interaction.response.send_message(
@@ -368,9 +385,13 @@ class TriviaCog(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def enable_game(self, interaction: discord.Interaction, registration: str) -> None:
         """Enable a trivia game registration."""
-        registrations = get_state_value_from_interaction(
-            "trivia_registrations", interaction.guild_id
-        ) or {}
+        if USE_REDIS:
+            store = TriviaRedisStore()
+            registrations = await store.get_registrations(str(interaction.guild_id))
+        else:
+            registrations = get_state_value_from_interaction(
+                "trivia_registrations", interaction.guild_id
+            ) or {}
 
         # Find matching registration (allow partial ID match)
         matching_reg = None
@@ -386,9 +407,14 @@ class TriviaCog(commands.Cog):
             return
 
         registrations[matching_reg]["enabled"] = True
-        set_state_value_from_interaction(
-            "trivia_registrations", registrations, interaction.guild_id
-        )
+
+        if USE_REDIS:
+            store = TriviaRedisStore()
+            await store.save_registration(str(interaction.guild_id), matching_reg, registrations[matching_reg])
+        else:
+            set_state_value_from_interaction(
+                "trivia_registrations", registrations, interaction.guild_id
+            )
 
         await interaction.response.send_message(
             f"✅ Trivia game '{matching_reg[:8]}...' has been enabled.", ephemeral=True
@@ -399,9 +425,13 @@ class TriviaCog(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def disable_game(self, interaction: discord.Interaction, registration: str) -> None:
         """Disable a trivia game registration."""
-        registrations = get_state_value_from_interaction(
-            "trivia_registrations", interaction.guild_id
-        ) or {}
+        if USE_REDIS:
+            store = TriviaRedisStore()
+            registrations = await store.get_registrations(str(interaction.guild_id))
+        else:
+            registrations = get_state_value_from_interaction(
+                "trivia_registrations", interaction.guild_id
+            ) or {}
 
         # Find matching registration (allow partial ID match)
         matching_reg = None
@@ -417,9 +447,14 @@ class TriviaCog(commands.Cog):
             return
 
         registrations[matching_reg]["enabled"] = False
-        set_state_value_from_interaction(
-            "trivia_registrations", registrations, interaction.guild_id
-        )
+
+        if USE_REDIS:
+            store = TriviaRedisStore()
+            await store.save_registration(str(interaction.guild_id), matching_reg, registrations[matching_reg])
+        else:
+            set_state_value_from_interaction(
+                "trivia_registrations", registrations, interaction.guild_id
+            )
 
         await interaction.response.send_message(
             f"🚫 Trivia game '{matching_reg[:8]}...' has been disabled.", ephemeral=True
@@ -430,9 +465,13 @@ class TriviaCog(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def delete_game(self, interaction: discord.Interaction, registration: str) -> None:
         """Delete a trivia game registration."""
-        registrations = get_state_value_from_interaction(
-            "trivia_registrations", interaction.guild_id
-        ) or {}
+        if USE_REDIS:
+            store = TriviaRedisStore()
+            registrations = await store.get_registrations(str(interaction.guild_id))
+        else:
+            registrations = get_state_value_from_interaction(
+                "trivia_registrations", interaction.guild_id
+            ) or {}
 
         # Find matching registration (allow partial ID match)
         matching_reg = None
@@ -451,10 +490,14 @@ class TriviaCog(commands.Cog):
         channel_id = registrations[matching_reg].get("channel_id")
 
         # Delete registration
-        del registrations[matching_reg]
-        set_state_value_from_interaction(
-            "trivia_registrations", registrations, interaction.guild_id
-        )
+        if USE_REDIS:
+            store = TriviaRedisStore()
+            await store.delete_registration(str(interaction.guild_id), matching_reg)
+        else:
+            del registrations[matching_reg]
+            set_state_value_from_interaction(
+                "trivia_registrations", registrations, interaction.guild_id
+            )
 
         channel_mention = f"<#{channel_id}>" if channel_id else "Unknown channel"
         await interaction.response.send_message(
@@ -482,9 +525,13 @@ class TriviaCog(commands.Cog):
             return
 
         # Find active game for this thread
-        active_games = get_state_value_from_interaction(
-            "active_trivia_games", interaction.guild_id
-        ) or {}
+        if USE_REDIS:
+            store = TriviaRedisStore()
+            active_games = await store.get_active_games(str(interaction.guild_id))
+        else:
+            active_games = get_state_value_from_interaction(
+                "active_trivia_games", interaction.guild_id
+            ) or {}
 
         # Find game by thread_id
         game_id = None
@@ -502,7 +549,11 @@ class TriviaCog(commands.Cog):
             return
 
         # Get submission count
-        submissions = game_data.get("submissions", {})
+        if USE_REDIS:
+            store = TriviaRedisStore()
+            submissions = await store.get_submissions(str(interaction.guild_id), game_id)
+        else:
+            submissions = game_data.get("submissions", {})
         submission_count = len(submissions)
 
         # Check if game has ended
