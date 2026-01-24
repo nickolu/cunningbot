@@ -63,12 +63,28 @@ Refactored with feature flag pattern:
 - ✅ Removed state reload hack (no longer needed with Redis atomicity)
 - ✅ Safe rollback capability (set `USE_REDIS=False`)
 
-## ⏳ Pending
+## ✅ Completed (continued)
 
 ### 5. Trivia Game Poster
 **File**: `bot/app/tasks/trivia_game_poster.py`
 
-Will update to create games in Redis instead of JSON.
+Refactored with feature flag pattern:
+- `USE_REDIS = True` - Controls Redis vs JSON mode
+- `_post_with_redis()` - **NEW** Creates games in Redis
+- `_post_with_json()` - Legacy fallback (preserves old behavior)
+
+**Redis Implementation**:
+- Gets registrations from `TriviaRedisStore.get_registrations()`
+- Checks for duplicate posts by querying active games from Redis
+- Creates game using `TriviaRedisStore.create_game()`
+- Used seeds still stored in JSON (will migrate later)
+
+**Benefits**:
+- ✅ Games created atomically in Redis
+- ✅ No race conditions during game creation
+- ✅ Safe rollback capability (set `USE_REDIS=False`)
+
+## ⏳ Pending
 
 ### 6. Migration Script
 **File**: `bot/app/redis/migrations/migrate_trivia.py`
