@@ -165,6 +165,7 @@ class TriviaRedisStore:
                 ],
             )
 
+            logger.info(f"Lua script result: {result} (type: {type(result)})")
             return result
         except Exception as e:
             logger.error(f"Failed to execute submission script: {e}")
