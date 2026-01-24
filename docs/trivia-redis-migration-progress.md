@@ -39,16 +39,29 @@ Refactored to use Redis with feature flag:
 - ✅ Preserves validation flow
 - ✅ Safe rollback capability (set `USE_REDIS=False`)
 
-## 🔄 In Progress
+## ✅ Completed (continued)
 
 ### 4. Trivia Game Closer with Distributed Locks
-**File**: `bot/app/tasks/trivia_game_closer.py` (NOT STARTED)
+**File**: `bot/app/tasks/trivia_game_closer.py`
 
-Will add:
-- Distributed lock per game (`lock:trivia:{guild_id}:game:{game_id}`)
-- Double-check `closed_at` within lock
-- Set `closed_at` immediately after acquiring lock
-- Use Redis pipeline for atomic history migration
+Refactored with feature flag pattern:
+- `USE_REDIS = True` - Controls Redis vs JSON mode
+- `_close_with_redis()` - **NEW** Uses distributed locks, prevents duplicate processing
+- `_close_with_json()` - Legacy fallback (preserves old behavior)
+
+**Redis Implementation**:
+- Distributed lock per game: `lock:trivia:{guild_id}:game:{game_id}` with 60s timeout
+- Double-checks `closed_at` within lock to prevent duplicate processing
+- Sets `closed_at` immediately after acquiring lock
+- Gets submissions from Redis using `TriviaRedisStore`
+- Uses `move_to_history()` for atomic history migration with 7-day TTL
+- Deletes game from active games after posting results
+
+**Benefits**:
+- ✅ Only one closer can process each game (distributed lock)
+- ✅ No duplicate result posts
+- ✅ Removed state reload hack (no longer needed with Redis atomicity)
+- ✅ Safe rollback capability (set `USE_REDIS=False`)
 
 ## ⏳ Pending
 
