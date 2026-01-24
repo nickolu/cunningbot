@@ -64,7 +64,12 @@ async def load_cogs_from_dir(directory: str) -> None:
 @bot.event
 async def on_ready() -> None:
     logger.info(f"Bot ready as {bot.user}")
-    
+
+    # Initialize Redis
+    from bot.app.redis.client import initialize_redis
+    await initialize_redis()
+    logger.info("Redis client initialized")
+
     # Initialize task queue
     from bot.app.task_queue import get_task_queue
     task_queue = get_task_queue()
@@ -94,7 +99,7 @@ async def on_ready() -> None:
 def handle_shutdown(loop: asyncio.AbstractEventLoop) -> Callable[[], asyncio.Task[Any]]:
     async def shutdown() -> None:
         logger.info("Shutting down gracefully...")
-        
+
         # Stop task queue worker
         try:
             from bot.app.task_queue import get_task_queue
@@ -103,7 +108,15 @@ def handle_shutdown(loop: asyncio.AbstractEventLoop) -> Callable[[], asyncio.Tas
             logger.info("Task queue worker stopped")
         except Exception as e:
             logger.error(f"Error stopping task queue: {e}")
-        
+
+        # Close Redis connection
+        try:
+            from bot.app.redis.client import close_redis
+            await close_redis()
+            logger.info("Redis connection closed")
+        except Exception as e:
+            logger.error(f"Error closing Redis: {e}")
+
         await bot.close()
         for handler in logging.root.handlers:
             handler.flush()
