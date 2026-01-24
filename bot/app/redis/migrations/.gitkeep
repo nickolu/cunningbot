@@ -1,0 +1,2 @@
+# Migration scripts for moving JSON data to Redis will be placed here
+# Example: json_to_redis.py, verify_migration.py

@@ -59,3 +59,4 @@ python-mlb-statsapi==0.5.26
 aiofiles==24.1.0
 Pillow>=9.0.0 # For image manipulation and validation
 google-genai>=0.1.0 # For Google Gemini image generation (newer SDK)
+redis[hiredis]>=5.0.0 # Redis client with high-performance parser for state management
