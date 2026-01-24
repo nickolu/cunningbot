@@ -47,11 +47,10 @@ Context: {context}
 
 Requirements:
 - Create a clear, factual question with a single definitive answer
-- The question should be moderately challenging and not have an obvious answer
 - Avoid basic/common knowledge that most people would know
 - Focus on interesting details, connections, or lesser-known facts
 - The question should be engaging and educational
-- The question should have an objective answer
+- The question should have a single, objective answer
 - Choose the most appropriate category from: {', '.join(CATEGORIES)}
 - Provide a brief explanation of the answer
 
