@@ -369,3 +369,147 @@ class RSSRedisStore:
         """
         key = f"rss:{guild_id}:summary:{channel_id}:last"
         return await self.redis.hgetall(key)
+
+    # --- Story History (Sorted Set for time-based queries) ---
+
+    async def add_stories_to_history(
+        self,
+        guild_id: str,
+        channel_id: int,
+        stories: list[dict[str, Any]]
+    ) -> int:
+        """Add stories to history for deduplication (atomic operation).
+
+        Uses Redis Sorted Set with timestamp as score for efficient time-based queries.
+
+        Args:
+            guild_id: Guild ID as string
+            channel_id: Channel ID
+            stories: List of story dictionaries with title, summary, article_urls, etc.
+
+        Returns:
+            Number of stories added
+        """
+        if not stories:
+            return 0
+
+        key = f"rss:{guild_id}:story_history:{channel_id}"
+
+        # Build mapping of JSON-serialized story -> timestamp score
+        # Use posted_at if available, otherwise current time
+        from datetime import datetime
+        now = datetime.now().timestamp()
+
+        story_mapping = {}
+        for story in stories:
+            # Parse posted_at timestamp if present
+            posted_at_str = story.get("posted_at")
+            if posted_at_str:
+                try:
+                    posted_at = datetime.fromisoformat(posted_at_str)
+                    score = posted_at.timestamp()
+                except (ValueError, TypeError):
+                    score = now
+            else:
+                score = now
+
+            story_json = json.dumps(story, ensure_ascii=False)
+            story_mapping[story_json] = score
+
+        # Atomic add to sorted set (ZADD)
+        added = await self.redis.zadd(key, story_mapping)
+        logger.info(f"Added {len(stories)} stories to history for channel {channel_id}")
+
+        return added
+
+    async def get_stories_within_window(
+        self,
+        guild_id: str,
+        channel_id: int,
+        window_hours: int
+    ) -> list[dict[str, Any]]:
+        """Get story history within the specified time window.
+
+        Args:
+            guild_id: Guild ID as string
+            channel_id: Channel ID
+            window_hours: How many hours back to look
+
+        Returns:
+            List of story dictionaries within the time window
+        """
+        from datetime import datetime, timedelta
+
+        key = f"rss:{guild_id}:story_history:{channel_id}"
+
+        # Calculate cutoff timestamp
+        now = datetime.now()
+        cutoff = now - timedelta(hours=window_hours)
+        cutoff_timestamp = cutoff.timestamp()
+
+        # Get stories with score (timestamp) >= cutoff_timestamp
+        story_jsons = await self.redis.zrangebyscore(
+            key,
+            min=cutoff_timestamp,
+            max="+inf"
+        )
+
+        stories = []
+        for story_json in story_jsons:
+            try:
+                stories.append(json.loads(story_json))
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to decode story from history: {e}")
+
+        logger.info(f"Retrieved {len(stories)} stories within {window_hours}h window for channel {channel_id}")
+        return stories
+
+    async def cleanup_old_story_history(
+        self,
+        guild_id: str,
+        channel_id: int,
+        max_age_hours: int = 168  # 7 days default
+    ) -> int:
+        """Remove stories older than max_age_hours from history.
+
+        Args:
+            guild_id: Guild ID as string
+            channel_id: Channel ID
+            max_age_hours: Maximum age in hours (default 168 = 7 days)
+
+        Returns:
+            Number of stories removed
+        """
+        from datetime import datetime, timedelta
+
+        key = f"rss:{guild_id}:story_history:{channel_id}"
+
+        # Calculate cutoff timestamp
+        now = datetime.now()
+        cutoff = now - timedelta(hours=max_age_hours)
+        cutoff_timestamp = cutoff.timestamp()
+
+        # Remove all stories with score (timestamp) < cutoff_timestamp
+        removed = await self.redis.zremrangebyscore(key, "-inf", cutoff_timestamp)
+
+        if removed > 0:
+            logger.info(f"Removed {removed} old stories from channel {channel_id} history")
+
+        return removed
+
+    async def get_story_history_count(
+        self,
+        guild_id: str,
+        channel_id: int
+    ) -> int:
+        """Get count of stories in history for a channel.
+
+        Args:
+            guild_id: Guild ID as string
+            channel_id: Channel ID
+
+        Returns:
+            Number of stories in history
+        """
+        key = f"rss:{guild_id}:story_history:{channel_id}"
+        return await self.redis.zcard(key)

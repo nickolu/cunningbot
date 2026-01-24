@@ -32,13 +32,7 @@ from bot.app.redis.rss_store import RSSRedisStore
 from bot.app.redis.locks import redis_lock
 from bot.app.redis.client import get_redis_client, initialize_redis, close_redis
 from bot.app.redis.exceptions import LockAcquisitionError
-from bot.app.story_history import (
-    get_todays_story_history,
-    get_stories_within_window,
-    get_channel_dedup_window,
-    add_stories_to_history,
-    cleanup_old_history
-)
+from bot.app.story_history import get_channel_dedup_window
 from bot.domain.news.news_summary_service import generate_news_summary
 
 logger = logging.getLogger("RSSSummaryPoster")
@@ -417,10 +411,10 @@ async def post_summaries() -> None:
 
                     logger.info(f"Generating {edition} summary for channel {channel_id}: {len(articles)} articles from {len(feed_names)} feeds")
 
-                    # Load story history within deduplication window
+                    # Load story history within deduplication window from Redis
                     guild_id_str = str(guild_id)
                     window_hours = get_channel_dedup_window(guild_id, channel_id)
-                    story_history = get_stories_within_window(guild_id_str, channel_id, window_hours)
+                    story_history = await store.get_stories_within_window(guild_id_str, channel_id, window_hours)
                     logger.info(f"Using {window_hours}h dedup window for channel {channel_id}")
 
                     # Load article processing limits for this channel
@@ -492,7 +486,7 @@ async def post_summaries() -> None:
                         await channel.send(embed=embed)
                         logger.info(f"Posted {edition} summary to channel {channel_id}")
 
-                        # Save story data to history for deduplication
+                        # Save story data to history for deduplication (Redis - atomic operation)
                         pacific_tz = ZoneInfo("America/Los_Angeles")
                         story_data = [
                             {
@@ -504,7 +498,7 @@ async def post_summaries() -> None:
                             }
                             for story in story_summaries
                         ]
-                        add_stories_to_history(guild_id_str, channel_id, story_data)
+                        await store.add_stories_to_history(guild_id_str, channel_id, story_data)
                         logger.info(f"Saved {len(story_data)} stories to history for channel {channel_id}")
 
                     except discord.Forbidden as exc:

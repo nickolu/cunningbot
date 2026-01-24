@@ -11,7 +11,6 @@ from zoneinfo import ZoneInfo
 from bot.api.openai.chat_completions_client import ChatCompletionsClient
 from bot.app.utils.logger import get_logger
 from bot.domain.news.news_summary_service import check_story_similarity
-from bot.app.story_history import get_stories_within_window
 
 logger = get_logger()
 
@@ -167,7 +166,8 @@ def is_article_fresh(article: Dict[str, Any], max_age_hours: float = MAX_ARTICLE
 async def check_breaking_news_duplicate(
     article: Dict[str, Any],
     guild_id: str,
-    channel_id: int
+    channel_id: int,
+    store
 ) -> bool:
     """
     Check if an article is a duplicate using URL and semantic similarity.
@@ -176,6 +176,7 @@ async def check_breaking_news_duplicate(
         article: Article data with 'link' and 'title'
         guild_id: Guild ID string
         channel_id: Breaking news channel ID
+        store: RSSRedisStore instance for accessing story history
 
     Returns:
         True if duplicate detected, False if unique
@@ -187,9 +188,9 @@ async def check_breaking_news_duplicate(
         logger.warning("Article missing URL or title for duplicate check")
         return False
 
-    # Get recent stories from breaking news channel (24h window)
+    # Get recent stories from breaking news channel (24h window) from Redis
     try:
-        recent_stories = get_stories_within_window(guild_id, channel_id, window_hours=24)
+        recent_stories = await store.get_stories_within_window(guild_id, channel_id, window_hours=24)
     except Exception as e:
         logger.error(f"Error loading story history: {e}")
         return False
