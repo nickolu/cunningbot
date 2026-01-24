@@ -53,38 +53,75 @@ class TriviaQuestionView(discord.ui.View):
 
     async def answer_button_callback(self, interaction: discord.Interaction):
         """Handle button click - shows the answer modal."""
-        # Parse game_id from the button's custom_id (for persistence)
-        button = [item for item in self.children if isinstance(item, discord.ui.Button)][0]
-        game_id = button.custom_id.split(":")[-1]
+        try:
+            # Parse game_id from the button's custom_id (for persistence)
+            button = [item for item in self.children if isinstance(item, discord.ui.Button)][0]
+            game_id = button.custom_id.split(":")[-1]
 
-        # Show modal
-        modal = TriviaAnswerModal(game_id, str(interaction.guild_id), self.bot)
-        await interaction.response.send_modal(modal)
+            # Show modal
+            modal = TriviaAnswerModal(game_id, str(interaction.guild_id), self.bot)
+            await interaction.response.send_modal(modal)
+        except Exception as e:
+            logger.error(f"Error in trivia button callback: {e}", exc_info=True)
+            # Try to send error message to user if we haven't responded yet
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(
+                        "❌ An error occurred. Please try again or use `/trivia answer` instead.",
+                        ephemeral=True
+                    )
+            except Exception:
+                # If we can't respond, log and move on
+                logger.error("Could not send error message to user")
 
 
-def register_persistent_trivia_views(bot: commands.Bot):
+async def register_persistent_trivia_views(bot: commands.Bot):
     """
     Register views for active games on bot startup.
 
     This ensures buttons continue to work after bot restarts.
     """
-    from bot.app.app_state import get_all_guild_states
+    from bot.app.redis.trivia_store import TriviaRedisStore
+    from bot.app.redis.client import get_redis_client
 
-    all_guild_states = get_all_guild_states()
+    redis_client = get_redis_client()
+    store = TriviaRedisStore()
 
     registered_count = 0
-    for guild_id_str, guild_state in all_guild_states.items():
-        if guild_id_str == "global":
-            continue
 
-        if not isinstance(guild_state, dict):
-            continue
+    try:
+        # Find all guild IDs with active trivia games by scanning Redis keys
+        pattern = "trivia:*:games:active"
+        cursor = 0
+        guild_ids = set()
 
-        active_games = guild_state.get("active_trivia_games", {})
+        # Use SCAN to find all matching keys without blocking Redis
+        while True:
+            cursor, keys = await redis_client.redis.scan(cursor, match=pattern, count=100)
+            for key in keys:
+                # Extract guild_id from key format: trivia:{guild_id}:games:active
+                parts = key.split(":")
+                if len(parts) >= 3:
+                    guild_id = parts[1]
+                    guild_ids.add(guild_id)
 
-        for game_id in active_games.keys():
-            view = TriviaQuestionView(game_id, guild_id_str, bot)
-            bot.add_view(view)
-            registered_count += 1
+            if cursor == 0:
+                break
 
-    logger.info(f"Registered {registered_count} persistent trivia views")
+        # Register views for all active games in each guild
+        for guild_id_str in guild_ids:
+            try:
+                active_games = await store.get_active_games(guild_id_str)
+
+                for game_id in active_games.keys():
+                    view = TriviaQuestionView(game_id, guild_id_str, bot)
+                    bot.add_view(view)
+                    registered_count += 1
+            except Exception as e:
+                logger.error(f"Failed to register views for guild {guild_id_str}: {e}")
+
+        logger.info(f"Registered {registered_count} persistent trivia views from Redis")
+
+    except Exception as e:
+        logger.error(f"Failed to register persistent trivia views: {e}")
+        logger.info("Registered 0 persistent trivia views")
