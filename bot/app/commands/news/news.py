@@ -6,7 +6,6 @@ from urllib.parse import urlparse
 import feedparser
 from datetime import datetime
 from html.parser import HTMLParser
-import hashlib
 import logging
 
 from bot.app.app_state import (
@@ -31,19 +30,6 @@ def _is_valid_url(url: str) -> bool:
     """Simple URL validation."""
     parsed = urlparse(url)
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
-
-
-def _get_item_id(entry) -> str:
-    """Get unique identifier for RSS item."""
-    # Try standard fields first
-    if hasattr(entry, 'id') and entry.id:
-        return str(entry.id)
-    if hasattr(entry, 'guid') and entry.guid:
-        return str(entry.guid)
-
-    # Fallback: hash of title + link + published
-    content = f"{entry.get('title', '')}{entry.get('link', '')}{entry.get('published', '')}"
-    return hashlib.sha256(content.encode()).hexdigest()[:16]
 
 
 def _clean_html(html_text: str, max_length: int = 500) -> str:

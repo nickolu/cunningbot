@@ -23,6 +23,10 @@ from html.parser import HTMLParser
 
 import discord
 import feedparser
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
 from bot.app.app_state import get_all_guild_states, set_state_value
 from bot.app.pending_news import add_pending_articles
 from bot.app.redis.rss_store import RSSRedisStore

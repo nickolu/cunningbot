@@ -22,6 +22,10 @@ from zoneinfo import ZoneInfo
 from collections import defaultdict
 
 import discord
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
 from bot.app.app_state import get_all_guild_states, set_state_value, get_state_value
 from bot.app.pending_news import get_all_pending_by_channel, clear_pending_articles_for_channel
 from bot.app.redis.rss_store import RSSRedisStore
