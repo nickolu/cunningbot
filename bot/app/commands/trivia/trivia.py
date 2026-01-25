@@ -128,7 +128,9 @@ class TriviaCog(commands.Cog):
     @app_commands.describe(
         schedule="Comma-separated times in Pacific timezone (e.g., '8:00,12:00,17:00')",
         answer_window="How long users can answer (e.g., '1h', '30m', '2h')",
-        channel="Channel to post in (defaults to current channel)"
+        channel="Channel to post in (defaults to current channel)",
+        base_words="Optional: comma-separated list of topic words (fallback to defaults if not set)",
+        modifiers="Optional: comma-separated list of modifier words (fallback to defaults if not set)"
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def register(
@@ -136,7 +138,9 @@ class TriviaCog(commands.Cog):
         interaction: discord.Interaction,
         schedule: str,
         answer_window: str,
-        channel: Optional[discord.TextChannel] = None
+        channel: Optional[discord.TextChannel] = None,
+        base_words: Optional[str] = None,
+        modifiers: Optional[str] = None
     ) -> None:
         """Register a new trivia game schedule."""
         # Default to current channel
@@ -163,6 +167,26 @@ class TriviaCog(commands.Cog):
         # Generate unique registration ID
         registration_id = str(uuid.uuid4())
 
+        # Parse custom seed words if provided
+        custom_base_words = None
+        custom_modifiers = None
+
+        if base_words:
+            custom_base_words = [w.strip() for w in base_words.split(",") if w.strip()]
+            if len(custom_base_words) < 2:
+                await interaction.response.send_message(
+                    "❌ Base words must contain at least 2 words.", ephemeral=True
+                )
+                return
+
+        if modifiers:
+            custom_modifiers = [m.strip() for m in modifiers.split(",") if m.strip()]
+            if len(custom_modifiers) < 2:
+                await interaction.response.send_message(
+                    "❌ Modifiers must contain at least 2 words.", ephemeral=True
+                )
+                return
+
         # Create registration data
         reg_data = {
             "channel_id": target_channel.id,
@@ -172,31 +196,50 @@ class TriviaCog(commands.Cog):
             "created_at": dt.datetime.now(dt.timezone.utc).isoformat()
         }
 
+        # Add custom seed words if provided
+        if custom_base_words:
+            reg_data["base_words"] = custom_base_words
+        if custom_modifiers:
+            reg_data["modifiers"] = custom_modifiers
+
         # Save to Redis
         store = TriviaRedisStore()
         await store.save_registration(str(interaction.guild_id), registration_id, reg_data)
 
         times_str = ", ".join(schedule_times)
-        await interaction.response.send_message(
-            f"✅ Trivia game registered!\n"
-            f"• Channel: {target_channel.mention}\n"
-            f"• Schedule: {times_str} (Pacific time)\n"
-            f"• Answer window: {answer_window}\n"
-            f"• Registration ID: `{registration_id[:8]}...`",
-            ephemeral=True
-        )
+
+        # Build confirmation message
+        msg_parts = [
+            "✅ Trivia game registered!",
+            f"• Channel: {target_channel.mention}",
+            f"• Schedule: {times_str} (Pacific time)",
+            f"• Answer window: {answer_window}",
+        ]
+
+        if custom_base_words:
+            msg_parts.append(f"• Custom topics: {len(custom_base_words)} words")
+        if custom_modifiers:
+            msg_parts.append(f"• Custom modifiers: {len(custom_modifiers)} words")
+
+        msg_parts.append(f"• Registration ID: `{registration_id[:8]}...`")
+
+        await interaction.response.send_message("\n".join(msg_parts), ephemeral=True)
 
     @trivia.command(name="post", description="Post a trivia question immediately.")
     @app_commands.describe(
         channel="Channel to post in (defaults to current channel)",
-        answer_window="How long users can answer (e.g., '1h', '30m', '2h') - defaults to 1h"
+        answer_window="How long users can answer (e.g., '1h', '30m', '2h') - defaults to 1h",
+        base_words="Optional: comma-separated list of topic words (fallback to defaults if not set)",
+        modifiers="Optional: comma-separated list of modifier words (fallback to defaults if not set)"
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def post_now(
         self,
         interaction: discord.Interaction,
         channel: Optional[discord.TextChannel] = None,
-        answer_window: Optional[str] = None
+        answer_window: Optional[str] = None,
+        base_words: Optional[str] = None,
+        modifiers: Optional[str] = None
     ) -> None:
         """Post a trivia question immediately."""
         # Defer response since question generation takes time
@@ -220,13 +263,33 @@ class TriviaCog(commands.Cog):
             )
             return
 
+        # Parse custom seed words if provided
+        custom_base_words = None
+        custom_modifiers = None
+
+        if base_words:
+            custom_base_words = [w.strip() for w in base_words.split(",") if w.strip()]
+            if len(custom_base_words) < 2:
+                await interaction.followup.send(
+                    "❌ Base words must contain at least 2 words.", ephemeral=True
+                )
+                return
+
+        if modifiers:
+            custom_modifiers = [m.strip() for m in modifiers.split(",") if m.strip()]
+            if len(custom_modifiers) < 2:
+                await interaction.followup.send(
+                    "❌ Modifiers must contain at least 2 words.", ephemeral=True
+                )
+                return
+
         try:
             # Get used seeds from Redis
             store = TriviaRedisStore()
             used_seeds = await store.get_used_seeds(str(interaction.guild_id))
 
-            # Generate new seed
-            seed = get_unused_seed(used_seeds)
+            # Generate new seed with custom words if provided
+            seed = get_unused_seed(used_seeds, custom_base_words, custom_modifiers)
 
             # Generate question
             logger.info(f"Generating trivia question with seed: {seed}")
@@ -321,12 +384,25 @@ class TriviaCog(commands.Cog):
             times = ", ".join(reg_info.get("schedule_times", []))
             window = reg_info.get("answer_window_minutes", 60)
 
+            # Check for custom seed configuration
+            base_words = reg_info.get("base_words")
+            modifiers = reg_info.get("modifiers")
+            seeds_info = ""
+            if base_words or modifiers:
+                parts = []
+                if base_words:
+                    parts.append(f"{len(base_words)} topics")
+                if modifiers:
+                    parts.append(f"{len(modifiers)} modifiers")
+                seeds_info = f"  • Custom seeds: {', '.join(parts)}\n"
+
             game_entry = (
                 f"**{reg_id[:8]}**\n"
                 f"  • Status: {status}\n"
                 f"  • Channel: {channel_mention}\n"
                 f"  • Schedule: {times} Pacific\n"
                 f"  • Answer window: {window} minutes\n"
+                f"{seeds_info}"
             )
             game_list.append(game_entry)
 
@@ -396,6 +472,89 @@ class TriviaCog(commands.Cog):
         await interaction.response.send_message(
             f"🚫 Trivia game '{matching_reg[:8]}...' has been disabled.", ephemeral=True
         )
+
+    @trivia.command(name="configure_seeds", description="Configure custom seed words for a trivia registration.")
+    @app_commands.describe(
+        registration="Registration ID (use /trivia list to see IDs)",
+        base_words="Comma-separated list of topic words (leave empty to use defaults)",
+        modifiers="Comma-separated list of modifier words (leave empty to use defaults)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def configure_seeds(
+        self,
+        interaction: discord.Interaction,
+        registration: str,
+        base_words: Optional[str] = None,
+        modifiers: Optional[str] = None
+    ) -> None:
+        """Configure custom seed words for an existing trivia registration."""
+        store = TriviaRedisStore()
+        registrations = await store.get_registrations(str(interaction.guild_id))
+
+        # Find matching registration (allow partial ID match)
+        matching_reg = None
+        for reg_id in registrations:
+            if reg_id.startswith(registration):
+                matching_reg = reg_id
+                break
+
+        if not matching_reg:
+            await interaction.response.send_message(
+                f"No registration found matching '{registration}'.", ephemeral=True
+            )
+            return
+
+        # Parse custom seed words if provided
+        custom_base_words = None
+        custom_modifiers = None
+
+        if base_words:
+            custom_base_words = [w.strip() for w in base_words.split(",") if w.strip()]
+            if len(custom_base_words) < 2:
+                await interaction.response.send_message(
+                    "❌ Base words must contain at least 2 words.", ephemeral=True
+                )
+                return
+
+        if modifiers:
+            custom_modifiers = [m.strip() for m in modifiers.split(",") if m.strip()]
+            if len(custom_modifiers) < 2:
+                await interaction.response.send_message(
+                    "❌ Modifiers must contain at least 2 words.", ephemeral=True
+                )
+                return
+
+        # Update registration with custom seed words
+        reg_data = registrations[matching_reg]
+
+        # Update or remove base_words
+        if custom_base_words:
+            reg_data["base_words"] = custom_base_words
+        elif "base_words" in reg_data:
+            del reg_data["base_words"]
+
+        # Update or remove modifiers
+        if custom_modifiers:
+            reg_data["modifiers"] = custom_modifiers
+        elif "modifiers" in reg_data:
+            del reg_data["modifiers"]
+
+        await store.save_registration(str(interaction.guild_id), matching_reg, reg_data)
+
+        # Build confirmation message
+        msg_parts = [f"✅ Seed configuration updated for '{matching_reg[:8]}...'"]
+
+        if custom_base_words:
+            msg_parts.append(f"• Custom topics: {len(custom_base_words)} words")
+        else:
+            msg_parts.append("• Topics: Using defaults")
+
+        if custom_modifiers:
+            msg_parts.append(f"• Custom modifiers: {len(custom_modifiers)} words")
+        else:
+            msg_parts.append("• Modifiers: Using defaults")
+
+        await interaction.response.send_message("\n".join(msg_parts), ephemeral=True)
 
     @trivia.command(name="delete", description="Delete a registered trivia game.")
     @app_commands.describe(registration="Registration ID (use /trivia list to see IDs)")

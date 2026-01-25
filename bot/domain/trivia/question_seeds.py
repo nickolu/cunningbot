@@ -387,19 +387,26 @@ MODIFIERS = [
 ]
 
 
-def generate_seed() -> str:
+def generate_seed(base_words: List[str] = None, modifiers: List[str] = None) -> str:
     """
     Generate a unique seed by combining a base word with a modifier.
+
+    Args:
+        base_words: Optional custom list of base words (defaults to BASE_WORDS)
+        modifiers: Optional custom list of modifiers (defaults to MODIFIERS)
 
     Returns:
         str: Seed in format "baseword_modifier"
     """
-    base = random.choice(BASE_WORDS)
-    modifier = random.choice(MODIFIERS)
+    words = base_words if base_words is not None else BASE_WORDS
+    mods = modifiers if modifiers is not None else MODIFIERS
+
+    base = random.choice(words)
+    modifier = random.choice(mods)
     return f"{base}_{modifier}"
 
 
-def get_unused_seed(used_seeds: List[str]) -> str:
+def get_unused_seed(used_seeds: List[str], base_words: List[str] = None, modifiers: List[str] = None) -> str:
     """
     Get a seed that hasn't been used yet.
 
@@ -409,34 +416,45 @@ def get_unused_seed(used_seeds: List[str]) -> str:
 
     Args:
         used_seeds: List of previously used seeds
+        base_words: Optional custom list of base words (defaults to BASE_WORDS)
+        modifiers: Optional custom list of modifiers (defaults to MODIFIERS)
 
     Returns:
         str: An unused seed
     """
+    words = base_words if base_words is not None else BASE_WORDS
+    mods = modifiers if modifiers is not None else MODIFIERS
+
     # Fast path: try random selection
     for _ in range(100):
-        seed = generate_seed()
+        seed = generate_seed(words, mods)
         if seed not in used_seeds:
             return seed
 
     # Slow path: enumerate all possibilities
-    all_seeds = [f"{base}_{mod}" for base in BASE_WORDS for mod in MODIFIERS]
+    all_seeds = [f"{base}_{mod}" for base in words for mod in mods]
     unused = set(all_seeds) - set(used_seeds)
 
     if not unused:
         # All seeds exhausted - reset the pool by returning a random seed
         # The caller should handle clearing the used_seeds list
         print("WARNING: All trivia seeds exhausted. Resetting seed pool.")
-        return generate_seed()
+        return generate_seed(words, mods)
 
     return random.choice(list(unused))
 
 
-def get_total_possible_seeds() -> int:
+def get_total_possible_seeds(base_words: List[str] = None, modifiers: List[str] = None) -> int:
     """
     Get the total number of unique seeds possible.
+
+    Args:
+        base_words: Optional custom list of base words (defaults to BASE_WORDS)
+        modifiers: Optional custom list of modifiers (defaults to MODIFIERS)
 
     Returns:
         int: Total combinations
     """
-    return len(BASE_WORDS) * len(MODIFIERS)
+    words = base_words if base_words is not None else BASE_WORDS
+    mods = modifiers if modifiers is not None else MODIFIERS
+    return len(words) * len(mods)
