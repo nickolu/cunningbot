@@ -314,6 +314,26 @@ BASE_WORDS = [
   "syntax",
   "semantics",
   "pragmatics",
+
+  # music
+  "music",
+  "punk rock",
+  '1990s alternative rock',
+  '1970s rock',
+  'classic rock',
+  'grunge music',
+  'EDM',
+  'hip hop',
+  'emo music',
+  '2000s pop music',
+  '2000s college rock',
+  'indie rock',
+  'indie music',
+  'indie pop',
+  'music news',
+  'music industry',
+  'music recording',
+  'the beatles',
 ]
 
 # Modifiers to create context and variation (50+ modifiers)
