@@ -32,7 +32,7 @@ from bot.app.redis.rss_store import RSSRedisStore
 from bot.app.redis.locks import redis_lock
 from bot.app.redis.client import get_redis_client, initialize_redis, close_redis
 from bot.app.redis.exceptions import LockAcquisitionError
-from bot.app.story_history import get_channel_dedup_window
+from bot.app.story_history import get_channel_dedup_window, cleanup_old_history
 from bot.domain.news.news_summary_service import generate_news_summary
 
 logger = logging.getLogger("RSSSummaryPoster")
