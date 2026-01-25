@@ -284,6 +284,36 @@ BASE_WORDS = [
   "adaptation",
   "crossover",
   "expanded universe"
+
+  # San Diego
+  "San Diego",
+  "San Diego",
+  "San Diego",
+  "San Diego",
+  "San Diego",
+  "Southern California",
+  "California",
+
+  # Sports
+  "sports",
+  "San Diego Padres",
+  "baseball",
+  "MLB",
+  "NBA",
+  "NFL",
+  "MLB All-Star Game",
+  "Olympics"
+
+  # Linguistics
+  "linguistics",
+  "language",
+  "grammar",
+  "phonology",
+  "phonetics",
+  "morphology",
+  "syntax",
+  "semantics",
+  "pragmatics",
 ]
 
 # Modifiers to create context and variation (50+ modifiers)
@@ -384,6 +414,8 @@ MODIFIERS = [
     "pioneer",
     "vision",
     "original_intent"
+
+
 ]
 
 
