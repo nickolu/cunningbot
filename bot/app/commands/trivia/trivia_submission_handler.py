@@ -115,6 +115,10 @@ async def submit_trivia_answer(
             await interaction.followup.send(
                 "❌ The answer window has closed. Wait for results!", ephemeral=True
             )
+        elif error_code == "ALREADY_SUBMITTED":
+            await interaction.followup.send(
+                "❌ You have already submitted an answer to this trivia question.", ephemeral=True
+            )
         else:
             await interaction.followup.send(
                 "❌ Failed to submit answer. Please try again.", ephemeral=True
@@ -131,11 +135,10 @@ async def submit_trivia_answer(
         explanation = game_data.get("explanation", "")
         feedback_message = (
             f"❌ **Sorry, that's not correct.**\n\n"
-            f"The correct answer is: **{correct_answer}**\n\n"
+            f"The correct answer is: **{correct_answer}**"
         )
         if explanation:
-            feedback_message += f"{explanation}\n\n"
-        feedback_message += "You can submit a different answer if you'd like to try again."
+            feedback_message += f"\n\n{explanation}"
     else:
         # Validation failed, generic message
         feedback_message = (
