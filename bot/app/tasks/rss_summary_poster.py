@@ -55,7 +55,8 @@ SUMMARY_TIMES = [
 ]
 
 
-def should_post_summary_for_channel(
+async def should_post_summary_for_channel(
+    store: RSSRedisStore,
     guild_id: int,
     channel_id: int,
     channel_schedule: List[tuple[int, int]] = None
@@ -68,6 +69,7 @@ def should_post_summary_for_channel(
     take longer than 10 minutes to complete without missing the next scheduled post.
 
     Args:
+        store: RSSRedisStore instance for reading last summary times
         guild_id: Guild ID
         channel_id: Channel ID
         channel_schedule: List of (hour, minute) tuples for this channel, or None for default
@@ -83,10 +85,9 @@ def should_post_summary_for_channel(
     pacific_tz = ZoneInfo("America/Los_Angeles")
     now = dt.datetime.now(pacific_tz)
 
-    # Load last summary times for this channel
+    # Load last summary times for this channel from Redis
     guild_id_str = str(guild_id)
-    all_last_summaries = get_state_value("channel_last_summaries", guild_id_str) or {}
-    channel_last_summaries = all_last_summaries.get(str(channel_id), {})
+    channel_last_summaries = await store.get_all_last_summaries(guild_id_str, channel_id)
 
     # Check each scheduled time to see if we should post
     for hour, minute in channel_schedule:
@@ -342,7 +343,7 @@ async def post_summaries() -> None:
 
                     # Check if it's time to post for THIS channel
                     channel_schedule = all_schedules.get(channel_id)
-                    should_post, edition = should_post_summary_for_channel(guild_id, channel_id, channel_schedule)
+                    should_post, edition = await should_post_summary_for_channel(store, guild_id, channel_id, channel_schedule)
 
                     if not should_post:
                         logger.info(f"Not time for summary in channel {channel_id}, skipping")

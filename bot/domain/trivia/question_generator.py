@@ -12,6 +12,29 @@ logger = get_logger()
 MAX_RETRIES = 3
 
 
+def normalize_text(text: str) -> str:
+    """Remove spaces and special characters, lowercase."""
+    return re.sub(r'[^a-z0-9]', '', text.lower())
+
+
+def answer_appears_in_question(question: str, answer: str) -> bool:
+    """
+    Check if any significant part of the answer appears in the question.
+    Splits answer into words and checks each significant word.
+    """
+    normalized_question = normalize_text(question)
+
+    # Split answer into words and check each significant word (length > 3)
+    answer_words = answer.split()
+    for word in answer_words:
+        if len(word) > 3:  # Only check significant words
+            normalized_word = normalize_text(word)
+            if normalized_word in normalized_question:
+                return True
+
+    return False
+
+
 async def generate_trivia_question(seed: str) -> Dict[str, str]:
     """
     Generate a trivia question using LLM with the given seed.
@@ -47,7 +70,17 @@ Requirements:
 - Create a clear, factual trivia question with a single definitive and objective answer
 - Choose the most appropriate category from: {', '.join(CATEGORIES)}
 - Provide a brief explanation of the answer
-- Do not mention the answer in the question
+- CRITICAL: Do not mention the answer or any part of it in the question text
+
+Examples of BAD questions (answer appears in question):
+❌ "Which 2000 film called Battle Royale popularized the genre?" (Answer: Battle Royale)
+❌ "What game called chaturanga preceded chess?" (Answer: Chaturanga)
+❌ "What country has the famous Egyptian Pyramids?" (Answer: Egypt)
+
+Examples of GOOD questions (answer hidden):
+✓ "Which 2000 Japanese film directed by Kinji Fukasaku popularized the battle royale genre?" (Answer: Battle Royale)
+✓ "What ancient Indian board game is considered a direct predecessor to modern chess?" (Answer: Chaturanga)
+✓ "In which country are the famous pyramids of Giza located?" (Answer: Egypt)
 
 Return in this EXACT format:
 CATEGORY: [category name]
@@ -79,13 +112,38 @@ EXPLANATION: [2-3 sentence explanation]"""
                 category = CATEGORIES[0]
                 logger.warning(f"Invalid category from LLM, defaulting to {category}")
 
+            question = question_match.group(1).strip()
+            answer = answer_match.group(1).strip()
+            explanation = explanation_match.group(1).strip() if explanation_match else ""
+
+            # Check if answer appears in question - if so, rewrite it
+            if answer_appears_in_question(question, answer):
+                logger.warning(f"Answer appears in question for seed {seed}, rewriting question")
+                rewrite_prompt = f"""The following trivia question contains the answer within it.
+Rewrite the question to remove any reference to the answer while keeping it challenging and factually accurate.
+
+Original Question: {question}
+Answer: {answer}
+Category: {category}
+
+Return ONLY the rewritten question, nothing else."""
+
+                rewrite_llm = ChatCompletionsClient.factory("gpt-4.1")
+                rewritten_question = await rewrite_llm.chat([
+                    {"role": "system", "content": "You are a trivia question editor. Rewrite questions to avoid giving away the answer."},
+                    {"role": "user", "content": rewrite_prompt}
+                ])
+
+                question = rewritten_question.strip()
+                logger.info(f"Question rewritten for seed {seed}")
+
             # Success! Return the parsed question
             logger.info(f"Successfully generated trivia question for seed {seed}")
             return {
-                "question": question_match.group(1).strip(),
-                "correct_answer": answer_match.group(1).strip(),
+                "question": question,
+                "correct_answer": answer,
                 "category": category,
-                "explanation": explanation_match.group(1).strip() if explanation_match else ""
+                "explanation": explanation
             }
 
         except Exception as e:
