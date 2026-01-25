@@ -17,6 +17,7 @@
 --   {"err", "GAME_NOT_FOUND"} if game doesn't exist
 --   {"err", "GAME_CLOSED"} if game has closed_at flag set
 --   {"err", "WINDOW_CLOSED"} if current time > ends_at
+--   {"err", "ALREADY_SUBMITTED"} if user has already submitted an answer
 
 local games_hash_key = KEYS[1]
 local submissions_key = KEYS[2]
@@ -49,8 +50,13 @@ if ends_at and current_time > ends_at then
     return {"err", "WINDOW_CLOSED"}
 end
 
+-- Check if user has already submitted an answer
+local already_submitted = redis.call('HEXISTS', submissions_key, user_id)
+if already_submitted == 1 then
+    return {"err", "ALREADY_SUBMITTED"}
+end
+
 -- All checks passed - record submission atomically
--- HSET allows overwrite (user can update their answer)
 redis.call('HSET', submissions_key, user_id, submission_data)
 
 return {"ok", "SUBMITTED"}
