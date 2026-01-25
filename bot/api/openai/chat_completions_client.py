@@ -60,7 +60,7 @@ def transform_arguments_for_model(model: PermittedModelType) -> Dict[str, Any]:
     elif model == "gpt-5.1":
         return {"model": "gpt-5.1", "max_completion_tokens": 10000}
     elif model == "gpt-5.2":
-        return {"model": "gpt-5.2", "max_completion_tokens": 10000}
+        return {"model": "gpt-5.2", "max_completion_tokens": 64000}
     elif model == "gpt-5.2-pro":
         return {"model": "gpt-5.2-pro", "max_completion_tokens": 10000}
     elif model == "gpt-5.2-codex":
