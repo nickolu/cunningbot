@@ -104,7 +104,7 @@ def create_question_embed(question_data: dict, game_id: str, ends_at: dt.datetim
     embed.add_field(name="Ends At", value=f"<t:{int(ends_at.timestamp())}:R>", inline=True)
     embed.add_field(
         name="How to Answer",
-        value="Click the 'Submit Answer' button below or use `/trivia answer`",
+        value="Click the 'Submit Answer' button below or use `/answer`",
         inline=False
     )
 
@@ -863,6 +863,14 @@ class TriviaCog(commands.Cog):
             )
 
         await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="answer", description="Submit your answer to the current trivia question.")
+    @app_commands.describe(message="Your answer to the trivia question")
+    async def answer_shorthand(self, interaction: discord.Interaction, message: str) -> None:
+        """Shorthand for /trivia answer - Submit an answer to an active trivia game."""
+        await submit_trivia_answer(
+            self.bot, interaction, message, str(interaction.guild_id)
+        )
 
 
 async def setup(bot: commands.Bot):
