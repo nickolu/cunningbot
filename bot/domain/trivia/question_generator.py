@@ -68,7 +68,8 @@ async def generate_trivia_question(seed: str) -> Dict[str, str]:
 
 Requirements:
 - Create a clear, factual trivia question with a single definitive answer
-- the answer should be an interesting fact about the seed, not something obvious
+- the answer should be an interesting, non-obvious fact about the seed
+- the question should be moderately challenging, not too easy but not impossible
 - the seed itself should not be the answer to the question
 - Choose the most appropriate category from: {', '.join(CATEGORIES)}
 - Provide a brief explanation of the answer
@@ -80,7 +81,7 @@ QUESTION: [Your question here]
 ANSWER: [Correct answer - be specific but accept reasonable variations]
 EXPLANATION: [2-3 sentence explanation]"""
 
-            llm = ChatCompletionsClient.factory("gpt-4.1")
+            llm = ChatCompletionsClient.factory("gpt-5.2")
             response = await llm.chat([
                 {"role": "system", "content": "You are a trivia question creator. Follow the format exactly."},
                 {"role": "user", "content": prompt}
@@ -120,7 +121,7 @@ Category: {category}
 
 Return ONLY the rewritten question, nothing else."""
 
-                rewrite_llm = ChatCompletionsClient.factory("gpt-4.1")
+                rewrite_llm = ChatCompletionsClient.factory("gpt-5.2")
                 rewritten_question = await rewrite_llm.chat([
                     {"role": "system", "content": "You are a trivia question editor. Rewrite questions to avoid giving away the answer."},
                     {"role": "user", "content": rewrite_prompt}
