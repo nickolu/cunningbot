@@ -199,7 +199,11 @@ async def post_trivia_questions() -> None:
 
             # Get used seeds from Redis
             used_seeds = await store.get_used_seeds(guild_id_str)
-            seed = get_unused_seed(used_seeds)
+
+            # Get custom seed words from registration if configured
+            base_words = registration.get("base_words")
+            modifiers = registration.get("modifiers")
+            seed = get_unused_seed(used_seeds, base_words, modifiers)
 
             to_post.append({
                 "guild_id": guild_id_str,
