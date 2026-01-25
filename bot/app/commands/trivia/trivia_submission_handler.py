@@ -14,6 +14,70 @@ from bot.app.utils.logger import get_logger
 logger = get_logger()
 
 
+async def update_question_stats(
+    bot: discord.ext.commands.Bot,
+    guild_id: str,
+    game_id: str,
+    game_data: dict,
+    store: TriviaRedisStore
+) -> None:
+    """Update the question message with current answer statistics.
+
+    Args:
+        bot: The Discord bot instance
+        guild_id: Guild ID as string
+        game_id: Game ID
+        game_data: Game data containing message_id and channel_id
+        store: TriviaRedisStore instance
+    """
+    # Import here to avoid circular dependency
+    from bot.app.commands.trivia.trivia import create_question_embed, count_submissions
+
+    message_id = game_data.get("message_id")
+    channel_id = game_data.get("channel_id")
+
+    if not message_id or not channel_id:
+        logger.warning(f"Missing message_id or channel_id for game {game_id[:8]}")
+        return
+
+    # Get the channel and message
+    channel = bot.get_channel(channel_id)
+    if not channel:
+        logger.warning(f"Could not find channel {channel_id}")
+        return
+
+    try:
+        message = await channel.fetch_message(message_id)
+    except discord.NotFound:
+        logger.warning(f"Could not find message {message_id}")
+        return
+    except discord.Forbidden:
+        logger.warning(f"No permission to fetch message {message_id}")
+        return
+
+    # Get all submissions and count stats
+    submissions = await store.get_submissions(guild_id, game_id)
+    stats = count_submissions(submissions)
+
+    # Recreate the embed with stats
+    ends_at = dt.datetime.fromisoformat(game_data["ends_at"])
+    updated_embed = create_question_embed(
+        question_data=game_data,
+        game_id=game_id,
+        ends_at=ends_at,
+        stats=stats
+    )
+
+    # Update the message
+    try:
+        await message.edit(embed=updated_embed)
+        logger.info(f"Updated question stats for game {game_id[:8]}: {stats}")
+    except discord.Forbidden:
+        logger.warning(f"No permission to edit message {message_id}")
+    except Exception as e:
+        logger.error(f"Failed to edit message: {e}")
+
+
 async def submit_trivia_answer(
     bot: discord.ext.commands.Bot,
     interaction: discord.Interaction,
@@ -147,3 +211,9 @@ async def submit_trivia_answer(
         )
 
     await interaction.followup.send(feedback_message, ephemeral=True)
+
+    # Update the question message with latest stats
+    try:
+        await update_question_stats(bot, guild_id, game_id, game_data, store)
+    except Exception as e:
+        logger.warning(f"Failed to update question stats: {e}")

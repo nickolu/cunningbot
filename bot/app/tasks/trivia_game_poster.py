@@ -38,8 +38,15 @@ logging.basicConfig(level=logging.INFO)
 PACIFIC_TZ = ZoneInfo("America/Los_Angeles")
 
 
-def create_question_embed(question_data: dict, game_id: str, ends_at: dt.datetime) -> discord.Embed:
-    """Create rich embed for trivia question."""
+def create_question_embed(question_data: dict, game_id: str, ends_at: dt.datetime, stats: dict = None) -> discord.Embed:
+    """Create rich embed for trivia question.
+
+    Args:
+        question_data: Question information
+        game_id: Game identifier
+        ends_at: When the question ends
+        stats: Optional dict with 'correct' and 'incorrect' counts
+    """
     # Map categories to colors
     category_colors = {
         "History": 0x8B4513,
@@ -61,6 +68,18 @@ def create_question_embed(question_data: dict, game_id: str, ends_at: dt.datetim
 
     embed.add_field(name="Category", value=question_data["category"], inline=True)
     embed.add_field(name="Ends At", value=f"<t:{int(ends_at.timestamp())}:R>", inline=True)
+
+    # Add stats field if provided
+    if stats:
+        correct = stats.get("correct", 0)
+        incorrect = stats.get("incorrect", 0)
+        total = correct + incorrect
+        if total > 0:
+            stats_text = f"✅ {correct} | ❌ {incorrect}"
+        else:
+            stats_text = "No answers yet"
+        embed.add_field(name="Responses", value=stats_text, inline=True)
+
     embed.add_field(
         name="How to Answer",
         value="Click the 'Submit Answer' button below or use `/trivia answer`",
@@ -256,8 +275,8 @@ async def post_trivia_questions() -> None:
                 # Generate game ID
                 game_id = str(uuid.uuid4())
 
-                # Create embed
-                embed = create_question_embed(question_data, game_id, ends_at)
+                # Create embed with initial stats (no answers yet)
+                embed = create_question_embed(question_data, game_id, ends_at, stats={"correct": 0, "incorrect": 0})
 
                 # Create view with button
                 view = TriviaQuestionView(game_id, guild_id, client)
