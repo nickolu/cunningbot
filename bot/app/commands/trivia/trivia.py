@@ -79,8 +79,38 @@ def parse_duration(duration_str: str) -> int:
     return minutes
 
 
-def create_question_embed(question_data: dict, game_id: str, ends_at: dt.datetime) -> discord.Embed:
-    """Create rich embed for trivia question."""
+def count_submissions(submissions: dict) -> dict:
+    """Count correct and incorrect submissions.
+
+    Args:
+        submissions: Dict of user_id -> submission_data
+
+    Returns:
+        Dict with 'correct' and 'incorrect' counts
+    """
+    correct = 0
+    incorrect = 0
+
+    for submission in submissions.values():
+        is_correct = submission.get("is_correct")
+        if is_correct is True:
+            correct += 1
+        elif is_correct is False:
+            incorrect += 1
+        # Skip None (unvalidated answers)
+
+    return {"correct": correct, "incorrect": incorrect}
+
+
+def create_question_embed(question_data: dict, game_id: str, ends_at: dt.datetime, stats: dict = None) -> discord.Embed:
+    """Create rich embed for trivia question.
+
+    Args:
+        question_data: Question information
+        game_id: Game identifier
+        ends_at: When the question ends
+        stats: Optional dict with 'correct' and 'incorrect' counts
+    """
     # Map categories to colors
     category_colors = {
         "History": 0x8B4513,
@@ -102,6 +132,18 @@ def create_question_embed(question_data: dict, game_id: str, ends_at: dt.datetim
 
     embed.add_field(name="Category", value=question_data["category"], inline=True)
     embed.add_field(name="Ends At", value=f"<t:{int(ends_at.timestamp())}:R>", inline=True)
+
+    # Add stats field if provided
+    if stats:
+        correct = stats.get("correct", 0)
+        incorrect = stats.get("incorrect", 0)
+        total = correct + incorrect
+        if total > 0:
+            stats_text = f"✅ {correct} | ❌ {incorrect}"
+        else:
+            stats_text = "No answers yet"
+        embed.add_field(name="Responses", value=stats_text, inline=True)
+
     embed.add_field(
         name="How to Answer",
         value="Click the 'Submit Answer' button below or use `/answer`",
@@ -302,8 +344,8 @@ class TriviaCog(commands.Cog):
             # Generate game ID
             game_id = str(uuid.uuid4())
 
-            # Create embed
-            embed = create_question_embed(question_data, game_id, ends_at)
+            # Create embed with initial stats (no answers yet)
+            embed = create_question_embed(question_data, game_id, ends_at, stats={"correct": 0, "incorrect": 0})
 
             # Create view with button
             view = TriviaQuestionView(game_id, str(interaction.guild_id), self.bot)
