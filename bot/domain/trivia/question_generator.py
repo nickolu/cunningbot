@@ -67,20 +67,12 @@ async def generate_trivia_question(seed: str) -> Dict[str, str]:
             prompt = f"""Generate a trivia question that is at least somewhat related to this seed: {topic}/{context}
 
 Requirements:
-- Create a clear, factual trivia question with a single definitive and objective answer
+- Create a clear, factual trivia question with a single definitive answer
+- the answer should be an interesting fact about the seed, not something obvious
+- the seed itself should not be the answer to the question
 - Choose the most appropriate category from: {', '.join(CATEGORIES)}
 - Provide a brief explanation of the answer
 - CRITICAL: Do not mention the answer or any part of it in the question text
-
-Examples of BAD questions (answer appears in question):
-❌ "Which 2000 film called Battle Royale popularized the genre?" (Answer: Battle Royale)
-❌ "What game called chaturanga preceded chess?" (Answer: Chaturanga)
-❌ "What country has the famous Egyptian Pyramids?" (Answer: Egypt)
-
-Examples of GOOD questions (answer hidden):
-✓ "Which 2000 Japanese film directed by Kinji Fukasaku popularized the battle royale genre?" (Answer: Battle Royale)
-✓ "What ancient Indian board game is considered a direct predecessor to modern chess?" (Answer: Chaturanga)
-✓ "In which country are the famous pyramids of Giza located?" (Answer: Egypt)
 
 Return in this EXACT format:
 CATEGORY: [category name]
