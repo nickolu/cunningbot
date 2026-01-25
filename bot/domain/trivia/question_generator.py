@@ -41,18 +41,13 @@ async def generate_trivia_question(seed: str) -> Dict[str, str]:
             topic = parts[0].replace("_", " ")
             context = parts[1].replace("_", " ") if len(parts) > 1 else "general"
 
-            prompt = f"""Generate a trivia question based on this seed:
-Topic: {topic}
-Context: {context}
+            prompt = f"""Generate a trivia question that is at least somewhat related to this seed: {topic}/{context}
 
 Requirements:
-- Create a clear, factual question with a single definitive answer
-- Avoid basic/common knowledge that most people would know
-- Focus on interesting details, connections, or lesser-known facts
-- The question should be engaging and educational
-- The question should have a single, objective answer
+- Create a clear, factual trivia question with a single definitive and objective answer
 - Choose the most appropriate category from: {', '.join(CATEGORIES)}
 - Provide a brief explanation of the answer
+- Do not mention the answer in the question
 
 Return in this EXACT format:
 CATEGORY: [category name]
