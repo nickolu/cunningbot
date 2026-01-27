@@ -82,7 +82,7 @@ def create_question_embed(question_data: dict, game_id: str, ends_at: dt.datetim
 
     embed.add_field(
         name="How to Answer",
-        value="Click the 'Submit Answer' button below or use `/trivia answer`",
+        value="Click the 'Submit Answer' button below or use `/answer`",
         inline=False
     )
 

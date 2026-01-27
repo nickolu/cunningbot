@@ -67,7 +67,7 @@ class TriviaQuestionView(discord.ui.View):
             try:
                 if not interaction.response.is_done():
                     await interaction.response.send_message(
-                        "❌ An error occurred. Please try again or use `/trivia answer` instead.",
+                        "❌ An error occurred. Please try again or use `/answer` instead.",
                         ephemeral=True
                     )
             except Exception:
