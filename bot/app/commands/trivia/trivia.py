@@ -636,6 +636,9 @@ class TriviaCog(commands.Cog):
     @app_commands.describe(message="Your answer to the trivia question")
     async def answer(self, interaction: discord.Interaction, message: str) -> None:
         """Submit an answer to an active trivia game."""
+        # Defer immediately - validation can take several seconds
+        await interaction.response.defer(ephemeral=True)
+
         await submit_trivia_answer(
             self.bot, interaction, message, str(interaction.guild_id)
         )
@@ -910,6 +913,9 @@ class TriviaCog(commands.Cog):
     @app_commands.describe(message="Your answer to the trivia question")
     async def answer_shorthand(self, interaction: discord.Interaction, message: str) -> None:
         """Shorthand for /trivia answer - Submit an answer to an active trivia game."""
+        # Defer immediately - validation can take several seconds
+        await interaction.response.defer(ephemeral=True)
+
         await submit_trivia_answer(
             self.bot, interaction, message, str(interaction.guild_id)
         )

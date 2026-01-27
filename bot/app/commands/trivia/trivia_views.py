@@ -3,6 +3,7 @@
 import discord
 from discord.ext import commands
 from bot.app.utils.logger import get_logger
+from bot.app.commands.trivia.trivia_submission_handler import submit_trivia_answer
 
 logger = get_logger()
 
@@ -26,7 +27,11 @@ class TriviaAnswerModal(discord.ui.Modal, title="Submit Trivia Answer"):
 
     async def on_submit(self, interaction: discord.Interaction):
         """Handle modal submission."""
-        from .trivia_submission_handler import submit_trivia_answer
+        # CRITICAL: Defer IMMEDIATELY to prevent "This interaction failed"
+        # Modal submissions have a strict 3-second window
+        await interaction.response.defer(ephemeral=True)
+
+        # Now process the submission (validation can take several seconds)
         await submit_trivia_answer(
             self.bot, interaction, self.answer.value, self.guild_id, self.game_id
         )
