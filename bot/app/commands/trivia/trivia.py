@@ -771,10 +771,9 @@ class TriviaCog(commands.Cog):
         timeframe: Optional[str] = None
     ) -> None:
         """Show trivia leaderboard."""
-        # Get trivia history
-        trivia_history = get_state_value_from_interaction(
-            "trivia_history", interaction.guild_id
-        ) or {}
+        # Get trivia history from Redis
+        store = TriviaRedisStore()
+        trivia_history = await store.get_all_history_as_dict(str(interaction.guild_id))
 
         if not trivia_history:
             await interaction.response.send_message(
@@ -847,10 +846,9 @@ class TriviaCog(commands.Cog):
         """Show trivia stats for a specific user."""
         target_user = user or interaction.user
 
-        # Get trivia history
-        trivia_history = get_state_value_from_interaction(
-            "trivia_history", interaction.guild_id
-        ) or {}
+        # Get trivia history from Redis
+        store = TriviaRedisStore()
+        trivia_history = await store.get_all_history_as_dict(str(interaction.guild_id))
 
         if not trivia_history:
             await interaction.response.send_message(
