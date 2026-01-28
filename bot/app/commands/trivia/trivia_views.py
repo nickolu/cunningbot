@@ -11,19 +11,26 @@ logger = get_logger()
 class TriviaAnswerModal(discord.ui.Modal, title="Submit Trivia Answer"):
     """Modal dialog with text input for submitting trivia answers."""
 
-    answer = discord.ui.TextInput(
-        label="Your Answer",
-        placeholder="Type your answer here...",
-        style=discord.TextStyle.paragraph,
-        required=True,
-        max_length=500
-    )
-
-    def __init__(self, game_id: str, guild_id: str, bot: commands.Bot):
+    def __init__(self, game_id: str, guild_id: str, bot: commands.Bot, question: str = None):
         super().__init__()
         self.game_id = game_id
         self.guild_id = guild_id
         self.bot = bot
+
+        # Create the answer input with the question as placeholder if provided
+        placeholder = question if question else "Type your answer here..."
+        # Discord has a 100 character limit for placeholders
+        if len(placeholder) > 100:
+            placeholder = placeholder[:97] + "..."
+
+        self.answer = discord.ui.TextInput(
+            label="Your Answer",
+            placeholder=placeholder,
+            style=discord.TextStyle.paragraph,
+            required=True,
+            max_length=500
+        )
+        self.add_item(self.answer)
 
     async def on_submit(self, interaction: discord.Interaction):
         """Handle modal submission."""
