@@ -15,7 +15,7 @@ from bot.domain.trivia.trivia_stats_service import TriviaStatsService
 from bot.domain.trivia.question_seeds import CATEGORIES, get_unused_seed
 from bot.domain.trivia.question_generator import generate_trivia_question
 from bot.app.utils.logger import get_logger
-from bot.app.commands.trivia.trivia_views import TriviaQuestionView
+from bot.app.commands.trivia.trivia_views import TriviaAnswerModal
 from bot.app.commands.trivia.trivia_submission_handler import submit_trivia_answer
 
 logger = get_logger()
@@ -146,7 +146,7 @@ def create_question_embed(question_data: dict, game_id: str, ends_at: dt.datetim
 
     embed.add_field(
         name="How to Answer",
-        value="Click the 'Submit Answer' button below or use `/answer`",
+        value="Right-click this message and select 'Submit Answer' or use `/answer`",
         inline=False
     )
 
@@ -347,11 +347,8 @@ class TriviaCog(commands.Cog):
             # Create embed with initial stats (no answers yet)
             embed = create_question_embed(question_data, game_id, ends_at, stats={"correct": 0, "incorrect": 0})
 
-            # Create view with button
-            view = TriviaQuestionView(game_id, str(interaction.guild_id), self.bot)
-
-            # Post message with view
-            message = await target_channel.send(embed=embed, view=view)
+            # Post message (no view needed - users will right-click for context menu)
+            message = await target_channel.send(embed=embed)
             logger.info(f"Posted trivia question to channel {target_channel.id}")
 
             # Create thread
@@ -921,6 +918,83 @@ class TriviaCog(commands.Cog):
         )
 
 
+@app_commands.context_menu(name="Submit Answer")
+async def submit_trivia_answer_context_menu(
+    interaction: discord.Interaction,
+    message: discord.Message
+) -> None:
+    """Context menu command to submit an answer to a trivia question."""
+    # Validate that this is a trivia question message
+    if not message.embeds:
+        await interaction.response.send_message(
+            "❌ This message doesn't appear to be a trivia question.",
+            ephemeral=True
+        )
+        return
+
+    embed = message.embeds[0]
+
+    # Check if this is a trivia question by looking for the title
+    if not embed.title or embed.title != "🎯 Trivia Question":
+        await interaction.response.send_message(
+            "❌ This message doesn't appear to be a trivia question.",
+            ephemeral=True
+        )
+        return
+
+    # Extract game_id from footer
+    if not embed.footer or not embed.footer.text:
+        await interaction.response.send_message(
+            "❌ Cannot find game ID for this trivia question.",
+            ephemeral=True
+        )
+        return
+
+    # Footer format is "Game ID: {game_id[:8]}"
+    try:
+        footer_text = embed.footer.text
+        if not footer_text.startswith("Game ID: "):
+            raise ValueError("Invalid footer format")
+
+        game_id_prefix = footer_text.replace("Game ID: ", "").strip()
+
+        # Look up the full game_id from Redis using the prefix
+        from bot.app.redis.trivia_store import TriviaRedisStore
+        store = TriviaRedisStore()
+        active_games = await store.get_active_games(str(interaction.guild_id))
+
+        # Find game with matching prefix
+        game_id = None
+        for gid in active_games.keys():
+            if gid.startswith(game_id_prefix):
+                game_id = gid
+                break
+
+        if not game_id:
+            await interaction.response.send_message(
+                "❌ This trivia question is no longer active.",
+                ephemeral=True
+            )
+            return
+
+        # Get bot instance from interaction
+        bot = interaction.client
+
+        # Show the answer modal
+        modal = TriviaAnswerModal(game_id, str(interaction.guild_id), bot)
+        await interaction.response.send_modal(modal)
+
+    except Exception as e:
+        logger.error(f"Error in trivia context menu: {e}", exc_info=True)
+        await interaction.response.send_message(
+            "❌ An error occurred. Please try again or use `/answer` instead.",
+            ephemeral=True
+        )
+
+
 async def setup(bot: commands.Bot):
     """Setup function for loading the cog."""
     await bot.add_cog(TriviaCog(bot))
+
+    # Register the context menu command
+    bot.tree.add_command(submit_trivia_answer_context_menu)

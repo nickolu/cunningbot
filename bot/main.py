@@ -76,11 +76,6 @@ async def on_ready() -> None:
     await task_queue.start_worker()
     logger.info("Task queue initialized and worker started")
 
-    # Register persistent trivia views
-    from bot.app.commands.trivia.trivia_views import register_persistent_trivia_views
-    await register_persistent_trivia_views(bot)
-    logger.info("Persistent trivia views registration complete")
-
     # Log local commands before sync
     local_cmds = [cmd.name for cmd in bot.tree.walk_commands()]
     logger.info(f"Local commands before sync: {local_cmds}")

@@ -30,7 +30,6 @@ from bot.app.redis.trivia_store import TriviaRedisStore
 from bot.app.redis.client import initialize_redis, close_redis
 from bot.domain.trivia.question_seeds import get_unused_seed
 from bot.domain.trivia.question_generator import generate_trivia_question
-from bot.app.commands.trivia.trivia_views import TriviaQuestionView
 
 logger = logging.getLogger("TriviaGamePoster")
 logging.basicConfig(level=logging.INFO)
@@ -82,7 +81,7 @@ def create_question_embed(question_data: dict, game_id: str, ends_at: dt.datetim
 
     embed.add_field(
         name="How to Answer",
-        value="Click the 'Submit Answer' button below or use `/answer`",
+        value="Right-click this message and select 'Submit Answer' or use `/answer`",
         inline=False
     )
 
@@ -278,11 +277,8 @@ async def post_trivia_questions() -> None:
                 # Create embed with initial stats (no answers yet)
                 embed = create_question_embed(question_data, game_id, ends_at, stats={"correct": 0, "incorrect": 0})
 
-                # Create view with button
-                view = TriviaQuestionView(game_id, guild_id, client)
-
-                # Post message with view
-                message = await channel.send(embed=embed, view=view)
+                # Post message (no view needed - users will right-click for context menu)
+                message = await channel.send(embed=embed)
                 logger.info("Posted trivia question to channel %s", channel.id)
 
                 # Create thread
