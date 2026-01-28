@@ -91,15 +91,13 @@ async def submit_trivia_answer(
     Args:
         bot: The Discord bot instance
         interaction: The Discord interaction (from slash command or modal)
+                     NOTE: This interaction should already be deferred by the caller
         answer_text: The user's answer
         guild_id: The guild ID as a string
         game_id: Optional game ID to submit to (if known)
     """
-    # Defer response immediately for modals (validation takes time)
-    # Check if this is from a modal (response not yet sent)
-    if not interaction.response.is_done():
-        await interaction.response.defer(ephemeral=True)
-
+    # NOTE: Interaction should already be deferred by caller (modal on_submit or slash command)
+    # We use followup.send() for all responses
     store = TriviaRedisStore()
 
     # Find active game for this channel
