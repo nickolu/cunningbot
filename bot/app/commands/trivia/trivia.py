@@ -958,6 +958,9 @@ async def submit_trivia_answer_context_menu(
 
         game_id_prefix = footer_text.replace("Game ID: ", "").strip()
 
+        # Extract question text from embed description
+        question_text = embed.description if embed.description else None
+
         # Look up the full game_id from Redis using the prefix
         from bot.app.redis.trivia_store import TriviaRedisStore
         store = TriviaRedisStore()
@@ -980,8 +983,8 @@ async def submit_trivia_answer_context_menu(
         # Get bot instance from interaction
         bot = interaction.client
 
-        # Show the answer modal
-        modal = TriviaAnswerModal(game_id, str(interaction.guild_id), bot)
+        # Show the answer modal with the question text
+        modal = TriviaAnswerModal(game_id, str(interaction.guild_id), bot, question=question_text)
         await interaction.response.send_modal(modal)
 
     except Exception as e:
