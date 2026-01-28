@@ -384,3 +384,30 @@ class TriviaRedisStore:
                     logger.error(f"Failed to decode history for {game_id}: {e}")
 
         return result
+
+    async def get_all_history_as_dict(self, guild_id: str) -> Dict[str, Dict[str, Any]]:
+        """Get all game history as a dictionary (for leaderboard calculations).
+
+        Args:
+            guild_id: Guild ID as string
+
+        Returns:
+            Dictionary of game_id -> game history data
+        """
+        history_set_key = f"trivia:{guild_id}:games:history"
+
+        # Get all game IDs from the sorted set
+        game_ids = await self.redis.zrevrange(history_set_key, 0, -1)
+
+        result = {}
+        for game_id in game_ids:
+            history_key = f"trivia:{guild_id}:game:{game_id}:history"
+            history_json = await self.redis.get(history_key)
+
+            if history_json:
+                try:
+                    result[game_id] = json.loads(history_json)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to decode history for {game_id}: {e}")
+
+        return result
