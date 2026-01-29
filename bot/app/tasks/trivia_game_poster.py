@@ -255,7 +255,7 @@ async def post_trivia_questions() -> None:
 
             try:
                 # Generate question
-                logger.info("Generating question with seed: %s", seed)
+                logger.info("Generating trivia question with seed: %s", seed)
                 question_data = await generate_trivia_question(seed)
 
                 # Get channel

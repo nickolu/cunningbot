@@ -153,6 +153,7 @@ async def close_expired_games() -> None:
                         correct_answer = game_data.get("correct_answer", "Unknown")
                         category = game_data.get("category", "Unknown")
                         explanation = game_data.get("explanation", "")
+                        seed = game_data.get("seed", "")
 
                         # Validate submissions (reuse cached validations)
                         validated_submissions = {}
@@ -262,7 +263,10 @@ async def close_expired_games() -> None:
                                         inline=False
                                     )
 
-                                    embed.set_footer(text=f"Category: {category} • Game ID: {game_id[:8]}")
+                                    footer_text = f"Category: {category} • Game ID: {game_id[:8]}"
+                                    if seed:
+                                        footer_text += f" • Seed: {seed}"
+                                    embed.set_footer(text=footer_text)
 
                                     logger.info("Posting results for game %s to thread %s", game_id[:8], thread_id)
                                     await thread.send(embed=embed)
