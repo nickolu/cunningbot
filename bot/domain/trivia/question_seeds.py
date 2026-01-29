@@ -90,7 +90,6 @@ BASE_WORDS = [
   "ancient relic", "prophecy", "chosen one", "dark lord", "dragon", "elf", 
   "dwarf", "undead", "portal fantasy", "drow", "halfling", "gnome", "half-elf", 
 
-
   # Epic / Dark fantasy
   "high fantasy", "dark fantasy", "grimdark", "blood magic", "forbidden magic", 
   "ancient evil", "fallen kingdom", "legendary weapon",
@@ -120,11 +119,12 @@ BASE_WORDS = [
   "monk", "ninja", "samurai", "ninja", "samurai", "ninja", "samurai",
 
   # Roguelike / Roguelite
-  "roguelike", "roguelite", "procedural generation", "permadeath", "run-based", "meta progression", "random seed",
+  "procedural generation", "permadeath", "run-based", "meta progression", "random seed",
 
   # Indie / modern genres
-  "metroidvania", "soulslike", "battle royale", "auto battler", "idle game", "visual novel", "walking simulator",
-  "retro gaming", "arcade", "8-bit", "16-bit", "pixel art", "chiptune", "cartridge", "console war", "emulation", "romhack",
+  "metroidvania", "soulslike", "battle royale", "auto battler", "idle game", "visual novel", 
+  "retro gaming", "arcade", "8-bit", "16-bit", "pixel art", "chiptune", "cartridge", "console war", "emulation", "romhack", "NES", 
+  "SNES", "PlayStation", "Xbox", "Steam", "Epic Games", "GOG", "Origin", "Blizzard Entertainment",
 
   # Internet & fandom culture
   "meme","fan theory", "headcanon", "retcon", "continuity", "multiverse", "timeline", "origin story", "mythos", 
@@ -138,12 +138,24 @@ BASE_WORDS = [
   "sports","San Diego Padres","baseball","MLB","NBA","NFL","MLB All-Star Game","Olympics",
 
   # Linguistics
-  "linguistics","english","spelling","language","grammar","phonology","phonetics","morphology","syntax","semantics","pragmatics",
+  "english","spelling","language","grammar","phonology","phonetics","morphology","syntax","semantics","pragmatics",
 
   # music
   "music", "punk rock", "1990s alternative rock", "1970s rock", "classic rock", "grunge music", "EDM", "hip hop", 
   "emo music", "2000s pop music", "2000s college rock", "indie rock", "indie music", "indie pop", "music news", 
-  "music industry", "music recording", "the beatles",
+  "music industry", "music recording", "the beatles", "1980s music", "2000s music"
+
+  # Animals
+  "dogs", "dog breeds", "cat", "cat breeds", "farm animals", "wild animals", "domestic animals", "animals"
+
+  # 1990s nostalgia
+  "1990s", "1990s nostalgia", "Nickelodeon", "Cartoon Network", "MTV", "VH1", "Nickelodeon", "Cartoon Network", "MTV", "VH1",
+  "Beavis and Butt-Head", "Daria", "South Park", "Snick", "Animaniacs",
+
+  # The Simpsons
+  "The Simpsons", "The Simpsons characters", "The Simpsons episodes", "The Simpsons seasons", "Homer Simpson", "Bart Simpson", 
+  "Lisa Simpson", "Maggie Simpson", "Marge Simpson", "Moe's Tavern", "Krusty Burger", "Krusty the Clown", "Ned Flanders", "Ralph Wiggum",
+  "Milhouse Van Houten", "Nelson Muntz", 
 ]
 
 # Modifiers to create context and variation (50+ modifiers)
@@ -168,18 +180,18 @@ MODIFIERS = [
     "legacy",
     "influence",
     "reputation",
-    "why_it_matters",
-    "why_its_famous",
+    "why it matters",
+    "why its famous",
 
     # Definition & explanation
     "definition",
     "meaning",
     "example",
     "counterexample",
-    "common_misconception",
-    "little_known_fact",
-    "hidden_detail",
-    "behind_the_scenes",
+    "common misconception",
+    "little known fact",
+    "hidden detail",
+    "behind the scenes",
 
     # Comparison & contrast
     "difference",
@@ -205,14 +217,14 @@ MODIFIERS = [
     "constraint",
 
     # Culture, fandom & meta
-    "fan_reaction",
+    "fan reaction",
     "community",
     "debate",
     "controversy",
     "meme",
     "trope",
     "cliche",
-    "fan_theory",
+    "fan theory",
     "headcanon",
     "retcon",
 
@@ -221,21 +233,21 @@ MODIFIERS = [
     "glitch",
     "exploit",
     "oversight",
-    "design_flaw",
-    "broken_version",
+    "design flaw",
+    "broken version",
     "backlash",
     "misstep",
-    "abandoned_idea",
-    "cut_content",
+    "abandoned idea",
+    "cut content",
 
     # Extremes & firsts
     "first",
     "last",
-    "most_influential",
-    "most_controversial",
-    "most_iconic",
-    "best_known",
-    "worst_known",
+    "most influential",
+    "most controversial",
+    "most iconic",
+    "best known",
+    "worst known",
 
     # People & creation
     "creator",
@@ -243,7 +255,31 @@ MODIFIERS = [
     "founder",
     "pioneer",
     "vision",
-    "original_intent"
+    "original intent"
+
+    # Random & unusual
+    "random",
+    "unusual",
+    "odd",
+    "rare",
+    "unique",
+    "obscure",
+    "esoteric",
+    "uncommon",
+    "unusual",
+    "odd",
+    "@#$&(*!)",
+    "crazy",
+    "weird",
+    "strange",
+    "unusual",
+    "odd",
+    "rare",
+    "unique",
+    "obscure",
+    "esoteric",
+    "ubelievable",
+
 ]
 
 
@@ -263,7 +299,7 @@ def generate_seed(base_words: List[str] = None, modifiers: List[str] = None) -> 
 
     base = random.choice(words)
     modifier = random.choice(mods)
-    return f"{base}_{modifier}"
+    return f"{base} :: {modifier}"
 
 
 def get_unused_seed(used_seeds: List[str], base_words: List[str] = None, modifiers: List[str] = None) -> str:
@@ -292,7 +328,7 @@ def get_unused_seed(used_seeds: List[str], base_words: List[str] = None, modifie
             return seed
 
     # Slow path: enumerate all possibilities
-    all_seeds = [f"{base}_{mod}" for base in words for mod in mods]
+    all_seeds = [f"{base} :: {mod}" for base in words for mod in mods]
     unused = set(all_seeds) - set(used_seeds)
 
     if not unused:
