@@ -30,6 +30,10 @@ from bot.app.redis.trivia_store import TriviaRedisStore
 from bot.app.redis.client import initialize_redis, close_redis
 from bot.domain.trivia.question_seeds import get_unused_seed
 from bot.domain.trivia.question_generator import generate_trivia_question
+from bot.domain.trivia.opentdb_question_generator import (
+    generate_trivia_questions_from_opentdb,
+    OPENTDB_CATEGORIES
+)
 
 logger = logging.getLogger("TriviaGamePoster")
 logging.basicConfig(level=logging.INFO)
@@ -254,10 +258,6 @@ async def post_trivia_questions() -> None:
             answer_window_minutes = registration["answer_window_minutes"]
 
             try:
-                # Generate question
-                logger.info("Generating trivia question with seed: %s", seed)
-                question_data = await generate_trivia_question(seed)
-
                 # Get channel
                 channel = client.get_channel(channel_id)
                 if channel is None:
@@ -267,53 +267,131 @@ async def post_trivia_questions() -> None:
                     logger.warning("Channel ID %s is not a text channel", channel_id)
                     continue
 
-                # Calculate end time
-                now_utc = dt.datetime.now(dt.timezone.utc)
-                ends_at = now_utc + dt.timedelta(minutes=answer_window_minutes)
+                # Get method from registration
+                method = registration.get("method", "OpenTrivia")
+                logger.info("Generating trivia questions using method: %s", method)
 
-                # Generate game ID
-                game_id = str(uuid.uuid4())
+                if method == "OpenTrivia":
+                    # Get difficulty counts from registration
+                    easy_count = registration.get("easy_count", 3)
+                    medium_count = registration.get("medium_count", 2)
+                    hard_count = registration.get("hard_count", 1)
 
-                # Create embed with initial stats (no answers yet)
-                embed = create_question_embed(question_data, game_id, ends_at, stats={"correct": 0, "incorrect": 0})
-
-                # Post message (no view needed - users will right-click for context menu)
-                message = await channel.send(embed=embed)
-                logger.info("Posted trivia question to channel %s", channel.id)
-
-                # Create thread
-                thread_name = f"Trivia – {question_data['category']} – {now_pt:%Y-%m-%d %H:%M}"
-                thread = None
-                try:
-                    thread = await message.create_thread(
-                        name=thread_name,
-                        auto_archive_duration=1440  # 24 hours
+                    # Generate questions from OpenTDB (all from same category)
+                    questions, category_id = await generate_trivia_questions_from_opentdb(
+                        easy_count=easy_count,
+                        medium_count=medium_count,
+                        hard_count=hard_count,
+                        guild_id=guild_id,
+                        used_seeds=used_seeds,
+                        base_words=registration.get("base_words"),
+                        modifiers=registration.get("modifiers")
                     )
-                    logger.info("Created thread '%s' for trivia game", thread_name)
-                except discord.HTTPException as exc:
-                    logger.error("Failed to create thread: %s", exc)
 
-                # Store game in Redis
-                game_data = {
-                    "registration_id": reg_id,
-                    "channel_id": channel_id,
-                    "thread_id": thread.id if thread else None,
-                    "question": question_data["question"],
-                    "correct_answer": question_data["correct_answer"],
-                    "category": question_data["category"],
-                    "explanation": question_data["explanation"],
-                    "seed": seed,
-                    "started_at": now_utc.isoformat(),
-                    "ends_at": ends_at.isoformat(),
-                    "message_id": message.id,
-                }
+                    # Get category display name
+                    opentdb_name, mapped_category = OPENTDB_CATEGORIES[category_id]
+                    logger.info("Selected category: %s (mapped to %s)", opentdb_name, mapped_category)
 
-                await store.create_game(guild_id, game_id, game_data)
+                    # Post each question as a separate game
+                    for question_data in questions:
+                        # Calculate end time
+                        now_utc = dt.datetime.now(dt.timezone.utc)
+                        ends_at = now_utc + dt.timedelta(minutes=answer_window_minutes)
 
-                # Mark seed as used in Redis (atomic operation)
-                await store.mark_seed_used(guild_id, seed)
+                        # Generate game ID
+                        game_id = str(uuid.uuid4())
 
-                logger.info("Saved game state for game_id %s", game_id[:8])
+                        # Create embed
+                        embed = create_question_embed(question_data, game_id, ends_at, stats={"correct": 0, "incorrect": 0})
+
+                        # Post message
+                        message = await channel.send(embed=embed)
+                        logger.info("Posted trivia question to channel %s", channel.id)
+
+                        # Create thread (include OpenTDB category name)
+                        thread_name = f"Trivia – {opentdb_name} – {now_pt:%Y-%m-%d %H:%M}"
+                        thread = None
+                        try:
+                            thread = await message.create_thread(
+                                name=thread_name,
+                                auto_archive_duration=1440  # 24 hours
+                            )
+                            logger.info("Created thread '%s' for trivia game", thread_name)
+                        except discord.HTTPException as exc:
+                            logger.error("Failed to create thread: %s", exc)
+
+                        # Store game data
+                        game_data = {
+                            "registration_id": reg_id,
+                            "channel_id": channel_id,
+                            "thread_id": thread.id if thread else None,
+                            "question": question_data["question"],
+                            "correct_answer": question_data["correct_answer"],
+                            "category": mapped_category,  # Use mapped category
+                            "explanation": question_data.get("explanation", ""),
+                            "difficulty": question_data.get("difficulty"),
+                            "source": "opentdb",
+                            "started_at": now_utc.isoformat(),
+                            "ends_at": ends_at.isoformat(),
+                            "message_id": message.id,
+                        }
+
+                        await store.create_game(guild_id, game_id, game_data)
+                        logger.info("Saved game state for game_id %s", game_id[:8])
+
+                elif method == "AI":
+                    # Existing logic - single question with seed
+                    logger.info("Generating trivia question with seed: %s", seed)
+                    question_data = await generate_trivia_question(seed)
+
+                    # Calculate end time
+                    now_utc = dt.datetime.now(dt.timezone.utc)
+                    ends_at = now_utc + dt.timedelta(minutes=answer_window_minutes)
+
+                    # Generate game ID
+                    game_id = str(uuid.uuid4())
+
+                    # Create embed with initial stats (no answers yet)
+                    embed = create_question_embed(question_data, game_id, ends_at, stats={"correct": 0, "incorrect": 0})
+
+                    # Post message (no view needed - users will right-click for context menu)
+                    message = await channel.send(embed=embed)
+                    logger.info("Posted trivia question to channel %s", channel.id)
+
+                    # Create thread
+                    thread_name = f"Trivia – {question_data['category']} – {now_pt:%Y-%m-%d %H:%M}"
+                    thread = None
+                    try:
+                        thread = await message.create_thread(
+                            name=thread_name,
+                            auto_archive_duration=1440  # 24 hours
+                        )
+                        logger.info("Created thread '%s' for trivia game", thread_name)
+                    except discord.HTTPException as exc:
+                        logger.error("Failed to create thread: %s", exc)
+
+                    # Store game in Redis
+                    game_data = {
+                        "registration_id": reg_id,
+                        "channel_id": channel_id,
+                        "thread_id": thread.id if thread else None,
+                        "question": question_data["question"],
+                        "correct_answer": question_data["correct_answer"],
+                        "category": question_data["category"],
+                        "explanation": question_data["explanation"],
+                        "seed": seed,
+                        "source": "ai",
+                        "started_at": now_utc.isoformat(),
+                        "ends_at": ends_at.isoformat(),
+                        "message_id": message.id,
+                    }
+
+                    await store.create_game(guild_id, game_id, game_data)
+
+                    # Mark seed as used in Redis (atomic operation)
+                    await store.mark_seed_used(guild_id, seed)
+
+                    logger.info("Saved game state for game_id %s", game_id[:8])
 
             except discord.Forbidden:
                 logger.error("Missing permissions to post in channel %s", channel_id)
