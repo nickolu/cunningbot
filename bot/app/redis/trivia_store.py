@@ -411,3 +411,97 @@ class TriviaRedisStore:
                     logger.error(f"Failed to decode history for {game_id}: {e}")
 
         return result
+
+    # --- Bulk Operations ---
+
+    async def clear_registrations_by_channel(self, guild_id: str, channel_id: int) -> int:
+        """Clear all registrations for a specific channel.
+
+        Args:
+            guild_id: Guild ID as string
+            channel_id: Channel ID to clear registrations for
+
+        Returns:
+            Number of registrations deleted
+        """
+        key = f"trivia:{guild_id}:registrations"
+        registrations = await self.get_registrations(guild_id)
+
+        deleted = 0
+        for reg_id, reg_data in registrations.items():
+            if reg_data.get("channel_id") == channel_id:
+                await self.redis.hdel(key, reg_id)
+                deleted += 1
+                logger.info(f"Deleted registration {reg_id[:8]} for channel {channel_id}")
+
+        return deleted
+
+    async def clear_all_registrations(self, guild_id: str) -> int:
+        """Clear all registrations for a guild.
+
+        Args:
+            guild_id: Guild ID as string
+
+        Returns:
+            Number of registrations deleted
+        """
+        key = f"trivia:{guild_id}:registrations"
+        registrations = await self.get_registrations(guild_id)
+        count = len(registrations)
+
+        if count > 0:
+            await self.redis.delete(key)
+            logger.info(f"Deleted all {count} registrations for guild {guild_id}")
+
+        return count
+
+    async def clear_all_stats(self, guild_id: str) -> Dict[str, int]:
+        """Clear all game history and stats for a guild.
+
+        This removes all historical data but preserves active games and registrations.
+
+        Args:
+            guild_id: Guild ID as string
+
+        Returns:
+            Dictionary with counts of deleted items
+        """
+        # Get all game IDs from history sorted set
+        history_set_key = f"trivia:{guild_id}:games:history"
+        game_ids = await self.redis.zrevrange(history_set_key, 0, -1)
+
+        deleted_games = 0
+        deleted_submissions = 0
+
+        # Delete each game's history and submissions
+        for game_id in game_ids:
+            history_key = f"trivia:{guild_id}:game:{game_id}:history"
+            submissions_key = f"trivia:{guild_id}:game:{game_id}:submissions"
+
+            await self.redis.delete(history_key)
+            deleted_games += 1
+
+            # Check if submissions exist before deleting
+            if await self.redis.exists(submissions_key):
+                await self.redis.delete(submissions_key)
+                deleted_submissions += 1
+
+        # Delete the history set itself
+        await self.redis.delete(history_set_key)
+
+        # Clear used seeds
+        seeds_key = f"trivia:{guild_id}:seeds:used"
+        seeds_count = await self.redis.scard(seeds_key)
+        if seeds_count > 0:
+            await self.redis.delete(seeds_key)
+
+        logger.info(
+            f"Cleared stats for guild {guild_id}: "
+            f"{deleted_games} games, {deleted_submissions} submission sets, {seeds_count} seeds"
+        )
+
+        return {
+            "games": deleted_games,
+            "submissions": deleted_submissions,
+            "seeds": seeds_count
+        }

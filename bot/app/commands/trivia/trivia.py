@@ -865,6 +865,79 @@ class TriviaCog(commands.Cog):
             ephemeral=True
         )
 
+    @trivia.command(name="clear_schedules", description="Clear all trivia schedules in a channel or entire server.")
+    @app_commands.describe(
+        channel="Channel to clear schedules from (if not provided, clears ALL schedules in server)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def clear_schedules(
+        self,
+        interaction: discord.Interaction,
+        channel: Optional[discord.TextChannel] = None
+    ) -> None:
+        """Clear all trivia schedules for a channel or entire server."""
+        store = TriviaRedisStore()
+
+        if channel:
+            # Clear schedules for specific channel
+            deleted = await store.clear_registrations_by_channel(
+                str(interaction.guild_id),
+                channel.id
+            )
+
+            if deleted == 0:
+                await interaction.response.send_message(
+                    f"No trivia schedules found for {channel.mention}.",
+                    ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    f"🗑️ Cleared {deleted} trivia schedule{'s' if deleted != 1 else ''} from {channel.mention}.",
+                    ephemeral=True
+                )
+        else:
+            # Clear ALL schedules in the server
+            deleted = await store.clear_all_registrations(str(interaction.guild_id))
+
+            if deleted == 0:
+                await interaction.response.send_message(
+                    "No trivia schedules found for this server.",
+                    ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    f"🗑️ Cleared all {deleted} trivia schedule{'s' if deleted != 1 else ''} from this server.",
+                    ephemeral=True
+                )
+
+    @trivia.command(name="clear_stats", description="Clear all trivia stats and leaderboard for this server.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def clear_stats(self, interaction: discord.Interaction) -> None:
+        """Clear all trivia game history and statistics."""
+        # Defer since this might take a moment
+        await interaction.response.defer(ephemeral=True)
+
+        store = TriviaRedisStore()
+        result = await store.clear_all_stats(str(interaction.guild_id))
+
+        total_cleared = result["games"] + result["submissions"] + result["seeds"]
+
+        if total_cleared == 0:
+            await interaction.followup.send(
+                "No trivia stats found to clear.",
+                ephemeral=True
+            )
+        else:
+            msg_parts = [
+                "🗑️ Cleared all trivia stats:",
+                f"• {result['games']} game{'s' if result['games'] != 1 else ''} removed from history",
+                f"• {result['submissions']} submission set{'s' if result['submissions'] != 1 else ''} deleted",
+                f"• {result['seeds']} seed{'s' if result['seeds'] != 1 else ''} cleared",
+                "",
+                "⚠️ Leaderboard has been reset. Active games are preserved."
+            ]
+            await interaction.followup.send("\n".join(msg_parts), ephemeral=True)
+
     @trivia.command(name="answer", description="Submit your answer to the current trivia question.")
     @app_commands.describe(message="Your answer to the trivia question")
     async def answer(self, interaction: discord.Interaction, message: str) -> None:
