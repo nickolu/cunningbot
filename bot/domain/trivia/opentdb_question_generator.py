@@ -2,6 +2,7 @@
 High-level wrapper for OpenTDB question generation with AI fallback.
 """
 
+import asyncio
 import logging
 import random
 from typing import Dict, List, Optional, Set, Tuple
@@ -83,8 +84,11 @@ async def generate_trivia_questions_from_opentdb(
     questions = []
 
     try:
-        # Fetch questions by difficulty
+        # Fetch questions by difficulty with delays to avoid rate limiting
+        # OpenTDB rate limits: 1 request per 5 seconds
+
         if easy_count > 0:
+            logger.info(f"Fetching {easy_count} easy questions from OpenTDB")
             easy_questions = await client.fetch_questions(
                 amount=easy_count,
                 category=category_id,
@@ -100,7 +104,13 @@ async def generate_trivia_questions_from_opentdb(
                     "source": "opentdb"
                 })
 
+            # Add delay if we need to fetch more questions
+            if medium_count > 0 or hard_count > 0:
+                logger.info("Waiting 6 seconds to avoid OpenTDB rate limit...")
+                await asyncio.sleep(6)
+
         if medium_count > 0:
+            logger.info(f"Fetching {medium_count} medium questions from OpenTDB")
             medium_questions = await client.fetch_questions(
                 amount=medium_count,
                 category=category_id,
@@ -116,7 +126,13 @@ async def generate_trivia_questions_from_opentdb(
                     "source": "opentdb"
                 })
 
+            # Add delay if we need to fetch hard questions
+            if hard_count > 0:
+                logger.info("Waiting 6 seconds to avoid OpenTDB rate limit...")
+                await asyncio.sleep(6)
+
         if hard_count > 0:
+            logger.info(f"Fetching {hard_count} hard questions from OpenTDB")
             hard_questions = await client.fetch_questions(
                 amount=hard_count,
                 category=category_id,
