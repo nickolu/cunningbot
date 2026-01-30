@@ -14,8 +14,6 @@ CunningBot is a full-featured Discord bot powered by OpenAI.  It provides natura
 | `/roll` | Roll dice using expressions like `4d6`, `1d20+5`, or `d20`. Defaults to 1d20 if no expression provided. |
 | `/persona default [persona]` | Set or view the default persona for the chat in this guild. |
 | `/persona list` | List all available personas with descriptions. |
-| `/baseball agent` | Ask factual questions about baseball. |
-| `/daily-game` | Manage automated daily game reminders and view participation statistics (see [Daily Game System](#daily-game-system)). |
 
 ## Structured Image Generation
 
@@ -72,7 +70,7 @@ All of these approaches convert your parameters into a JSON structure that serve
 ### Features
 
 - **🆕 Raw JSON Support**: Pass structured JSON directly with the `json_string` parameter for maximum flexibility
-- **🔀 Smart Parameter Merging**: Combine JSON with discrete parameters - discrete parameters always override JSON conflicts  
+- **🔀 Smart Parameter Merging**: Combine JSON with discrete parameters - discrete parameters always override JSON conflicts
 - **📋 18 built-in parameters + 3 custom pairs**: Plenty of control while still fitting Discord's 25-option limit
 - **🔍 Dropdown Choices**: Many parameters include predefined choices for common photography settings
 - **⚡ Flexible Usage**: All parameters are optional - use as many or as few as needed
@@ -80,81 +78,6 @@ All of these approaches convert your parameters into a JSON structure that serve
 - **🎨 Creative Control**: Combine technical and artistic parameters for unique results
 - **✅ JSON Validation**: Clear error messages for invalid JSON with helpful examples
 - **📱 Response Display**: Final JSON structure is shown in the bot's response for transparency
-
-## Daily Game System
-
-CunningBot can automatically post daily game reminders to Discord channels at scheduled times. The system runs every 10 minutes and posts games at their scheduled Pacific time slots.
-
-### Daily Game Commands
-
-| Command | Description | Permission Required |
-|---------|-------------|-------------------|
-| `/daily-game register` | Register a new daily game or update an existing one | Administrator |
-| `/daily-game list` | List all registered daily games for this server | None |
-| `/daily-game enable` | Enable a disabled daily game | Administrator |
-| `/daily-game disable` | Temporarily disable a daily game without deleting it | Administrator |
-| `/daily-game delete` | Permanently delete a registered daily game | Administrator |
-| `/daily-game preview` | Preview what a daily game message will look like | None |
-| `/daily-game stats` | Show participation statistics for a daily game | None |
-
-### Usage Examples
-
-**Register a new daily game:**
-```
-/daily-game register name:Wordle link:https://www.nytimes.com/games/wordle hour:9 minute:30
-```
-
-**List all games:**
-```
-/daily-game list
-```
-
-**Disable a game temporarily:**
-```
-/daily-game disable name:Wordle
-```
-
-**Delete a game permanently:**
-```
-/daily-game delete name:Wordle
-```
-
-**View participation statistics:**
-```
-/daily-game stats name:Wordle
-/daily-game stats name:"My Game" start_date:"2024-01-01T00:00:00Z" end_date:"2024-01-31T23:59:59Z"
-```
-
-The stats command shows:
-- Overall participation rates for each player (e.g., "played 25/30 days (83%)")
-- Day-by-day breakdown showing which users participated each day
-- Defaults to the last 30 days if no date range is specified
-- Accepts UTC timestamps or ISO format dates for custom ranges
-
-### How It Works
-
-1. **Registration**: Administrators can register games with a name, URL, and Pacific time schedule
-2. **Scheduling**: Games are scheduled in 10-minute intervals (e.g., 9:00, 9:10, 9:20, etc.)
-3. **Posting**: At the scheduled time, the bot posts the game link to the specified channel
-4. **Threading**: Messages are automatically organized into daily threads to keep channels clean
-5. **Persistence**: Game settings are saved and persist between bot restarts
-
-### Features
-
-- **Channel-specific**: Each game is tied to a specific Discord channel
-- **Time zones**: All scheduling uses Pacific time for consistency
-- **Thread creation**: Automatically creates daily threads for each game
-- **Duplicate handling**: Games with the same name in the same channel will update the existing game
-- **Cross-channel protection**: Prevents duplicate game names across different channels
-- **Enable/disable**: Games can be temporarily disabled without losing settings
-- **Participation statistics**: Track and analyze player participation over time with flexible date ranges
-
-### Technical Details
-
-- The daily game poster runs as a separate Docker service (`dailygame`)
-- Games are checked every 10 minutes and posted at their scheduled time
-- State is persisted in `bot/domain/app_state.json`
-- All times are in Pacific timezone (`America/Los_Angeles`)
 
 ## Available Personas
 

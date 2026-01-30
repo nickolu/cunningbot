@@ -7,23 +7,5 @@
         "current_personality": ""
     },
     "844003671334977607": {
-        "daily_games": {
-            "framed.wtf": {
-                "name": "framed.wtf",
-                "link": "https://framed.wtf",
-                "hour": 0,
-                "minute": 0,
-                "channel_id": 927326877461397554,
-                "enabled": false
-            },
-            "Mini Crossword": {
-                "name": "Mini Crossword",
-                "link": "https://www.nytimes.com/crosswords/game/mini",
-                "hour": 21,
-                "minute": 0,
-                "channel_id": 927326877461397554,
-                "enabled": false
-            }
-        }
     }
 }
