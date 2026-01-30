@@ -132,11 +132,13 @@ async def generate_trivia_questions_from_opentdb(
                     "source": "opentdb"
                 })
 
-        logger.info(f"Successfully generated {len(questions)} questions from OpenTDB")
+        logger.info(f"✅ Successfully generated {len(questions)} questions from OpenTDB API")
+        logger.info(f"   Category: {opentdb_name} (mapped to {mapped_category})")
         return questions, category_id
 
     except Exception as e:
-        logger.warning(f"OpenTDB API failed: {e}. Falling back to AI generation.")
+        logger.error(f"❌ OpenTDB API failed: {e}")
+        logger.warning(f"⚠️  Falling back to AI generation for {easy_count + medium_count + hard_count} questions")
         return await _fallback_to_ai(
             easy_count + medium_count + hard_count,
             guild_id,
@@ -166,10 +168,10 @@ async def _fallback_to_ai(
     Returns:
         List of AI-generated questions
     """
-    logger.warning(f"Falling back to AI for {total_count} questions")
+    logger.info(f"🤖 Generating {total_count} questions using AI fallback")
 
     questions = []
-    for _ in range(total_count):
+    for i in range(total_count):
         seed = get_unused_seed(used_seeds, base_words, modifiers)
         q = await generate_trivia_question(seed)
         q["source"] = "ai"
@@ -177,6 +179,7 @@ async def _fallback_to_ai(
         q["seed"] = seed
         questions.append(q)
         used_seeds.add(seed)
+        logger.info(f"   Generated AI question {i+1}/{total_count} with seed: {seed}")
 
-    logger.info(f"Generated {len(questions)} questions using AI fallback")
+    logger.info(f"✅ Successfully generated {len(questions)} questions using AI")
     return questions

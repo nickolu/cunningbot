@@ -293,7 +293,7 @@ async def post_trivia_questions() -> None:
                     logger.info("Selected category: %s (mapped to %s)", opentdb_name, mapped_category)
 
                     # Post each question as a separate game
-                    for question_data in questions:
+                    for idx, question_data in enumerate(questions, 1):
                         # Calculate end time
                         now_utc = dt.datetime.now(dt.timezone.utc)
                         ends_at = now_utc + dt.timedelta(minutes=answer_window_minutes)
@@ -301,12 +301,18 @@ async def post_trivia_questions() -> None:
                         # Generate game ID
                         game_id = str(uuid.uuid4())
 
+                        # Log question details for debugging
+                        source = question_data.get("source", "opentdb")
+                        logger.info(f"📝 Posting question {idx}/{len(questions)} (source: {source})")
+                        logger.info(f"   Question: {question_data['question'][:100]}")
+                        logger.info(f"   Answer: {question_data['correct_answer']}")
+
                         # Create embed
                         embed = create_question_embed(question_data, game_id, ends_at, stats={"correct": 0, "incorrect": 0})
 
                         # Post message
                         message = await channel.send(embed=embed)
-                        logger.info("Posted trivia question to channel %s", channel.id)
+                        logger.info(f"✅ Posted trivia question to channel {channel.id} (game_id: {game_id[:8]})")
 
                         # Create thread (include OpenTDB category name)
                         thread_name = f"Trivia – {opentdb_name} – {now_pt:%Y-%m-%d %H:%M}"
@@ -341,8 +347,13 @@ async def post_trivia_questions() -> None:
 
                 elif method == "AI":
                     # Existing logic - single question with seed
-                    logger.info("Generating trivia question with seed: %s", seed)
+                    logger.info("🤖 Generating trivia question with seed: %s", seed)
                     question_data = await generate_trivia_question(seed)
+
+                    # Log question details for debugging
+                    logger.info(f"📝 Posting AI-generated question")
+                    logger.info(f"   Question: {question_data['question'][:100]}")
+                    logger.info(f"   Answer: {question_data['correct_answer']}")
 
                     # Calculate end time
                     now_utc = dt.datetime.now(dt.timezone.utc)
@@ -356,7 +367,7 @@ async def post_trivia_questions() -> None:
 
                     # Post message (no view needed - users will right-click for context menu)
                     message = await channel.send(embed=embed)
-                    logger.info("Posted trivia question to channel %s", channel.id)
+                    logger.info(f"✅ Posted AI trivia question to channel {channel.id} (game_id: {game_id[:8]})")
 
                     # Create thread
                     thread_name = f"Trivia – {question_data['category']} – {now_pt:%Y-%m-%d %H:%M}"
