@@ -7,7 +7,7 @@ This document establishes the architectural foundation for migrating CunningBot 
 ## Current State Analysis
 
 ### Existing JSON Files
-- **app_state.json** (~16KB): Guild configs, RSS feeds, trivia games, schedules, daily games, personas
+- **app_state.json** (~16KB): Guild configs, RSS feeds, trivia games, schedules, personas
 - **pending_news.json** (~2.3MB): Queued articles awaiting summary posting
 - **pending_breaking_news.json**: Breaking news validation queue
 - **story_history.json** (~34KB): Deduplication tracking with time windows
@@ -77,12 +77,6 @@ breaking:{guild_id}:channels                     # Hash: topic -> channel_id
 history:{guild_id}:stories:{channel_id}          # Sorted Set: score=timestamp, member=story_hash
 history:{guild_id}:story:{story_hash}            # String: JSON story data with TTL
 history:{guild_id}:config:dedup_window           # Hash: channel_id -> hours
-```
-
-#### Daily Games Namespace (`daily:{guild_id}:`)
-```
-daily:{guild_id}:games                           # Hash: game_name -> JSON config
-daily:{guild_id}:schedule                        # Sorted Set: score=hour*60+minute, member=game_name
 ```
 
 ### Key Naming Rules
@@ -654,10 +648,6 @@ REDIS_MAX_CONNECTIONS=20       # Per container
    - Multiple concurrent writers
    - Requires Lua scripts
 
-6. **Daily Games & Other Config** (Lowest Complexity)
-   - Simple configuration
-   - Infrequent updates
-
 ### One-Time Migration Script Strategy
 
 ```python
@@ -894,21 +884,6 @@ services:
     volumes:
       - ./bot/app:/app/bot/app
       - ./logs:/app/logs
-
-  # All background task containers
-  dailygame:
-    build: .
-    restart: unless-stopped
-    environment:
-      - DISCORD_TOKEN=${DISCORD_TOKEN}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-    depends_on:
-      redis:
-        condition: service_healthy
-    volumes:
-      - ./bot/app:/app/bot/app
-    command: bash -c "while true; do python -m bot.app.tasks.daily_game_poster; sleep 600; done"
 
   # ... (rssfeed, rsssummary, breaking-news-validator, trivia-poster, trivia-closer)
   # All with same Redis environment variables and dependencies

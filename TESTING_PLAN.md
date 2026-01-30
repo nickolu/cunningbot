@@ -188,180 +188,6 @@ Unit tests should focus on business logic, data processing, and utility function
    - Test when task_queue is unavailable
    - Verify error message is ephemeral
 
-### `/baseball agent` Command
-**Location:** `bot/app/commands/baseball/agent.py`
-
-**Test Scenarios:**
-
-1. **Basic Agent Query**
-   - Send simple baseball query (e.g., "Who won the World Series in 2023?")
-   - Verify response is received
-   - Verify response includes user message in formatted output
-
-2. **API Integration**
-   - Test with query requiring live API data
-   - Verify agent calls appropriate API endpoints
-   - Test behavior when API is unavailable
-
-3. **Error Handling**
-   - Test with invalid prompt
-   - Test with API timeout
-   - Test with API rate limiting
-
-### `/daily-game` Command Group
-**Location:** `bot/app/commands/daily_game/daily_game.py`
-
-#### `/daily-game register`
-
-**Test Scenarios:**
-
-1. **Basic Registration**
-   - Register new game with valid name, link, hour, minute
-   - Verify game is saved to app state
-   - Verify confirmation message includes channel mention and formatted time
-
-2. **Validation**
-   - Test with invalid URL (no http/https)
-   - Test with invalid minute (not in [0, 10, 20, 30, 40, 50])
-   - Test with invalid hour (< 0 or > 23)
-
-3. **Uniqueness**
-   - Try to register same game name in different channel
-   - Verify error message prevents duplicate names across channels
-
-4. **Update Existing Game**
-   - Register game, then register again with different settings
-   - Verify game is updated (not duplicated)
-
-5. **Permissions**
-   - Test without administrator permission
-   - Verify command is rejected
-
-#### `/daily-game enable`
-
-**Test Scenarios:**
-
-1. **Enable Disabled Game**
-   - Disable a game, then enable it
-   - Verify enabled flag is set to True
-   - Verify confirmation message
-
-2. **Enable Non-existent Game**
-   - Try to enable game that doesn't exist
-   - Verify error message
-
-3. **Permissions**
-   - Test without administrator permission
-
-#### `/daily-game disable`
-
-**Test Scenarios:**
-
-1. **Disable Enabled Game**
-   - Enable a game, then disable it
-   - Verify enabled flag is set to False
-   - Verify confirmation message
-
-2. **Disable Non-existent Game**
-   - Try to disable game that doesn't exist
-   - Verify error message
-
-3. **Permissions**
-   - Test without administrator permission
-
-#### `/daily-game delete`
-
-**Test Scenarios:**
-
-1. **Delete Existing Game**
-   - Register a game, then delete it
-   - Verify game is removed from app state
-   - Verify confirmation message includes channel mention
-
-2. **Delete Non-existent Game**
-   - Try to delete game that doesn't exist
-   - Verify error message
-
-3. **Permissions**
-   - Test without administrator permission
-
-#### `/daily-game list`
-
-**Test Scenarios:**
-
-1. **List All Games**
-   - Register multiple games (enabled and disabled)
-   - Verify all games appear in list
-   - Verify status indicators (✅ / 🚫)
-   - Verify channel mentions are correct
-   - Verify times are formatted correctly (HH:MM)
-
-2. **List When No Games**
-   - Call list when no games registered
-   - Verify appropriate message
-
-3. **Embed Formatting**
-   - Verify embed color (green if any enabled, red if all disabled)
-   - Verify footer shows total game count
-
-#### `/daily-game preview`
-
-**Test Scenarios:**
-
-1. **Preview Registered Game**
-   - Register a game, then preview it
-   - Verify message format matches actual poster format
-   - Verify game details are shown (status, channel, time)
-
-2. **Preview Non-existent Game**
-   - Try to preview game that doesn't exist
-   - Verify error message
-
-#### `/daily-game stats`
-
-**Test Scenarios:**
-
-1. **Basic Stats Query**
-   - Generate stats for a game with participation data
-   - Verify user participation counts are correct
-   - Verify percentages are calculated correctly
-   - Verify daily breakdown is shown (most recent first)
-
-2. **Date Range**
-   - Test with default date range (30 days)
-   - Test with custom start_date
-   - Test with custom end_date
-   - Test with both start_date and end_date
-
-3. **Date Parsing**
-   - Test with Unix timestamp
-   - Test with ISO format
-   - Test with invalid format
-
-4. **Date Validation**
-   - Test with start_date >= end_date
-   - Test with date range > 365 days
-   - Test with future start_date
-   - Test with future end_date
-
-5. **Channel Validation**
-   - Test in correct channel (where game is registered)
-   - Test in wrong channel
-   - Verify error message includes correct channel mention
-
-6. **No Participation Data**
-   - Test game with no participants
-   - Verify appropriate message
-
-7. **Long Response Handling**
-   - Test game with many participants over long date range
-   - Verify response is split into multiple messages if > 2000 chars
-
-8. **Error Handling**
-   - Test with non-TextChannel
-   - Test with invalid game name
-   - Test with stats analysis failure
-
 ### `/persona` Command Group
 **Location:** `bot/app/commands/persona/default.py`
 
@@ -640,43 +466,6 @@ Unit tests should focus on business logic, data processing, and utility function
    - Test factory creates client with specified model
    - Test factory with default model
 
-### Daily Game Stats Service
-**Location:** `bot/domain/daily_game/daily_game_stats_service.py`
-
-**Test Scenarios:**
-
-1. **get_default_date_range**
-   - Verify returns last 30 days
-   - Verify start_date is at midnight (00:00:00)
-   - Verify end_date is current time
-
-2. **parse_utc_timestamp**
-   - Test with Unix timestamp string
-   - Test with ISO format string
-   - Test with ISO format with 'Z'
-   - Test with invalid format
-   - Verify timezone is always UTC
-
-3. **validate_date_range**
-   - Test valid range
-   - Test start_date >= end_date (should raise ValueError)
-   - Test range > 365 days (should raise ValueError)
-   - Test future start_date (should raise ValueError)
-   - Test future end_date (should raise ValueError)
-
-4. **format_stats_response**
-   - Test with valid GameStatsResult
-   - Test with no participation data
-   - Verify user mentions are formatted correctly
-   - Verify participation counts and percentages are correct
-   - Verify dates are formatted correctly (MM/DD/YYYY)
-   - Verify daily breakdown is in reverse chronological order
-
-5. **User Lookup**
-   - Test with valid user IDs (user exists in bot)
-   - Test with invalid user IDs (user not found)
-   - Verify fallback to "<@USER_ID>" format
-
 ### OpenAI Utilities
 **Location:** `bot/api/openai/utils.py` (assumed)
 
@@ -780,8 +569,6 @@ tests/
 │   │   ├── test_image_command.py
 │   │   ├── test_roll_command.py
 │   │   ├── test_queue_command.py
-│   │   ├── test_baseball_command.py
-│   │   ├── test_daily_game_commands.py
 │   │   ├── test_persona_commands.py
 │   │   └── test_poll_commands.py
 │   └── test_task_queue_integration.py
@@ -790,7 +577,6 @@ tests/
 │   ├── test_dice_roller.py
 │   ├── test_chat_service.py
 │   ├── test_image_generation_client.py
-│   ├── test_daily_game_stats_service.py
 │   ├── test_openai_utils.py
 │   ├── test_discord_utils.py
 │   ├── test_file_service.py
@@ -913,14 +699,6 @@ tests/
 | `/image` | `bot/app/commands/image/image.py` | Generate or edit images (OpenAI/Gemini) |
 | `/roll` | `bot/app/commands/dice/roll.py` | Roll dice with complex expressions |
 | `/queue` | `bot/app/commands/queue.py` | Check task queue status |
-| `/baseball agent` | `bot/app/commands/baseball/agent.py` | Baseball API queries via agent |
-| `/daily-game register` | `bot/app/commands/daily_game/daily_game.py` | Register daily game reminder |
-| `/daily-game enable` | `bot/app/commands/daily_game/daily_game.py` | Enable daily game |
-| `/daily-game disable` | `bot/app/commands/daily_game/daily_game.py` | Disable daily game |
-| `/daily-game delete` | `bot/app/commands/daily_game/daily_game.py` | Delete daily game |
-| `/daily-game list` | `bot/app/commands/daily_game/daily_game.py` | List all daily games |
-| `/daily-game preview` | `bot/app/commands/daily_game/daily_game.py` | Preview daily game message |
-| `/daily-game stats` | `bot/app/commands/daily_game/daily_game.py` | Show participation stats |
 | `/persona default` | `bot/app/commands/persona/default.py` | Set/view default persona |
 | `/persona show` | `bot/app/commands/persona/default.py` | Show all available personas |
 | `/poll` | `bot/app/commands/event/poll.py` | Create poll with emoji voting |

@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from bot.api.opentdb.opentdb_client import OpenTDBClient
 from bot.domain.trivia.question_seeds import get_unused_seed
-from bot.domain.trivia.question_generator import generate_trivia_question
+from bot.domain.trivia.question_generator import generate_trivia_question, generate_trivia_questions_batch
 
 logger = logging.getLogger(__name__)
 
@@ -156,16 +156,20 @@ async def generate_trivia_questions_from_opentdb(
         logger.error(f"❌ OpenTDB API failed: {e}")
         logger.warning(f"⚠️  Falling back to AI generation for {easy_count + medium_count + hard_count} questions")
         return await _fallback_to_ai(
-            easy_count + medium_count + hard_count,
-            guild_id,
-            used_seeds or set(),
-            base_words,
-            modifiers
+            easy_count=easy_count,
+            medium_count=medium_count,
+            hard_count=hard_count,
+            guild_id=guild_id,
+            used_seeds=used_seeds or set(),
+            base_words=base_words,
+            modifiers=modifiers
         ), category_id
 
 
 async def _fallback_to_ai(
-    total_count: int,
+    easy_count: int,
+    medium_count: int,
+    hard_count: int,
     guild_id: Optional[str],
     used_seeds: Set,
     base_words: Optional[List[str]],
@@ -174,8 +178,13 @@ async def _fallback_to_ai(
     """
     Generate questions using AI when OpenTDB fails.
 
+    Uses batch generation to create all questions in a single LLM call
+    with a shared theme and specified difficulty distribution.
+
     Args:
-        total_count: Total number of questions to generate
+        easy_count: Number of easy questions
+        medium_count: Number of medium questions
+        hard_count: Number of hard questions
         guild_id: Guild ID for seed tracking
         used_seeds: Set of already used seeds
         base_words: Optional base words for seed generation
@@ -184,18 +193,27 @@ async def _fallback_to_ai(
     Returns:
         List of AI-generated questions
     """
-    logger.info(f"🤖 Generating {total_count} questions using AI fallback")
+    total_count = easy_count + medium_count + hard_count
+    logger.info(f"🤖 Generating {total_count} questions using AI fallback (batch mode)")
+    logger.info(f"   Distribution: {easy_count} easy, {medium_count} medium, {hard_count} hard")
 
-    questions = []
-    for i in range(total_count):
-        seed = get_unused_seed(used_seeds, base_words, modifiers)
-        q = await generate_trivia_question(seed)
+    # Generate a single seed for the entire batch (shared theme)
+    seed = get_unused_seed(used_seeds, base_words, modifiers)
+    used_seeds.add(seed)
+    logger.info(f"   Using seed for batch: {seed}")
+
+    # Generate all questions in a single LLM call
+    questions = await generate_trivia_questions_batch(
+        seed=seed,
+        easy_count=easy_count,
+        medium_count=medium_count,
+        hard_count=hard_count
+    )
+
+    # Add metadata to each question
+    for q in questions:
         q["source"] = "ai"
-        q["difficulty"] = None
         q["seed"] = seed
-        questions.append(q)
-        used_seeds.add(seed)
-        logger.info(f"   Generated AI question {i+1}/{total_count} with seed: {seed}")
 
-    logger.info(f"✅ Successfully generated {len(questions)} questions using AI")
+    logger.info(f"✅ Successfully generated {len(questions)} questions using AI batch generation")
     return questions

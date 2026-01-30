@@ -37,21 +37,6 @@ services:
     # Note: Using volumes for the core directory allows state persistence
     # between container restarts without rebuilding the image
     # The specific app_state.json mapping ensures personality settings remain intact
-  dailygame:
-    build: .
-    restart: unless-stopped
-    environment:
-      - DISCORD_TOKEN=${DISCORD_TOKEN}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_DB=0
-      - REDIS_PASSWORD=
-    volumes:
-      - ./bot/app:/app/bot/app
-    depends_on:
-      redis:
-        condition: service_healthy
-    command: bash -c "while true; do python -m bot.app.tasks.daily_game_poster; sleep 600; done"
   rssfeed:
     build: .
     restart: unless-stopped
