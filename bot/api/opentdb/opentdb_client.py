@@ -92,14 +92,25 @@ class OpenTDBClient:
 
                         questions = []
                         for item in results:
+                            decoded_question = html.unescape(item["question"])
+                            decoded_answer = html.unescape(item["correct_answer"])
+                            decoded_category = html.unescape(item["category"])
+
                             questions.append({
-                                "question": html.unescape(item["question"]),
-                                "correct_answer": html.unescape(item["correct_answer"]),
-                                "category": html.unescape(item["category"]),
+                                "question": decoded_question,
+                                "correct_answer": decoded_answer,
+                                "category": decoded_category,
                                 "difficulty": item["difficulty"]
                             })
 
                         logger.info(f"Successfully fetched {len(questions)} questions from OpenTDB (category: {category}, difficulty: {difficulty})")
+
+                        # Log first question as sample to verify HTML decoding
+                        if questions:
+                            sample = questions[0]
+                            logger.info(f"Sample question (decoded): {sample['question'][:100]}")
+                            logger.info(f"Sample answer (decoded): {sample['correct_answer']}")
+
                         return questions
 
             except asyncio.TimeoutError:
