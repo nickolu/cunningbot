@@ -36,6 +36,35 @@ logging.basicConfig(level=logging.INFO)
 
 PACIFIC_TZ = ZoneInfo("America/Los_Angeles")
 
+
+def sanitize_answer_for_display(answer: str, max_length: int = 100) -> str:
+    """Sanitize and truncate user answer for display in embed.
+
+    Args:
+        answer: Raw answer text
+        max_length: Maximum length before truncation
+
+    Returns:
+        Sanitized answer string safe for Discord embed
+    """
+    if not answer or not answer.strip():
+        return "(no answer)"
+
+    # Trim whitespace
+    answer = answer.strip()
+
+    # Escape markdown characters to prevent formatting issues
+    # Discord markdown: * _ ~ ` | >
+    markdown_chars = ['*', '_', '~', '`', '|', '>']
+    for char in markdown_chars:
+        answer = answer.replace(char, f'\\{char}')
+
+    # Truncate if too long
+    if len(answer) > max_length:
+        answer = answer[:max_length] + "..."
+
+    return answer
+
 async def close_expired_games() -> None:
     """Close expired games using Redis (atomic, with distributed locks)."""
     token = os.getenv("DISCORD_TOKEN")
@@ -204,11 +233,6 @@ async def close_expired_games() -> None:
 
                                 if isinstance(thread, discord.Thread):
                                     # Build results message
-                                    correct_users = [
-                                        uid for uid, sub in validated_submissions.items()
-                                        if sub["is_correct"]
-                                    ]
-
                                     embed = discord.Embed(
                                         title="✅ Trivia Results",
                                         color=0x00FF00,
@@ -234,25 +258,76 @@ async def close_expired_games() -> None:
                                             inline=False
                                         )
 
-                                    # List correct users
-                                    if correct_users:
-                                        user_mentions = []
-                                        for uid in correct_users:
-                                            try:
-                                                user = await client.fetch_user(int(uid))
-                                                user_mentions.append(user.mention)
-                                            except Exception:
-                                                user_mentions.append(f"<@{uid}>")
+                                    # Batch fetch users before building results
+                                    user_cache = {}
+                                    for user_id in validated_submissions.keys():
+                                        try:
+                                            user = await client.fetch_user(int(user_id))
+                                            user_cache[user_id] = user
+                                        except discord.NotFound:
+                                            # User left server or deleted account
+                                            user_cache[user_id] = None
+                                            logger.warning(f"User {user_id} not found")
+                                        except Exception as exc:
+                                            logger.warning(f"Error fetching user {user_id}: {exc}")
+                                            user_cache[user_id] = None
+
+                                    # Group submissions by correctness
+                                    correct_submissions = []
+                                    incorrect_submissions = []
+
+                                    for user_id, submission in validated_submissions.items():
+                                        user = user_cache.get(user_id)
+                                        if user is None:
+                                            # Handle deleted/missing user
+                                            user_mention = f"<@{user_id}>"  # Discord will show "Unknown User"
+                                        else:
+                                            user_mention = user.mention
+
+                                        answer = submission["answer"]
+                                        sanitized_answer = sanitize_answer_for_display(answer)
+
+                                        if submission["is_correct"]:
+                                            correct_submissions.append((user_mention, sanitized_answer))
+                                        else:
+                                            incorrect_submissions.append((user_mention, sanitized_answer))
+
+                                    # Display correct answers
+                                    if correct_submissions:
+                                        correct_text = []
+                                        for user_mention, answer in correct_submissions:
+                                            correct_text.append(f"• {user_mention}: **{answer}**")
 
                                         embed.add_field(
-                                            name=f"🎉 Correct ({len(correct_users)})",
-                                            value="\n".join(user_mentions),
+                                            name=f"✅ Correct ({len(correct_submissions)})",
+                                            value="\n".join(correct_text),
                                             inline=False
                                         )
-                                    else:
+
+                                    # Display incorrect answers
+                                    if incorrect_submissions:
+                                        incorrect_text = []
+                                        for user_mention, answer in incorrect_submissions:
+                                            incorrect_text.append(f"• {user_mention}: {answer}")
+
+                                        # Discord embed field value limit is 1024 chars
+                                        # If too many incorrect answers, split or truncate
+                                        incorrect_value = "\n".join(incorrect_text)
+                                        if len(incorrect_value) > 1024:
+                                            # Truncate and add note
+                                            incorrect_value = incorrect_value[:1000] + "\n... and more"
+
+                                        embed.add_field(
+                                            name=f"❌ Incorrect ({len(incorrect_submissions)})",
+                                            value=incorrect_value,
+                                            inline=False
+                                        )
+
+                                    # If nobody answered
+                                    if not correct_submissions and not incorrect_submissions:
                                         embed.add_field(
                                             name="Results",
-                                            value="No one got it correct this time!",
+                                            value="No one answered this question.",
                                             inline=False
                                         )
 
