@@ -14,6 +14,10 @@ from bot.app.redis.trivia_store import TriviaRedisStore
 from bot.domain.trivia.trivia_stats_service import TriviaStatsService
 from bot.domain.trivia.question_seeds import CATEGORIES, get_unused_seed
 from bot.domain.trivia.question_generator import generate_trivia_question
+from bot.domain.trivia.opentdb_question_generator import (
+    generate_trivia_questions_from_opentdb,
+    OPENTDB_CATEGORIES
+)
 from bot.app.utils.logger import get_logger
 from bot.app.commands.trivia.trivia_views import TriviaAnswerModal
 from bot.app.commands.trivia.trivia_submission_handler import submit_trivia_answer
@@ -171,8 +175,18 @@ class TriviaCog(commands.Cog):
         schedule="Comma-separated times in Pacific timezone (e.g., '8:00,12:00,17:00')",
         answer_window="How long users can answer (e.g., '1h', '30m', '2h')",
         channel="Channel to post in (defaults to current channel)",
-        base_words="Optional: comma-separated list of topic words (fallback to defaults if not set)",
-        modifiers="Optional: comma-separated list of modifier words (fallback to defaults if not set)"
+        method="Question source (default: OpenTrivia)",
+        easy_count="Number of easy questions per session (OpenTrivia only, default: 3)",
+        medium_count="Number of medium questions per session (OpenTrivia only, default: 2)",
+        hard_count="Number of hard questions per session (OpenTrivia only, default: 1)",
+        base_words="Optional: comma-separated list of topic words (AI only)",
+        modifiers="Optional: comma-separated list of modifier words (AI only)"
+    )
+    @app_commands.choices(
+        method=[
+            app_commands.Choice(name="OpenTrivia (Default)", value="OpenTrivia"),
+            app_commands.Choice(name="AI (Seed-based)", value="AI")
+        ]
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def register(
@@ -181,6 +195,10 @@ class TriviaCog(commands.Cog):
         schedule: str,
         answer_window: str,
         channel: Optional[discord.TextChannel] = None,
+        method: Optional[str] = "OpenTrivia",
+        easy_count: Optional[int] = 3,
+        medium_count: Optional[int] = 2,
+        hard_count: Optional[int] = 1,
         base_words: Optional[str] = None,
         modifiers: Optional[str] = None
     ) -> None:
@@ -209,25 +227,42 @@ class TriviaCog(commands.Cog):
         # Generate unique registration ID
         registration_id = str(uuid.uuid4())
 
-        # Parse custom seed words if provided
+        # Validate difficulty counts for OpenTrivia
+        if method == "OpenTrivia":
+            if easy_count + medium_count + hard_count == 0:
+                await interaction.response.send_message(
+                    "❌ At least one difficulty count must be greater than 0.", ephemeral=True
+                )
+                return
+
+            # Warn if AI-specific params provided
+            if base_words or modifiers:
+                logger.warning("base_words/modifiers ignored for OpenTrivia method")
+
+        # Parse custom seed words if provided for AI method
         custom_base_words = None
         custom_modifiers = None
 
-        if base_words:
-            custom_base_words = [w.strip() for w in base_words.split(",") if w.strip()]
-            if len(custom_base_words) < 2:
-                await interaction.response.send_message(
-                    "❌ Base words must contain at least 2 words.", ephemeral=True
-                )
-                return
+        if method == "AI":
+            if base_words:
+                custom_base_words = [w.strip() for w in base_words.split(",") if w.strip()]
+                if len(custom_base_words) < 2:
+                    await interaction.response.send_message(
+                        "❌ Base words must contain at least 2 words.", ephemeral=True
+                    )
+                    return
 
-        if modifiers:
-            custom_modifiers = [m.strip() for m in modifiers.split(",") if m.strip()]
-            if len(custom_modifiers) < 2:
-                await interaction.response.send_message(
-                    "❌ Modifiers must contain at least 2 words.", ephemeral=True
-                )
-                return
+            if modifiers:
+                custom_modifiers = [m.strip() for m in modifiers.split(",") if m.strip()]
+                if len(custom_modifiers) < 2:
+                    await interaction.response.send_message(
+                        "❌ Modifiers must contain at least 2 words.", ephemeral=True
+                    )
+                    return
+
+            # Warn if OpenTrivia-specific params provided
+            if easy_count != 3 or medium_count != 2 or hard_count != 1:
+                logger.warning("Difficulty counts ignored for AI method")
 
         # Create registration data
         reg_data = {
@@ -235,14 +270,19 @@ class TriviaCog(commands.Cog):
             "schedule_times": schedule_times,
             "answer_window_minutes": answer_window_minutes,
             "enabled": True,
+            "method": method,
             "created_at": dt.datetime.now(dt.timezone.utc).isoformat()
         }
 
-        # Add custom seed words if provided
-        if custom_base_words:
-            reg_data["base_words"] = custom_base_words
-        if custom_modifiers:
-            reg_data["modifiers"] = custom_modifiers
+        if method == "OpenTrivia":
+            reg_data["easy_count"] = easy_count
+            reg_data["medium_count"] = medium_count
+            reg_data["hard_count"] = hard_count
+        elif method == "AI":
+            if custom_base_words:
+                reg_data["base_words"] = custom_base_words
+            if custom_modifiers:
+                reg_data["modifiers"] = custom_modifiers
 
         # Save to Redis
         store = TriviaRedisStore()
@@ -256,12 +296,18 @@ class TriviaCog(commands.Cog):
             f"• Channel: {target_channel.mention}",
             f"• Schedule: {times_str} (Pacific time)",
             f"• Answer window: {answer_window}",
+            f"• Method: {method}"
         ]
 
-        if custom_base_words:
-            msg_parts.append(f"• Custom topics: {len(custom_base_words)} words")
-        if custom_modifiers:
-            msg_parts.append(f"• Custom modifiers: {len(custom_modifiers)} words")
+        if method == "OpenTrivia":
+            total = easy_count + medium_count + hard_count
+            msg_parts.append(f"• Questions per session: {total} ({easy_count} easy, {medium_count} medium, {hard_count} hard)")
+            msg_parts.append("• Category: Random (from OpenTDB)")
+        elif method == "AI":
+            if custom_base_words:
+                msg_parts.append(f"• Custom topics: {len(custom_base_words)} words")
+            if custom_modifiers:
+                msg_parts.append(f"• Custom modifiers: {len(custom_modifiers)} words")
 
         msg_parts.append(f"• Registration ID: `{registration_id[:8]}...`")
 
@@ -271,8 +317,18 @@ class TriviaCog(commands.Cog):
     @app_commands.describe(
         channel="Channel to post in (defaults to current channel)",
         answer_window="How long users can answer (e.g., '1h', '30m', '2h') - defaults to 1h",
-        base_words="Optional: comma-separated list of topic words (fallback to defaults if not set)",
-        modifiers="Optional: comma-separated list of modifier words (fallback to defaults if not set)"
+        method="Question source (default: OpenTrivia)",
+        easy_count="Number of easy questions (OpenTrivia only, default: 3)",
+        medium_count="Number of medium questions (OpenTrivia only, default: 2)",
+        hard_count="Number of hard questions (OpenTrivia only, default: 1)",
+        base_words="Optional: comma-separated list of topic words (AI only)",
+        modifiers="Optional: comma-separated list of modifier words (AI only)"
+    )
+    @app_commands.choices(
+        method=[
+            app_commands.Choice(name="OpenTrivia (Default)", value="OpenTrivia"),
+            app_commands.Choice(name="AI (Seed-based)", value="AI")
+        ]
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def post_now(
@@ -280,6 +336,10 @@ class TriviaCog(commands.Cog):
         interaction: discord.Interaction,
         channel: Optional[discord.TextChannel] = None,
         answer_window: Optional[str] = None,
+        method: Optional[str] = "OpenTrivia",
+        easy_count: Optional[int] = 3,
+        medium_count: Optional[int] = 2,
+        hard_count: Optional[int] = 1,
         base_words: Optional[str] = None,
         modifiers: Optional[str] = None
     ) -> None:
@@ -305,96 +365,184 @@ class TriviaCog(commands.Cog):
             )
             return
 
-        # Parse custom seed words if provided
+        # Validate method-specific parameters
+        if method == "OpenTrivia":
+            if easy_count + medium_count + hard_count == 0:
+                await interaction.followup.send(
+                    "❌ At least one difficulty count must be greater than 0.", ephemeral=True
+                )
+                return
+
+        # Parse custom seed words if provided for AI method
         custom_base_words = None
         custom_modifiers = None
 
-        if base_words:
-            custom_base_words = [w.strip() for w in base_words.split(",") if w.strip()]
-            if len(custom_base_words) < 2:
-                await interaction.followup.send(
-                    "❌ Base words must contain at least 2 words.", ephemeral=True
-                )
-                return
+        if method == "AI":
+            if base_words:
+                custom_base_words = [w.strip() for w in base_words.split(",") if w.strip()]
+                if len(custom_base_words) < 2:
+                    await interaction.followup.send(
+                        "❌ Base words must contain at least 2 words.", ephemeral=True
+                    )
+                    return
 
-        if modifiers:
-            custom_modifiers = [m.strip() for m in modifiers.split(",") if m.strip()]
-            if len(custom_modifiers) < 2:
-                await interaction.followup.send(
-                    "❌ Modifiers must contain at least 2 words.", ephemeral=True
-                )
-                return
+            if modifiers:
+                custom_modifiers = [m.strip() for m in modifiers.split(",") if m.strip()]
+                if len(custom_modifiers) < 2:
+                    await interaction.followup.send(
+                        "❌ Modifiers must contain at least 2 words.", ephemeral=True
+                    )
+                    return
 
         try:
-            # Get used seeds from Redis
             store = TriviaRedisStore()
-            used_seeds = await store.get_used_seeds(str(interaction.guild_id))
 
-            # Generate new seed with custom words if provided
-            seed = get_unused_seed(used_seeds, custom_base_words, custom_modifiers)
-
-            # Generate question
-            logger.info(f"Generating trivia question with seed: {seed}")
-            question_data = await generate_trivia_question(seed)
-
-            # Calculate end time
-            now_utc = dt.datetime.now(dt.timezone.utc)
-            ends_at = now_utc + dt.timedelta(minutes=answer_window_minutes)
-
-            # Generate game ID
-            game_id = str(uuid.uuid4())
-
-            # Create embed with initial stats (no answers yet)
-            embed = create_question_embed(question_data, game_id, ends_at, stats={"correct": 0, "incorrect": 0})
-
-            # Post message (no view needed - users will right-click for context menu)
-            message = await target_channel.send(embed=embed)
-            logger.info(f"Posted trivia question to channel {target_channel.id}")
-
-            # Create thread
-            now_pt = dt.datetime.now(PACIFIC_TZ)
-            thread_name = f"Trivia – {question_data['category']} – {now_pt:%Y-%m-%d %H:%M}"
-            thread = None
-            try:
-                thread = await message.create_thread(
-                    name=thread_name,
-                    auto_archive_duration=1440  # 24 hours
+            if method == "OpenTrivia":
+                # Generate questions from OpenTDB (all from same category)
+                questions, category_id = await generate_trivia_questions_from_opentdb(
+                    easy_count=easy_count,
+                    medium_count=medium_count,
+                    hard_count=hard_count,
+                    guild_id=str(interaction.guild_id),
+                    used_seeds=set(),  # Don't track for manual posts
+                    base_words=None,
+                    modifiers=None
                 )
-                logger.info(f"Created thread '{thread_name}' for trivia game")
-            except discord.HTTPException as exc:
-                logger.error(f"Failed to create thread: {exc}")
 
-            # Store game data
-            game_data = {
-                "registration_id": None,  # Manual post, not from a registration
-                "channel_id": target_channel.id,
-                "thread_id": thread.id if thread else None,
-                "question": question_data["question"],
-                "correct_answer": question_data["correct_answer"],
-                "category": question_data["category"],
-                "explanation": question_data["explanation"],
-                "seed": seed,
-                "started_at": now_utc.isoformat(),
-                "ends_at": ends_at.isoformat(),
-                "message_id": message.id,
-            }
+                # Get category display name
+                opentdb_name, mapped_category = OPENTDB_CATEGORIES[category_id]
 
-            # Store in Redis
-            await store.create_game(str(interaction.guild_id), game_id, game_data)
+                # Post each question as separate game
+                game_ids = []
+                for question_data in questions:
+                    # Calculate end time
+                    now_utc = dt.datetime.now(dt.timezone.utc)
+                    ends_at = now_utc + dt.timedelta(minutes=answer_window_minutes)
 
-            # Mark seed as used in Redis (atomic operation)
-            await store.mark_seed_used(str(interaction.guild_id), seed)
+                    # Generate game ID
+                    game_id = str(uuid.uuid4())
 
-            logger.info(f"Saved game state for game_id {game_id[:8]}")
+                    # Create embed
+                    embed = create_question_embed(question_data, game_id, ends_at, stats={"correct": 0, "incorrect": 0})
 
-            await interaction.followup.send(
-                f"✅ Trivia question posted!\n"
-                f"• Channel: {target_channel.mention}\n"
-                f"• Category: {question_data['category']}\n"
-                f"• Answer window: {answer_window_minutes} minutes\n"
-                f"• Ends: <t:{int(ends_at.timestamp())}:R>",
-                ephemeral=True
-            )
+                    # Post message
+                    message = await target_channel.send(embed=embed)
+                    logger.info(f"Posted trivia question to channel {target_channel.id}")
+
+                    # Create thread
+                    now_pt = dt.datetime.now(PACIFIC_TZ)
+                    thread_name = f"Trivia – {opentdb_name} – {now_pt:%Y-%m-%d %H:%M}"
+                    thread = None
+                    try:
+                        thread = await message.create_thread(
+                            name=thread_name,
+                            auto_archive_duration=1440  # 24 hours
+                        )
+                        logger.info(f"Created thread '{thread_name}' for trivia game")
+                    except discord.HTTPException as exc:
+                        logger.error(f"Failed to create thread: {exc}")
+
+                    # Store game data
+                    game_data = {
+                        "registration_id": None,  # Manual post
+                        "channel_id": target_channel.id,
+                        "thread_id": thread.id if thread else None,
+                        "question": question_data["question"],
+                        "correct_answer": question_data["correct_answer"],
+                        "category": mapped_category,
+                        "explanation": question_data.get("explanation", ""),
+                        "difficulty": question_data.get("difficulty"),
+                        "source": "opentdb",
+                        "started_at": now_utc.isoformat(),
+                        "ends_at": ends_at.isoformat(),
+                        "message_id": message.id,
+                    }
+
+                    await store.create_game(str(interaction.guild_id), game_id, game_data)
+                    game_ids.append(game_id[:8])
+                    logger.info(f"Saved game state for game_id {game_id[:8]}")
+
+                # Confirmation message
+                await interaction.followup.send(
+                    f"✅ {len(questions)} trivia questions posted!\n"
+                    f"• Channel: {target_channel.mention}\n"
+                    f"• Category: {opentdb_name}\n"
+                    f"• Difficulties: {easy_count} easy, {medium_count} medium, {hard_count} hard\n"
+                    f"• Answer window: {answer_window_minutes} minutes\n"
+                    f"• Game IDs: {', '.join(game_ids)}",
+                    ephemeral=True
+                )
+
+            elif method == "AI":
+                # Get used seeds from Redis
+                used_seeds = await store.get_used_seeds(str(interaction.guild_id))
+
+                # Generate new seed with custom words if provided
+                seed = get_unused_seed(used_seeds, custom_base_words, custom_modifiers)
+
+                # Generate question
+                logger.info(f"Generating trivia question with seed: {seed}")
+                question_data = await generate_trivia_question(seed)
+
+                # Calculate end time
+                now_utc = dt.datetime.now(dt.timezone.utc)
+                ends_at = now_utc + dt.timedelta(minutes=answer_window_minutes)
+
+                # Generate game ID
+                game_id = str(uuid.uuid4())
+
+                # Create embed with initial stats (no answers yet)
+                embed = create_question_embed(question_data, game_id, ends_at, stats={"correct": 0, "incorrect": 0})
+
+                # Post message (no view needed - users will right-click for context menu)
+                message = await target_channel.send(embed=embed)
+                logger.info(f"Posted trivia question to channel {target_channel.id}")
+
+                # Create thread
+                now_pt = dt.datetime.now(PACIFIC_TZ)
+                thread_name = f"Trivia – {question_data['category']} – {now_pt:%Y-%m-%d %H:%M}"
+                thread = None
+                try:
+                    thread = await message.create_thread(
+                        name=thread_name,
+                        auto_archive_duration=1440  # 24 hours
+                    )
+                    logger.info(f"Created thread '{thread_name}' for trivia game")
+                except discord.HTTPException as exc:
+                    logger.error(f"Failed to create thread: {exc}")
+
+                # Store game data
+                game_data = {
+                    "registration_id": None,  # Manual post, not from a registration
+                    "channel_id": target_channel.id,
+                    "thread_id": thread.id if thread else None,
+                    "question": question_data["question"],
+                    "correct_answer": question_data["correct_answer"],
+                    "category": question_data["category"],
+                    "explanation": question_data["explanation"],
+                    "seed": seed,
+                    "source": "ai",
+                    "started_at": now_utc.isoformat(),
+                    "ends_at": ends_at.isoformat(),
+                    "message_id": message.id,
+                }
+
+                # Store in Redis
+                await store.create_game(str(interaction.guild_id), game_id, game_data)
+
+                # Mark seed as used in Redis (atomic operation)
+                await store.mark_seed_used(str(interaction.guild_id), seed)
+
+                logger.info(f"Saved game state for game_id {game_id[:8]}")
+
+                await interaction.followup.send(
+                    f"✅ Trivia question posted!\n"
+                    f"• Channel: {target_channel.mention}\n"
+                    f"• Category: {question_data['category']}\n"
+                    f"• Answer window: {answer_window_minutes} minutes\n"
+                    f"• Ends: <t:{int(ends_at.timestamp())}:R>",
+                    ephemeral=True
+                )
 
         except Exception as e:
             logger.error(f"Error posting trivia question: {e}", exc_info=True)
@@ -422,18 +570,7 @@ class TriviaCog(commands.Cog):
             channel_mention = f"<#{channel_id}>" if channel_id else "Unknown channel"
             times = ", ".join(reg_info.get("schedule_times", []))
             window = reg_info.get("answer_window_minutes", 60)
-
-            # Check for custom seed configuration
-            base_words = reg_info.get("base_words")
-            modifiers = reg_info.get("modifiers")
-            seeds_info = ""
-            if base_words or modifiers:
-                parts = []
-                if base_words:
-                    parts.append(f"{len(base_words)} topics")
-                if modifiers:
-                    parts.append(f"{len(modifiers)} modifiers")
-                seeds_info = f"  • Custom seeds: {', '.join(parts)}\n"
+            method = reg_info.get("method", "AI")
 
             game_entry = (
                 f"**{reg_id[:8]}**\n"
@@ -441,8 +578,27 @@ class TriviaCog(commands.Cog):
                 f"  • Channel: {channel_mention}\n"
                 f"  • Schedule: {times} Pacific\n"
                 f"  • Answer window: {window} minutes\n"
-                f"{seeds_info}"
+                f"  • Method: {method}\n"
             )
+
+            if method == "OpenTrivia":
+                easy = reg_info.get("easy_count", 3)
+                medium = reg_info.get("medium_count", 2)
+                hard = reg_info.get("hard_count", 1)
+                total = easy + medium + hard
+                game_entry += f"  • Questions: {total} ({easy}E/{medium}M/{hard}H)\n"
+            elif method == "AI":
+                # Show seed configuration if present
+                base_words = reg_info.get("base_words")
+                modifiers = reg_info.get("modifiers")
+                if base_words or modifiers:
+                    parts = []
+                    if base_words:
+                        parts.append(f"{len(base_words)} topics")
+                    if modifiers:
+                        parts.append(f"{len(modifiers)} modifiers")
+                    game_entry += f"  • Custom seeds: {', '.join(parts)}\n"
+
             game_list.append(game_entry)
 
         # Create embed
@@ -592,6 +748,86 @@ class TriviaCog(commands.Cog):
             msg_parts.append(f"• Custom modifiers: {len(custom_modifiers)} words")
         else:
             msg_parts.append("• Modifiers: Using defaults")
+
+        await interaction.response.send_message("\n".join(msg_parts), ephemeral=True)
+
+    @trivia.command(name="configure_method", description="Configure question generation method for a trivia registration.")
+    @app_commands.describe(
+        registration="Registration ID (use /trivia list to see IDs)",
+        method="Question source",
+        easy_count="Number of easy questions (OpenTrivia only, default: 3)",
+        medium_count="Number of medium questions (OpenTrivia only, default: 2)",
+        hard_count="Number of hard questions (OpenTrivia only, default: 1)"
+    )
+    @app_commands.choices(
+        method=[
+            app_commands.Choice(name="OpenTrivia", value="OpenTrivia"),
+            app_commands.Choice(name="AI", value="AI")
+        ]
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def configure_method(
+        self,
+        interaction: discord.Interaction,
+        registration: str,
+        method: str,
+        easy_count: Optional[int] = 3,
+        medium_count: Optional[int] = 2,
+        hard_count: Optional[int] = 1
+    ) -> None:
+        """Configure question generation method for an existing registration."""
+        store = TriviaRedisStore()
+        registrations = await store.get_registrations(str(interaction.guild_id))
+
+        # Find matching registration
+        matching_reg = None
+        for reg_id in registrations:
+            if reg_id.startswith(registration):
+                matching_reg = reg_id
+                break
+
+        if not matching_reg:
+            await interaction.response.send_message(
+                f"No registration found matching '{registration}'.", ephemeral=True
+            )
+            return
+
+        # Validate difficulty counts for OpenTrivia
+        if method == "OpenTrivia":
+            if easy_count + medium_count + hard_count == 0:
+                await interaction.response.send_message(
+                    "❌ At least one difficulty count must be greater than 0.", ephemeral=True
+                )
+                return
+
+        # Update registration
+        reg_data = registrations[matching_reg]
+        reg_data["method"] = method
+
+        if method == "OpenTrivia":
+            reg_data["easy_count"] = easy_count
+            reg_data["medium_count"] = medium_count
+            reg_data["hard_count"] = hard_count
+
+            # Remove AI-specific fields
+            reg_data.pop("base_words", None)
+            reg_data.pop("modifiers", None)
+
+        elif method == "AI":
+            # Remove OpenTrivia-specific fields
+            reg_data.pop("easy_count", None)
+            reg_data.pop("medium_count", None)
+            reg_data.pop("hard_count", None)
+
+        await store.save_registration(str(interaction.guild_id), matching_reg, reg_data)
+
+        # Build confirmation message
+        msg_parts = [f"✅ Method updated for '{matching_reg[:8]}...'"]
+        msg_parts.append(f"• Method: {method}")
+
+        if method == "OpenTrivia":
+            total = easy_count + medium_count + hard_count
+            msg_parts.append(f"• Questions per session: {total} ({easy_count}E/{medium_count}M/{hard_count}H)")
 
         await interaction.response.send_message("\n".join(msg_parts), ephemeral=True)
 
