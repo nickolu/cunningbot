@@ -16,8 +16,6 @@ class BotUpdates(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.store = BotUpdatesRedisStore()
-        self.notification_service = BotUpdateNotificationService()
 
     updates_group = app_commands.Group(
         name="bot-updates",
@@ -31,9 +29,10 @@ class BotUpdates(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def register(self, interaction: discord.Interaction):
         """Register current channel for restart notifications."""
+        store = BotUpdatesRedisStore()
         channel_id = interaction.channel_id
 
-        is_registered = await self.store.is_channel_registered(channel_id)
+        is_registered = await store.is_channel_registered(channel_id)
 
         if is_registered:
             await interaction.response.send_message(
@@ -42,7 +41,7 @@ class BotUpdates(commands.Cog):
             )
             return
 
-        await self.store.register_channel(channel_id)
+        await store.register_channel(channel_id)
 
         await interaction.response.send_message(
             "✅ **Channel registered!**\n"
@@ -61,9 +60,10 @@ class BotUpdates(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def unregister(self, interaction: discord.Interaction):
         """Unregister current channel from restart notifications."""
+        store = BotUpdatesRedisStore()
         channel_id = interaction.channel_id
 
-        was_registered = await self.store.unregister_channel(channel_id)
+        was_registered = await store.unregister_channel(channel_id)
 
         if not was_registered:
             await interaction.response.send_message(
@@ -89,7 +89,8 @@ class BotUpdates(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def list_channels(self, interaction: discord.Interaction):
         """List all registered channels."""
-        channel_ids = await self.store.get_all_registered_channels()
+        store = BotUpdatesRedisStore()
+        channel_ids = await store.get_all_registered_channels()
 
         if not channel_ids:
             await interaction.response.send_message(
@@ -156,8 +157,9 @@ class BotUpdates(commands.Cog):
         # Defer response since we're about to send a message
         await interaction.response.defer(ephemeral=True)
 
+        notification_service = BotUpdateNotificationService()
         bot_name = self.bot.user.name if self.bot.user else "Bot"
-        success = await self.notification_service.send_test_notification(
+        success = await notification_service.send_test_notification(
             channel, bot_name
         )
 
