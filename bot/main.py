@@ -76,6 +76,19 @@ async def on_ready() -> None:
     await task_queue.start_worker()
     logger.info("Task queue initialized and worker started")
 
+    # Send restart notifications
+    try:
+        from bot.domain.bot_updates.notification_service import BotUpdateNotificationService
+        notification_service = BotUpdateNotificationService()
+        result = await notification_service.send_restart_notifications(bot)
+        logger.info(
+            f"Restart notifications: {result['success']}/{result['total']} sent, "
+            f"{result['failed']} failed"
+        )
+    except Exception as e:
+        logger.error(f"Failed to send restart notifications: {e}")
+        # Don't crash startup if notifications fail
+
     # Log local commands before sync
     local_cmds = [cmd.name for cmd in bot.tree.walk_commands()]
     logger.info(f"Local commands before sync: {local_cmds}")
@@ -94,6 +107,21 @@ async def on_ready() -> None:
 def handle_shutdown(loop: asyncio.AbstractEventLoop) -> Callable[[], asyncio.Task[Any]]:
     async def shutdown() -> None:
         logger.info("Shutting down gracefully...")
+
+        # Send shutdown notifications
+        try:
+            from bot.domain.bot_updates.notification_service import BotUpdateNotificationService
+            notification_service = BotUpdateNotificationService()
+            result = await notification_service.send_shutdown_notifications(bot)
+            logger.info(
+                f"Shutdown notifications: {result['success']}/{result['total']} sent, "
+                f"{result['failed']} failed"
+            )
+            # Give messages time to send
+            await asyncio.sleep(2)
+        except Exception as e:
+            logger.error(f"Failed to send shutdown notifications: {e}")
+            # Continue shutdown even if notifications fail
 
         # Stop task queue worker
         try:
