@@ -19,12 +19,12 @@ class BotUpdates(commands.Cog):
         self.store = BotUpdatesRedisStore()
         self.notification_service = BotUpdateNotificationService()
 
-    bot_updates = app_commands.Group(
+    updates_group = app_commands.Group(
         name="bot-updates",
         description="Manage bot restart notifications"
     )
 
-    @bot_updates.command(
+    @updates_group.command(
         name="register",
         description="Register this channel for bot restart notifications"
     )
@@ -54,7 +54,7 @@ class BotUpdates(commands.Cog):
             f"Channel {channel_id} registered for bot updates by {interaction.user.name}"
         )
 
-    @bot_updates.command(
+    @updates_group.command(
         name="unregister",
         description="Unregister this channel from bot restart notifications"
     )
@@ -82,7 +82,7 @@ class BotUpdates(commands.Cog):
             f"Channel {channel_id} unregistered from bot updates by {interaction.user.name}"
         )
 
-    @bot_updates.command(
+    @updates_group.command(
         name="list",
         description="Show all channels registered for bot restart notifications"
     )
@@ -137,7 +137,7 @@ class BotUpdates(commands.Cog):
             ephemeral=True
         )
 
-    @bot_updates.command(
+    @updates_group.command(
         name="test",
         description="Send a test notification to this channel"
     )
