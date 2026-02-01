@@ -302,7 +302,7 @@ def generate_seed(base_words: List[str] = None, modifiers: List[str] = None) -> 
     return f"{base} :: {modifier}"
 
 
-def get_unused_seed(used_seeds: List[str], base_words: List[str] = None, modifiers: List[str] = None) -> str:
+def get_unused_seed(used_seeds: set[str], base_words: List[str] = None, modifiers: List[str] = None) -> str:
     """
     Get a seed that hasn't been used yet.
 
@@ -311,7 +311,7 @@ def get_unused_seed(used_seeds: List[str], base_words: List[str] = None, modifie
     resets the pool.
 
     Args:
-        used_seeds: List of previously used seeds
+        used_seeds: Set of previously used seeds
         base_words: Optional custom list of base words (defaults to BASE_WORDS)
         modifiers: Optional custom list of modifiers (defaults to MODIFIERS)
 

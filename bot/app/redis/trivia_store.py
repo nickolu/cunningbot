@@ -292,18 +292,18 @@ class TriviaRedisStore:
         key = f"trivia:{guild_id}:seeds:used"
         return await self.redis.sismember(key, seed)
 
-    async def get_used_seeds(self, guild_id: str) -> list[str]:
+    async def get_used_seeds(self, guild_id: str) -> set[str]:
         """Get all used question seeds for a guild.
 
         Args:
             guild_id: Guild ID as string
 
         Returns:
-            List of used seed strings
+            Set of used seed strings
         """
         key = f"trivia:{guild_id}:seeds:used"
         seeds_set = await self.redis.smembers(key)
-        return list(seeds_set)
+        return seeds_set
 
     async def get_used_seeds_count(self, guild_id: str) -> int:
         """Get count of used seeds.
