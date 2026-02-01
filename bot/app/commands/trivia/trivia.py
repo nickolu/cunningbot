@@ -127,9 +127,21 @@ def create_question_embed(question_data: dict, game_id: str, ends_at: dt.datetim
 
     color = category_colors.get(question_data["category"], 0x0099FF)
 
+    # Build description with question and options (if available)
+    description = question_data["question"]
+
+    # Add options if this is a multiple choice question
+    options = question_data.get("options")
+    if options and len(options) > 0:
+        description += "\n\n"
+        option_labels = ["A", "B", "C", "D", "E", "F"]
+        for i, option in enumerate(options):
+            if i < len(option_labels):
+                description += f"**{option_labels[i]}.** {option}\n"
+
     embed = discord.Embed(
         title="🎯 Trivia Question",
-        description=question_data["question"],
+        description=description,
         color=color,
         timestamp=dt.datetime.now(dt.timezone.utc)
     )
@@ -449,6 +461,7 @@ class TriviaCog(commands.Cog):
                         "thread_id": thread.id if thread else None,
                         "question": question_data["question"],
                         "correct_answer": question_data["correct_answer"],
+                        "options": question_data.get("options", []),
                         "category": mapped_category,
                         "explanation": question_data.get("explanation", ""),
                         "difficulty": question_data.get("difficulty"),
@@ -518,6 +531,7 @@ class TriviaCog(commands.Cog):
                     "thread_id": thread.id if thread else None,
                     "question": question_data["question"],
                     "correct_answer": question_data["correct_answer"],
+                    "options": question_data.get("options", []),
                     "category": question_data["category"],
                     "explanation": question_data["explanation"],
                     "seed": seed,

@@ -95,9 +95,14 @@ async def generate_trivia_questions_from_opentdb(
                 difficulty="easy"
             )
             for q in easy_questions:
+                # Shuffle options: combine correct + incorrect, then randomize
+                options = [q["correct_answer"]] + q.get("incorrect_answers", [])
+                random.shuffle(options)
+
                 questions.append({
                     "question": q["question"],
                     "correct_answer": q["correct_answer"],
+                    "options": options,
                     "category": mapped_category,
                     "explanation": f"This is a {q['difficulty']} question from {opentdb_name}.",
                     "difficulty": q["difficulty"],
@@ -117,9 +122,14 @@ async def generate_trivia_questions_from_opentdb(
                 difficulty="medium"
             )
             for q in medium_questions:
+                # Shuffle options: combine correct + incorrect, then randomize
+                options = [q["correct_answer"]] + q.get("incorrect_answers", [])
+                random.shuffle(options)
+
                 questions.append({
                     "question": q["question"],
                     "correct_answer": q["correct_answer"],
+                    "options": options,
                     "category": mapped_category,
                     "explanation": f"This is a {q['difficulty']} question from {opentdb_name}.",
                     "difficulty": q["difficulty"],
@@ -139,9 +149,14 @@ async def generate_trivia_questions_from_opentdb(
                 difficulty="hard"
             )
             for q in hard_questions:
+                # Shuffle options: combine correct + incorrect, then randomize
+                options = [q["correct_answer"]] + q.get("incorrect_answers", [])
+                random.shuffle(options)
+
                 questions.append({
                     "question": q["question"],
                     "correct_answer": q["correct_answer"],
+                    "options": options,
                     "category": mapped_category,
                     "explanation": f"This is a {q['difficulty']} question from {opentdb_name}.",
                     "difficulty": q["difficulty"],

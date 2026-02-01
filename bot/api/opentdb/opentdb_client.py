@@ -96,9 +96,14 @@ class OpenTDBClient:
                             decoded_answer = html.unescape(item["correct_answer"])
                             decoded_category = html.unescape(item["category"])
 
+                            # Extract and decode incorrect answers for multiple choice questions
+                            incorrect_answers = item.get("incorrect_answers", [])
+                            decoded_incorrect = [html.unescape(ans) for ans in incorrect_answers]
+
                             questions.append({
                                 "question": decoded_question,
                                 "correct_answer": decoded_answer,
+                                "incorrect_answers": decoded_incorrect,
                                 "category": decoded_category,
                                 "difficulty": item["difficulty"]
                             })
