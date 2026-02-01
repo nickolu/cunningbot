@@ -191,6 +191,7 @@ class TriviaCog(commands.Cog):
         easy_count="Number of easy questions per session (OpenTrivia only, default: 3)",
         medium_count="Number of medium questions per session (OpenTrivia only, default: 2)",
         hard_count="Number of hard questions per session (OpenTrivia only, default: 1)",
+        ai_count="Number of AI questions per session (default: 0, works with OpenTrivia method)",
         base_words="Optional: comma-separated list of topic words (AI only)",
         modifiers="Optional: comma-separated list of modifier words (AI only)"
     )
@@ -211,6 +212,7 @@ class TriviaCog(commands.Cog):
         easy_count: Optional[int] = 3,
         medium_count: Optional[int] = 2,
         hard_count: Optional[int] = 1,
+        ai_count: Optional[int] = 0,
         base_words: Optional[str] = None,
         modifiers: Optional[str] = None
     ) -> None:
@@ -241,15 +243,11 @@ class TriviaCog(commands.Cog):
 
         # Validate difficulty counts for OpenTrivia
         if method == "OpenTrivia":
-            if easy_count + medium_count + hard_count == 0:
+            if easy_count + medium_count + hard_count + ai_count == 0:
                 await interaction.response.send_message(
-                    "❌ At least one difficulty count must be greater than 0.", ephemeral=True
+                    "❌ At least one question count must be greater than 0.", ephemeral=True
                 )
                 return
-
-            # Warn if AI-specific params provided
-            if base_words or modifiers:
-                logger.warning("base_words/modifiers ignored for OpenTrivia method")
 
         # Parse custom seed words if provided for AI method
         custom_base_words = None
@@ -290,7 +288,10 @@ class TriviaCog(commands.Cog):
             reg_data["easy_count"] = easy_count
             reg_data["medium_count"] = medium_count
             reg_data["hard_count"] = hard_count
+            reg_data["ai_count"] = ai_count
         elif method == "AI":
+            # Legacy AI-only mode
+            reg_data["ai_count"] = 1
             if custom_base_words:
                 reg_data["base_words"] = custom_base_words
             if custom_modifiers:
@@ -312,9 +313,13 @@ class TriviaCog(commands.Cog):
         ]
 
         if method == "OpenTrivia":
-            total = easy_count + medium_count + hard_count
-            msg_parts.append(f"• Questions per session: {total} ({easy_count} easy, {medium_count} medium, {hard_count} hard)")
-            msg_parts.append("• Category: Random (from OpenTDB)")
+            opentdb_total = easy_count + medium_count + hard_count
+            total = opentdb_total + ai_count
+            if opentdb_total > 0:
+                msg_parts.append(f"• OpenTDB questions: {opentdb_total} ({easy_count} easy, {medium_count} medium, {hard_count} hard)")
+            if ai_count > 0:
+                msg_parts.append(f"• AI questions: {ai_count}")
+            msg_parts.append(f"• Total questions per session: {total}")
         elif method == "AI":
             if custom_base_words:
                 msg_parts.append(f"• Custom topics: {len(custom_base_words)} words")
@@ -333,6 +338,7 @@ class TriviaCog(commands.Cog):
         easy_count="Number of easy questions (OpenTrivia only, default: 3)",
         medium_count="Number of medium questions (OpenTrivia only, default: 2)",
         hard_count="Number of hard questions (OpenTrivia only, default: 1)",
+        ai_count="Number of AI questions (default: 0, works with OpenTrivia method)",
         base_words="Optional: comma-separated list of topic words (AI only)",
         modifiers="Optional: comma-separated list of modifier words (AI only)"
     )
@@ -352,6 +358,7 @@ class TriviaCog(commands.Cog):
         easy_count: Optional[int] = 3,
         medium_count: Optional[int] = 2,
         hard_count: Optional[int] = 1,
+        ai_count: Optional[int] = 0,
         base_words: Optional[str] = None,
         modifiers: Optional[str] = None
     ) -> None:
@@ -379,9 +386,9 @@ class TriviaCog(commands.Cog):
 
         # Validate method-specific parameters
         if method == "OpenTrivia":
-            if easy_count + medium_count + hard_count == 0:
+            if easy_count + medium_count + hard_count + ai_count == 0:
                 await interaction.followup.send(
-                    "❌ At least one difficulty count must be greater than 0.", ephemeral=True
+                    "❌ At least one question count must be greater than 0.", ephemeral=True
                 )
                 return
 
@@ -454,6 +461,15 @@ class TriviaCog(commands.Cog):
                     except discord.HTTPException as exc:
                         logger.error(f"Failed to create thread: {exc}")
 
+                    # Create answer map for multiple choice questions
+                    answer_map = {}
+                    options = question_data.get("options", [])
+                    if options:
+                        labels = ["A", "B", "C", "D", "E", "F"]
+                        for i, option in enumerate(options):
+                            if i < len(labels):
+                                answer_map[labels[i]] = option
+
                     # Store game data
                     game_data = {
                         "registration_id": None,  # Manual post
@@ -461,7 +477,8 @@ class TriviaCog(commands.Cog):
                         "thread_id": thread.id if thread else None,
                         "question": question_data["question"],
                         "correct_answer": question_data["correct_answer"],
-                        "options": question_data.get("options", []),
+                        "options": options,
+                        "answer_map": answer_map,
                         "category": mapped_category,
                         "explanation": question_data.get("explanation", ""),
                         "difficulty": question_data.get("difficulty"),
@@ -475,16 +492,97 @@ class TriviaCog(commands.Cog):
                     game_ids.append(game_id[:8])
                     logger.info(f"Saved game state for game_id {game_id[:8]}")
 
+                # Generate AI questions if ai_count > 0
+                ai_game_ids = []
+                if ai_count > 0:
+                    used_seeds = await store.get_used_seeds(str(interaction.guild_id))
+
+                    for _ in range(ai_count):
+                        # Generate new seed with custom words if provided
+                        seed = get_unused_seed(used_seeds, custom_base_words, custom_modifiers)
+                        used_seeds.add(seed)
+
+                        # Generate AI question with same category as OpenTDB questions
+                        logger.info(f"Generating AI trivia question with seed: {seed} in category: {mapped_category}")
+                        ai_question_data = await generate_trivia_question(seed, category=mapped_category)
+
+                        # Calculate end time
+                        now_utc = dt.datetime.now(dt.timezone.utc)
+                        ends_at = now_utc + dt.timedelta(minutes=answer_window_minutes)
+
+                        # Generate game ID
+                        ai_game_id = str(uuid.uuid4())
+
+                        # Create embed
+                        embed = create_question_embed(ai_question_data, ai_game_id, ends_at, stats={"correct": 0, "incorrect": 0})
+
+                        # Post message
+                        message = await target_channel.send(embed=embed)
+                        logger.info(f"Posted AI trivia question to channel {target_channel.id}")
+
+                        # Create thread
+                        now_pt = dt.datetime.now(PACIFIC_TZ)
+                        thread_name = f"Trivia – {ai_question_data['category']} – {now_pt:%Y-%m-%d %H:%M}"
+                        thread = None
+                        try:
+                            thread = await message.create_thread(
+                                name=thread_name,
+                                auto_archive_duration=1440
+                            )
+                            logger.info(f"Created thread '{thread_name}' for AI trivia game")
+                        except discord.HTTPException as exc:
+                            logger.error(f"Failed to create thread: {exc}")
+
+                        # Create answer map (usually empty for AI questions)
+                        answer_map = {}
+                        ai_options = ai_question_data.get("options", [])
+                        if ai_options:
+                            labels = ["A", "B", "C", "D", "E", "F"]
+                            for i, option in enumerate(ai_options):
+                                if i < len(labels):
+                                    answer_map[labels[i]] = option
+
+                        # Store game data
+                        ai_game_data = {
+                            "registration_id": None,
+                            "channel_id": target_channel.id,
+                            "thread_id": thread.id if thread else None,
+                            "question": ai_question_data["question"],
+                            "correct_answer": ai_question_data["correct_answer"],
+                            "options": ai_options,
+                            "answer_map": answer_map,
+                            "category": ai_question_data["category"],
+                            "explanation": ai_question_data["explanation"],
+                            "seed": seed,
+                            "source": "ai",
+                            "started_at": now_utc.isoformat(),
+                            "ends_at": ends_at.isoformat(),
+                            "message_id": message.id,
+                        }
+
+                        await store.create_game(str(interaction.guild_id), ai_game_id, ai_game_data)
+                        await store.mark_seed_used(str(interaction.guild_id), seed)
+                        ai_game_ids.append(ai_game_id[:8])
+                        logger.info(f"Saved AI game state for game_id {ai_game_id[:8]}")
+
                 # Confirmation message
-                await interaction.followup.send(
-                    f"✅ {len(questions)} trivia questions posted!\n"
-                    f"• Channel: {target_channel.mention}\n"
-                    f"• Category: {opentdb_name}\n"
-                    f"• Difficulties: {easy_count} easy, {medium_count} medium, {hard_count} hard\n"
-                    f"• Answer window: {answer_window_minutes} minutes\n"
-                    f"• Game IDs: {', '.join(game_ids)}",
-                    ephemeral=True
-                )
+                total_questions = len(questions) + len(ai_game_ids)
+                msg_parts = [
+                    f"✅ {total_questions} trivia questions posted!",
+                    f"• Channel: {target_channel.mention}"
+                ]
+
+                if len(questions) > 0:
+                    msg_parts.append(f"• OpenTDB ({opentdb_name}): {easy_count} easy, {medium_count} medium, {hard_count} hard")
+                if len(ai_game_ids) > 0:
+                    msg_parts.append(f"• AI questions: {len(ai_game_ids)}")
+
+                msg_parts.extend([
+                    f"• Answer window: {answer_window_minutes} minutes",
+                    f"• Game IDs: {', '.join(game_ids + ai_game_ids)}"
+                ])
+
+                await interaction.followup.send("\n".join(msg_parts), ephemeral=True)
 
             elif method == "AI":
                 # Get used seeds from Redis
@@ -524,6 +622,15 @@ class TriviaCog(commands.Cog):
                 except discord.HTTPException as exc:
                     logger.error(f"Failed to create thread: {exc}")
 
+                # Create answer map for multiple choice questions (empty for AI questions)
+                answer_map = {}
+                options = question_data.get("options", [])
+                if options:
+                    labels = ["A", "B", "C", "D", "E", "F"]
+                    for i, option in enumerate(options):
+                        if i < len(labels):
+                            answer_map[labels[i]] = option
+
                 # Store game data
                 game_data = {
                     "registration_id": None,  # Manual post, not from a registration
@@ -531,7 +638,8 @@ class TriviaCog(commands.Cog):
                     "thread_id": thread.id if thread else None,
                     "question": question_data["question"],
                     "correct_answer": question_data["correct_answer"],
-                    "options": question_data.get("options", []),
+                    "options": options,
+                    "answer_map": answer_map,
                     "category": question_data["category"],
                     "explanation": question_data["explanation"],
                     "seed": seed,
@@ -599,8 +707,16 @@ class TriviaCog(commands.Cog):
                 easy = reg_info.get("easy_count", 3)
                 medium = reg_info.get("medium_count", 2)
                 hard = reg_info.get("hard_count", 1)
-                total = easy + medium + hard
-                game_entry += f"  • Questions: {total} ({easy}E/{medium}M/{hard}H)\n"
+                ai_count = reg_info.get("ai_count", 0)
+                opentdb_total = easy + medium + hard
+                total = opentdb_total + ai_count
+
+                if opentdb_total > 0 and ai_count > 0:
+                    game_entry += f"  • Questions: {total} ({easy}E/{medium}M/{hard}H + {ai_count}AI)\n"
+                elif opentdb_total > 0:
+                    game_entry += f"  • Questions: {total} ({easy}E/{medium}M/{hard}H)\n"
+                elif ai_count > 0:
+                    game_entry += f"  • Questions: {ai_count} AI\n"
             elif method == "AI":
                 # Show seed configuration if present
                 base_words = reg_info.get("base_words")
