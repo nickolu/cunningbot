@@ -338,6 +338,15 @@ async def post_trivia_questions() -> None:
                         except discord.HTTPException as exc:
                             logger.error("Failed to create thread: %s", exc)
 
+                        # Create answer map for multiple choice questions
+                        answer_map = {}
+                        options = question_data.get("options", [])
+                        if options:
+                            labels = ["A", "B", "C", "D", "E", "F"]
+                            for i, option in enumerate(options):
+                                if i < len(labels):
+                                    answer_map[labels[i]] = option
+
                         # Store game data
                         game_data = {
                             "registration_id": reg_id,
@@ -345,7 +354,8 @@ async def post_trivia_questions() -> None:
                             "thread_id": thread.id if thread else None,
                             "question": question_data["question"],
                             "correct_answer": question_data["correct_answer"],
-                            "options": question_data.get("options", []),
+                            "options": options,
+                            "answer_map": answer_map,
                             "category": mapped_category,  # Use mapped category
                             "explanation": question_data.get("explanation", ""),
                             "difficulty": question_data.get("difficulty"),
@@ -357,6 +367,82 @@ async def post_trivia_questions() -> None:
 
                         await store.create_game(guild_id, game_id, game_data)
                         logger.info("Saved game state for game_id %s", game_id[:8])
+
+                    # Generate AI questions if ai_count > 0
+                    ai_count = registration.get("ai_count", 0)
+                    if ai_count > 0:
+                        logger.info(f"Generating {ai_count} AI questions in category: {mapped_category}")
+
+                        for ai_idx in range(ai_count):
+                            # Generate new seed with custom words if provided
+                            seed = get_unused_seed(used_seeds, registration.get("base_words"), registration.get("modifiers"))
+                            used_seeds.add(seed)
+
+                            # Generate AI question with same category as OpenTDB questions
+                            logger.info(f"🤖 Generating AI trivia question with seed: {seed}")
+                            ai_question_data = await generate_trivia_question(seed, category=mapped_category)
+
+                            # Calculate end time
+                            now_utc = dt.datetime.now(dt.timezone.utc)
+                            ends_at = now_utc + dt.timedelta(minutes=answer_window_minutes)
+
+                            # Generate game ID
+                            ai_game_id = str(uuid.uuid4())
+
+                            # Log question details
+                            logger.info(f"📝 Posting AI question {ai_idx + 1}/{ai_count}")
+                            logger.info(f"   Question: {ai_question_data['question'][:100]}")
+                            logger.info(f"   Answer: {ai_question_data['correct_answer']}")
+
+                            # Create embed
+                            embed = create_question_embed(ai_question_data, ai_game_id, ends_at, stats={"correct": 0, "incorrect": 0})
+
+                            # Post message
+                            message = await channel.send(embed=embed)
+                            logger.info(f"✅ Posted AI trivia question to channel {channel.id} (game_id: {ai_game_id[:8]})")
+
+                            # Create thread
+                            thread_name = f"Trivia – {mapped_category} – {now_pt:%Y-%m-%d %H:%M}"
+                            thread = None
+                            try:
+                                thread = await message.create_thread(
+                                    name=thread_name,
+                                    auto_archive_duration=1440
+                                )
+                                logger.info("Created thread '%s' for AI trivia game", thread_name)
+                            except discord.HTTPException as exc:
+                                logger.error("Failed to create thread: %s", exc)
+
+                            # Create answer map (usually empty for AI questions)
+                            answer_map = {}
+                            ai_options = ai_question_data.get("options", [])
+                            if ai_options:
+                                labels = ["A", "B", "C", "D", "E", "F"]
+                                for i, option in enumerate(ai_options):
+                                    if i < len(labels):
+                                        answer_map[labels[i]] = option
+
+                            # Store game data
+                            ai_game_data = {
+                                "registration_id": reg_id,
+                                "channel_id": channel_id,
+                                "thread_id": thread.id if thread else None,
+                                "question": ai_question_data["question"],
+                                "correct_answer": ai_question_data["correct_answer"],
+                                "options": ai_options,
+                                "answer_map": answer_map,
+                                "category": mapped_category,
+                                "explanation": ai_question_data["explanation"],
+                                "seed": seed,
+                                "source": "ai",
+                                "started_at": now_utc.isoformat(),
+                                "ends_at": ends_at.isoformat(),
+                                "message_id": message.id,
+                            }
+
+                            await store.create_game(guild_id, ai_game_id, ai_game_data)
+                            await store.mark_seed_used(guild_id, seed)
+                            logger.info("Saved AI game state for game_id %s", ai_game_id[:8])
 
                 elif method == "AI":
                     # Existing logic - single question with seed
@@ -394,6 +480,15 @@ async def post_trivia_questions() -> None:
                     except discord.HTTPException as exc:
                         logger.error("Failed to create thread: %s", exc)
 
+                    # Create answer map for multiple choice questions (empty for AI questions)
+                    answer_map = {}
+                    options = question_data.get("options", [])
+                    if options:
+                        labels = ["A", "B", "C", "D", "E", "F"]
+                        for i, option in enumerate(options):
+                            if i < len(labels):
+                                answer_map[labels[i]] = option
+
                     # Store game in Redis
                     game_data = {
                         "registration_id": reg_id,
@@ -401,7 +496,8 @@ async def post_trivia_questions() -> None:
                         "thread_id": thread.id if thread else None,
                         "question": question_data["question"],
                         "correct_answer": question_data["correct_answer"],
-                        "options": question_data.get("options", []),
+                        "options": options,
+                        "answer_map": answer_map,
                         "category": question_data["category"],
                         "explanation": question_data["explanation"],
                         "seed": seed,

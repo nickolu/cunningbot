@@ -131,8 +131,19 @@ async def submit_trivia_answer(
 
     # Prepare submission data
     user_id_str = str(interaction.user.id)
+
+    # Map letter answers to actual text for multiple choice questions
+    user_answer = answer_text.strip()
+    answer_map = game_data.get("answer_map", {})
+    if answer_map and len(user_answer) == 1:
+        # Check if it's a valid option letter (case-insensitive)
+        letter = user_answer.upper()
+        if letter in answer_map:
+            user_answer = answer_map[letter]
+            logger.info(f"Mapped letter answer '{letter}' to '{user_answer}' for user {user_id_str}")
+
     submission_data = {
-        "answer": answer_text,
+        "answer": user_answer,
         "submitted_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "is_correct": None,  # Will be set by validation
         "feedback": None,
@@ -142,10 +153,11 @@ async def submit_trivia_answer(
     # Validate answer immediately (for user feedback)
     correct_answer = game_data.get("correct_answer", "")
     question = game_data.get("question", "")
+    options = game_data.get("options", [])
 
     try:
         logger.info(f"Validating answer for user {user_id_str} in game {game_id[:8]}")
-        validation_result = await validate_answer(answer_text, correct_answer, question)
+        validation_result = await validate_answer(user_answer, correct_answer, question, options)
 
         # Update submission with validation results
         submission_data["is_correct"] = validation_result["is_correct"]

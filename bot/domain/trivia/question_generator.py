@@ -36,12 +36,13 @@ def answer_appears_in_question(question: str, answer: str) -> bool:
     return False
 
 
-async def generate_trivia_question(seed: str) -> Dict[str, str]:
+async def generate_trivia_question(seed: str, category: str = None) -> Dict[str, str]:
     """
     Generate a trivia question using LLM with the given seed.
 
     Args:
         seed: Seed string in format "baseword_modifier"
+        category: Optional category to constrain the question to (one of CATEGORIES)
 
     Returns:
         dict: {
@@ -65,6 +66,14 @@ async def generate_trivia_question(seed: str) -> Dict[str, str]:
             topic = parts[0].replace("_", " ")
             context = parts[1].replace("_", " ") if len(parts) > 1 else "general"
 
+            # Build category instruction
+            if category:
+                category_instruction = f"- The question MUST be in the '{category}' category"
+                category_format = f"CATEGORY: {category}"
+            else:
+                category_instruction = f"- Choose the most appropriate category from: {', '.join(CATEGORIES)}"
+                category_format = "CATEGORY: [category name]"
+
             prompt = f"""Generate a trivia question that is at least somewhat related to this seed: {topic}/{context}
 
 Requirements:
@@ -72,12 +81,12 @@ Requirements:
 - the answer should be an interesting, non-obvious fact about the seed
 - the question should be moderately challenging, not too easy but not impossible
 - the seed itself should not be the answer to the question
-- Choose the most appropriate category from: {', '.join(CATEGORIES)}
+{category_instruction}
 - Provide a brief explanation of the answer
 - CRITICAL: Do not mention the answer or any part of it in the question text
 
 Return in this EXACT format:
-CATEGORY: [category name]
+{category_format}
 QUESTION: [Your question here]
 ANSWER: [Correct answer - be specific but accept reasonable variations]
 EXPLANATION: [2-3 sentence explanation]"""
@@ -99,12 +108,19 @@ EXPLANATION: [2-3 sentence explanation]"""
                 last_error = ValueError(f"LLM response did not match expected format. Response: {response[:200]}...")
                 continue
 
-            category = category_match.group(1).strip()
-            # Validate category is one of the allowed categories
-            if category not in CATEGORIES:
-                # Find closest match or default to first category
-                category = CATEGORIES[0]
-                logger.warning(f"Invalid category from LLM, defaulting to {category}")
+            # Use provided category or parse from LLM response
+            if category:
+                # Category was provided as parameter, use it
+                parsed_category = category
+            else:
+                parsed_category = category_match.group(1).strip()
+                # Validate category is one of the allowed categories
+                if parsed_category not in CATEGORIES:
+                    # Find closest match or default to first category
+                    parsed_category = CATEGORIES[0]
+                    logger.warning(f"Invalid category from LLM, defaulting to {parsed_category}")
+
+            category = parsed_category
 
             question = question_match.group(1).strip()
             answer = answer_match.group(1).strip()
