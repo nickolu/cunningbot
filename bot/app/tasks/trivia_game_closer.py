@@ -172,7 +172,109 @@ async def close_expired_games() -> None:
                         await store.update_game(guild_id, game_id, game_data)
                         logger.info("Marked game %s as closed at %s", game_id[:8], now_utc.isoformat())
 
-                        # Get submissions from Redis
+                        # Check if this is a batch game
+                        is_batch_game = game_data.get("question_count") is not None
+
+                        if is_batch_game:
+                            # Handle batch game
+                            logger.info("Game %s is a batch game, handling differently", game_id[:8])
+
+                            # Get batch submissions and questions
+                            submissions = await store.get_batch_submissions(guild_id, game_id)
+                            questions = await store.get_batch_questions(guild_id, game_id)
+                            logger.info("Batch game %s has %d submissions and %d questions",
+                                       game_id[:8], len(submissions), len(questions))
+
+                            thread_id = game_data.get("thread_id")
+                            category = game_data.get("category", "Unknown")
+
+                            # Post results to Discord
+                            if thread_id:
+                                try:
+                                    thread = client.get_channel(thread_id)
+                                    if thread is None:
+                                        thread = await client.fetch_channel(thread_id)  # type: ignore[attr-defined]
+
+                                    if isinstance(thread, discord.Thread):
+                                        # Build results message for batch
+                                        embed = discord.Embed(
+                                            title="✅ Trivia Results",
+                                            color=0x00FF00,
+                                            timestamp=dt.datetime.now(dt.timezone.utc)
+                                        )
+
+                                        # Add summary stats
+                                        total_players = len(submissions)
+                                        embed.add_field(
+                                            name="Participation",
+                                            value=f"**{total_players}** player(s) answered",
+                                            inline=False
+                                        )
+
+                                        # Show top scores
+                                        if submissions:
+                                            scores = []
+                                            for user_id, sub_data in submissions.items():
+                                                score_parts = sub_data.get("score", "0/0").split("/")
+                                                correct = int(score_parts[0])
+                                                total = int(score_parts[1])
+                                                scores.append((user_id, correct, total))
+
+                                            # Sort by correct count (descending)
+                                            scores.sort(key=lambda x: x[1], reverse=True)
+
+                                            # Show top 10 or all if less
+                                            top_scores = scores[:10]
+                                            score_lines = []
+                                            for user_id, correct, total in top_scores:
+                                                try:
+                                                    user = await client.fetch_user(int(user_id))
+                                                    user_mention = user.mention
+                                                except:
+                                                    user_mention = f"<@{user_id}>"
+
+                                                score_lines.append(f"• {user_mention}: **{correct}/{total}**")
+
+                                            embed.add_field(
+                                                name="Top Scores",
+                                                value="\n".join(score_lines) if score_lines else "No scores",
+                                                inline=False
+                                            )
+
+                                        embed.set_footer(text=f"Category: {category} • Batch ID: {game_id[:8]}")
+
+                                        logger.info("Posting batch results for game %s to thread %s", game_id[:8], thread_id)
+                                        await thread.send(embed=embed)
+
+                                        # Post AI explanation follow-up if there are AI questions
+                                        from bot.app.commands.trivia.trivia_submission_handler import post_ai_explanation_followup
+                                        channel = client.get_channel(game_data.get("channel_id"))
+                                        if channel is None:
+                                            channel = await client.fetch_channel(game_data.get("channel_id"))
+                                        await post_ai_explanation_followup(channel, thread, questions, game_id)
+
+                                        logger.info("Posted batch results to thread %s", thread_id)
+
+                                except discord.Forbidden:
+                                    logger.error("Missing permissions to post in thread %s", thread_id)
+                                except discord.HTTPException as exc:
+                                    logger.error("HTTP error posting to thread %s: %s", thread_id, exc)
+                                except Exception as exc:
+                                    logger.error(
+                                        "Unexpected error posting to thread %s: %s",
+                                        thread_id, exc, exc_info=True
+                                    )
+
+                            # Move batch game to history in Redis
+                            await store.move_batch_to_history(guild_id, game_id, game_data, questions, submissions)
+
+                            # Delete from active games
+                            await store.delete_batch_game(guild_id, game_id)
+
+                            logger.info("Moved batch game %s to history and removed from active games", game_id[:8])
+                            continue
+
+                        # Get submissions from Redis (single question game)
                         submissions = await store.get_submissions(guild_id, game_id)
                         logger.info("Game %s has %d submissions to process", game_id[:8], len(submissions))
 

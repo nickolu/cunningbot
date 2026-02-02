@@ -126,6 +126,218 @@ class TriviaRedisStore:
         deleted = await self.redis.hdel(key, game_id)
         return deleted > 0
 
+    # --- Batch Games ---
+
+    async def create_batch_game(
+        self,
+        guild_id: str,
+        batch_id: str,
+        batch_data: Dict[str, Any],
+        questions: list[Dict[str, Any]],
+    ) -> None:
+        """Create a batch game with multiple questions.
+
+        Args:
+            guild_id: Guild ID as string
+            batch_id: Unique batch identifier
+            batch_data: Metadata (registration_id, channel_id, thread_id, category, etc.)
+            questions: List of question dicts with all fields
+        """
+        # Add ends_at_epoch for Lua script comparison
+        if "ends_at" in batch_data:
+            try:
+                ends_at_dt = datetime.fromisoformat(batch_data["ends_at"])
+                batch_data["ends_at_epoch"] = ends_at_dt.timestamp()
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Failed to parse ends_at: {e}")
+
+        # Store batch metadata in active games
+        games_key = f"trivia:{guild_id}:games:active"
+        await self.redis.hset(games_key, batch_id, json.dumps(batch_data))
+
+        # Store each question in batch questions hash
+        questions_key = f"trivia:{guild_id}:game:{batch_id}:questions"
+        for i, question_data in enumerate(questions, start=1):
+            await self.redis.hset(questions_key, str(i), json.dumps(question_data))
+
+        logger.info(
+            f"Created batch game {batch_id[:8]} with {len(questions)} questions for guild {guild_id}"
+        )
+
+    async def get_batch_game(
+        self, guild_id: str, batch_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get a batch game's metadata (not including questions).
+
+        Args:
+            guild_id: Guild ID as string
+            batch_id: Batch game ID
+
+        Returns:
+            Batch metadata dictionary or None if not found
+        """
+        key = f"trivia:{guild_id}:games:active"
+        batch_json = await self.redis.hget(key, batch_id)
+
+        if not batch_json:
+            return None
+
+        try:
+            return json.loads(batch_json)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to decode batch game {batch_id}: {e}")
+            return None
+
+    async def get_batch_questions(
+        self, guild_id: str, batch_id: str
+    ) -> Dict[str, Dict[str, Any]]:
+        """Get all questions for a batch game.
+
+        Args:
+            guild_id: Guild ID as string
+            batch_id: Batch game ID
+
+        Returns:
+            Dictionary of question_num (as string) -> question_data
+        """
+        questions_key = f"trivia:{guild_id}:game:{batch_id}:questions"
+        questions_hash = await self.redis.hgetall(questions_key)
+
+        result = {}
+        for q_num, q_json in questions_hash.items():
+            try:
+                result[q_num] = json.loads(q_json)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to decode question {q_num} for batch {batch_id}: {e}")
+
+        return result
+
+    async def get_batch_submissions(
+        self, guild_id: str, batch_id: str
+    ) -> Dict[str, Dict[str, Any]]:
+        """Get all user submissions for a batch game.
+
+        Args:
+            guild_id: Guild ID as string
+            batch_id: Batch game ID
+
+        Returns:
+            Dictionary of user_id -> submission_data with answers dict
+        """
+        key = f"trivia:{guild_id}:game:{batch_id}:submissions"
+        submissions_hash = await self.redis.hgetall(key)
+
+        result = {}
+        for user_id, submission_json in submissions_hash.items():
+            try:
+                result[user_id] = json.loads(submission_json)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to decode batch submission for user {user_id}: {e}")
+
+        return result
+
+    async def submit_batch_answer_atomic(
+        self,
+        guild_id: str,
+        batch_id: str,
+        user_id: str,
+        submission_data: Dict[str, Any],
+    ) -> Dict[str, str]:
+        """Submit batch answers atomically using Lua script.
+
+        This prevents race conditions by executing entirely within Redis.
+
+        Args:
+            guild_id: Guild ID as string
+            batch_id: Batch game ID
+            user_id: User ID as string
+            submission_data: Submission details with answers dict, submitted_at, score
+
+        Returns:
+            Dictionary with either {"ok": "SUBMITTED"} or {"err": "ERROR_CODE"}
+            Error codes: GAME_NOT_FOUND, GAME_CLOSED, WINDOW_CLOSED, ALREADY_SUBMITTED
+        """
+        games_key = f"trivia:{guild_id}:games:active"
+        submissions_key = f"trivia:{guild_id}:game:{batch_id}:submissions"
+        current_timestamp = datetime.now().timestamp()
+
+        try:
+            result = await self.redis_client.execute_script(
+                "trivia_submit_batch_answer",
+                keys=[games_key, submissions_key],
+                args=[
+                    batch_id,
+                    user_id,
+                    json.dumps(submission_data),
+                    str(current_timestamp),
+                ],
+            )
+
+            logger.info(f"Batch submission Lua script result: {result} (type: {type(result)})")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to execute batch submission script: {e}")
+            return {"err": "SCRIPT_ERROR"}
+
+    async def delete_batch_game(self, guild_id: str, batch_id: str) -> bool:
+        """Delete a batch game and its questions.
+
+        Args:
+            guild_id: Guild ID as string
+            batch_id: Batch game ID
+
+        Returns:
+            True if game was deleted, False if it didn't exist
+        """
+        games_key = f"trivia:{guild_id}:games:active"
+        questions_key = f"trivia:{guild_id}:game:{batch_id}:questions"
+
+        # Delete batch metadata
+        deleted = await self.redis.hdel(games_key, batch_id)
+
+        # Delete questions hash
+        await self.redis.delete(questions_key)
+
+        return deleted > 0
+
+    async def move_batch_to_history(
+        self,
+        guild_id: str,
+        batch_id: str,
+        batch_data: Dict[str, Any],
+        questions: Dict[str, Dict[str, Any]],
+        submissions: Dict[str, Dict[str, Any]],
+    ) -> None:
+        """Move a batch game to history (for completed games).
+
+        Args:
+            guild_id: Guild ID as string
+            batch_id: Batch game ID
+            batch_data: Batch metadata
+            questions: All questions in the batch
+            submissions: All submissions
+        """
+        # Add to sorted set with timestamp
+        ended_timestamp = datetime.now().timestamp()
+        history_set_key = f"trivia:{guild_id}:games:history"
+        await self.redis.zadd(history_set_key, {batch_id: ended_timestamp})
+
+        # Store full batch history
+        history_data = {
+            "category": batch_data.get("category"),
+            "question_count": batch_data.get("question_count"),
+            "questions": questions,
+            "started_at": batch_data.get("started_at"),
+            "ended_at": batch_data.get("closed_at", datetime.now().isoformat()),
+            "submissions": submissions,
+        }
+
+        history_key = f"trivia:{guild_id}:game:{batch_id}:history"
+        # Store with 7-day TTL
+        await self.redis.setex(history_key, 604800, json.dumps(history_data))
+
+        logger.info(f"Moved batch game {batch_id[:8]} to history")
+
     # --- Submissions ---
 
     async def submit_answer_atomic(
