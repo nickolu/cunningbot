@@ -31,13 +31,12 @@ class TriviaAnswerModal(discord.ui.Modal, title="Submit Trivia Answer"):
         # Create the answer input with different configurations for batch vs single
         if is_batch:
             placeholder = (
-                "Answer format:\n"
                 "1. your answer\n"
                 "2. your answer\n"
                 "3. your answer\n"
-                "..."
+                "Or use semicolons: 1. a; 2. b; 3. c"
             )
-            label = "Your Answers (One Per Line)"
+            label = "Your Answers (Line Breaks or Semicolons)"
             max_length = 2000  # More space for multiple answers
         else:
             # Create the answer input with the question as placeholder if provided

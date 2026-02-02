@@ -217,8 +217,8 @@ def create_batch_question_embed(
     embed.add_field(
         name="How to Answer",
         value=(
-            "Format your answers:\n"
-            "```\n1. your answer\n2. your answer\n3. your answer\n```\n"
+            "**Modal:** Use line breaks between answers\n"
+            "**Slash command:** Use semicolons: `1. a; 2. b; 3. answer`\n\n"
             "Right-click this message and select 'Submit Answer' or use `/answer`"
         ),
         inline=False

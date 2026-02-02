@@ -19,9 +19,10 @@ def parse_batch_answers(answer_text: str) -> dict[str, str]:
     """Parse multi-line answer format into dict.
 
     Input examples:
-        "1. b\\n2. c\\n3. The Taj Mahal"
+        "1. b\\n2. c\\n3. The Taj Mahal"  (newlines - from modal)
+        "1. b; 2. c; 3. The Taj Mahal"   (semicolons - from /answer command)
         "1.b\\n2. c\\n3. answer"
-        "1 b\\n2 c\\n3 text"
+        "1 b; 2 c; 3 text"
 
     Output:
         {"1": "b", "2": "c", "3": "The Taj Mahal"}
@@ -30,16 +31,21 @@ def parse_batch_answers(answer_text: str) -> dict[str, str]:
     - "1.b", "1. b", "1 b"
     - Extra whitespace, blank lines
     - Case-insensitive
+    - Newlines OR semicolons as delimiters
 
     Returns empty dict if parsing fails.
     """
     answers = {}
 
+    # Split by newlines OR semicolons
+    # First replace semicolons with newlines for unified processing
+    normalized_text = answer_text.replace(';', '\n')
+
     # Match lines like: "1. answer" or "1 answer" or "1.answer"
     # Pattern: optional whitespace, digit(s), optional dot, optional whitespace, then capture everything else
     pattern = r'^\s*(\d+)\s*\.?\s*(.+?)\s*$'
 
-    for line in answer_text.split('\n'):
+    for line in normalized_text.split('\n'):
         line = line.strip()
         if not line:
             continue
@@ -650,7 +656,9 @@ async def submit_batch_trivia_answer(
     if not parsed_answers:
         await interaction.followup.send(
             "❌ Could not parse your answers. Please format them as:\n"
-            "```\n1. your answer\n2. your answer\n3. your answer\n```",
+            "**Modal/Right-click:** `1. answer\\n2. answer\\n3. answer`\n"
+            "**Slash command:** `1. answer; 2. answer; 3. answer`\n"
+            "Use line breaks in the modal or semicolons in `/answer`",
             ephemeral=True
         )
         return
