@@ -3,7 +3,10 @@
 import discord
 from discord.ext import commands
 from bot.app.utils.logger import get_logger
-from bot.app.commands.trivia.trivia_submission_handler import submit_trivia_answer
+from bot.app.commands.trivia.trivia_submission_handler import (
+    submit_trivia_answer,
+    submit_batch_trivia_answer
+)
 
 logger = get_logger()
 
@@ -11,24 +14,46 @@ logger = get_logger()
 class TriviaAnswerModal(discord.ui.Modal, title="Submit Trivia Answer"):
     """Modal dialog with text input for submitting trivia answers."""
 
-    def __init__(self, game_id: str, guild_id: str, bot: commands.Bot, question: str = None):
+    def __init__(
+        self,
+        game_id: str,
+        guild_id: str,
+        bot: commands.Bot,
+        question: str = None,
+        is_batch: bool = False
+    ):
         super().__init__()
         self.game_id = game_id
         self.guild_id = guild_id
         self.bot = bot
+        self.is_batch = is_batch
 
-        # Create the answer input with the question as placeholder if provided
-        placeholder = question if question else "Type your answer here..."
-        # Discord has a 100 character limit for placeholders
-        if len(placeholder) > 100:
-            placeholder = placeholder[:97] + "..."
+        # Create the answer input with different configurations for batch vs single
+        if is_batch:
+            placeholder = (
+                "Answer format:\n"
+                "1. your answer\n"
+                "2. your answer\n"
+                "3. your answer\n"
+                "..."
+            )
+            label = "Your Answers (One Per Line)"
+            max_length = 2000  # More space for multiple answers
+        else:
+            # Create the answer input with the question as placeholder if provided
+            placeholder = question if question else "Type your answer here..."
+            # Discord has a 100 character limit for placeholders
+            if len(placeholder) > 100:
+                placeholder = placeholder[:97] + "..."
+            label = "Your Answer"
+            max_length = 500
 
         self.answer = discord.ui.TextInput(
-            label="Your Answer",
+            label=label,
             placeholder=placeholder,
             style=discord.TextStyle.paragraph,
             required=True,
-            max_length=500
+            max_length=max_length
         )
         self.add_item(self.answer)
 
@@ -39,6 +64,11 @@ class TriviaAnswerModal(discord.ui.Modal, title="Submit Trivia Answer"):
         await interaction.response.defer(ephemeral=True)
 
         # Now process the submission (validation can take several seconds)
-        await submit_trivia_answer(
-            self.bot, interaction, self.answer.value, self.guild_id, self.game_id
-        )
+        if self.is_batch:
+            await submit_batch_trivia_answer(
+                self.bot, interaction, self.answer.value, self.guild_id, self.game_id
+            )
+        else:
+            await submit_trivia_answer(
+                self.bot, interaction, self.answer.value, self.guild_id, self.game_id
+            )
