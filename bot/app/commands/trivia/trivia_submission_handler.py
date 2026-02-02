@@ -732,3 +732,8 @@ async def submit_batch_trivia_answer(
         await update_batch_question_stats(bot, guild_id, batch_id, batch_data, store)
     except Exception as e:
         logger.warning(f"Failed to update batch question stats: {e}")
+
+
+async def setup(bot: discord.ext.commands.Bot):
+    """Empty setup function - this module is not a cog, just utility functions."""
+    pass

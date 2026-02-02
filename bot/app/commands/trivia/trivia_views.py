@@ -72,3 +72,8 @@ class TriviaAnswerModal(discord.ui.Modal, title="Submit Trivia Answer"):
             await submit_trivia_answer(
                 self.bot, interaction, self.answer.value, self.guild_id, self.game_id
             )
+
+
+async def setup(bot: commands.Bot):
+    """Empty setup function - this module is not a cog, just UI components."""
+    pass
