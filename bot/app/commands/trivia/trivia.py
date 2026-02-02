@@ -1185,9 +1185,35 @@ class TriviaCog(commands.Cog):
         # Defer immediately - validation can take several seconds
         await interaction.response.defer(ephemeral=True)
 
-        await submit_trivia_answer(
-            self.bot, interaction, message, str(interaction.guild_id)
-        )
+        # Detect if this is a batch game by checking active games
+        from bot.app.redis.trivia_store import TriviaRedisStore
+        from bot.app.commands.trivia.trivia_submission_handler import submit_batch_trivia_answer
+
+        store = TriviaRedisStore()
+        active_games = await store.get_active_games(str(interaction.guild_id))
+
+        # Find game by thread_id or channel_id
+        channel_id = interaction.channel.id
+        game_id = None
+        game_data = None
+
+        for gid, gdata in active_games.items():
+            if gdata.get("thread_id") == channel_id or gdata.get("channel_id") == channel_id:
+                game_id = gid
+                game_data = gdata
+                break
+
+        # Check if it's a batch game
+        is_batch = game_data and game_data.get("question_count") is not None
+
+        if is_batch:
+            await submit_batch_trivia_answer(
+                self.bot, interaction, message, str(interaction.guild_id), game_id
+            )
+        else:
+            await submit_trivia_answer(
+                self.bot, interaction, message, str(interaction.guild_id)
+            )
 
     @trivia.command(name="status", description="Show status of the current trivia question.")
     async def status(self, interaction: discord.Interaction) -> None:
@@ -1460,9 +1486,34 @@ class TriviaCog(commands.Cog):
         # Defer immediately - validation can take several seconds
         await interaction.response.defer(ephemeral=True)
 
-        await submit_trivia_answer(
-            self.bot, interaction, message, str(interaction.guild_id)
-        )
+        # Detect if this is a batch game by checking active games
+        store = TriviaRedisStore()
+        from bot.app.commands.trivia.trivia_submission_handler import submit_batch_trivia_answer
+
+        active_games = await store.get_active_games(str(interaction.guild_id))
+
+        # Find game by thread_id or channel_id
+        channel_id = interaction.channel.id
+        game_id = None
+        game_data = None
+
+        for gid, gdata in active_games.items():
+            if gdata.get("thread_id") == channel_id or gdata.get("channel_id") == channel_id:
+                game_id = gid
+                game_data = gdata
+                break
+
+        # Check if it's a batch game
+        is_batch = game_data and game_data.get("question_count") is not None
+
+        if is_batch:
+            await submit_batch_trivia_answer(
+                self.bot, interaction, message, str(interaction.guild_id), game_id
+            )
+        else:
+            await submit_trivia_answer(
+                self.bot, interaction, message, str(interaction.guild_id)
+            )
 
 
 @app_commands.context_menu(name="Submit Answer")
