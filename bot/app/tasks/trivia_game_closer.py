@@ -215,28 +215,40 @@ async def close_expired_games() -> None:
                                         if submissions:
                                             scores = []
                                             for user_id, sub_data in submissions.items():
-                                                score_parts = sub_data.get("score", "0/0").split("/")
-                                                correct = int(score_parts[0])
-                                                total = int(score_parts[1])
-                                                scores.append((user_id, correct, total))
+                                                # Try new format first, fall back to old format
+                                                points = sub_data.get("points")
+                                                if points is not None:
+                                                    # New format with points
+                                                    correct = sub_data.get("correct_count", 0)
+                                                    total = sub_data.get("total_count", 0)
+                                                else:
+                                                    # Backward compatibility: old format
+                                                    score_parts = sub_data.get("score", "0/0").split("/")
+                                                    correct = int(score_parts[0])
+                                                    total = int(score_parts[1])
+                                                    # Estimate points (assume medium difficulty)
+                                                    points = (correct * 15) + ((total - correct) * 5)
 
-                                            # Sort by correct count (descending)
-                                            scores.sort(key=lambda x: x[1], reverse=True)
+                                                scores.append((user_id, points, correct, total))
+
+                                            # Sort by points (descending), then by correct count
+                                            scores.sort(key=lambda x: (x[1], x[2]), reverse=True)
 
                                             # Show top 10 or all if less
                                             top_scores = scores[:10]
                                             score_lines = []
-                                            for user_id, correct, total in top_scores:
+                                            for user_id, points, correct, total in top_scores:
                                                 try:
                                                     user = await client.fetch_user(int(user_id))
                                                     user_mention = user.mention
                                                 except:
                                                     user_mention = f"<@{user_id}>"
 
-                                                score_lines.append(f"• {user_mention}: **{correct}/{total}**")
+                                                # Display: "• @User: **45 pts** (3/6 correct)"
+                                                score_lines.append(f"• {user_mention}: **{points} pts** ({correct}/{total})")
 
                                             embed.add_field(
-                                                name="Top Scores",
+                                                name="🏆 Top Scores",
                                                 value="\n".join(score_lines) if score_lines else "No scores",
                                                 inline=False
                                             )
@@ -483,6 +495,42 @@ async def close_expired_games() -> None:
                                             value="No one answered this question.",
                                             inline=False
                                         )
+
+                                    # Calculate and display points
+                                    if validated_submissions:
+                                        # Import the calculate_question_points function
+                                        from bot.app.commands.trivia.trivia_submission_handler import calculate_question_points
+
+                                        points_by_user = {}
+                                        for user_id, sub_data in submissions.items():
+                                            points = sub_data.get("points")
+                                            if points is None:
+                                                # Backward compatibility
+                                                is_correct = validated_submissions.get(user_id, {}).get("is_correct", False)
+                                                difficulty = game_data.get("difficulty", "medium")
+                                                source = game_data.get("source", "opentdb")
+                                                points = calculate_question_points(is_correct, difficulty, source)
+                                            points_by_user[user_id] = points
+
+                                        # Sort by points
+                                        sorted_users = sorted(points_by_user.items(), key=lambda x: x[1], reverse=True)
+
+                                        # Add points field to embed
+                                        points_lines = []
+                                        for user_id, points in sorted_users[:10]:
+                                            user = user_cache.get(user_id)
+                                            if user is None:
+                                                user_mention = f"<@{user_id}>"
+                                            else:
+                                                user_mention = user.mention
+                                            points_lines.append(f"• {user_mention}: **{points} pts**")
+
+                                        if points_lines:
+                                            embed.add_field(
+                                                name="🏆 Points",
+                                                value="\n".join(points_lines),
+                                                inline=False
+                                            )
 
                                     # Add participation stats
                                     embed.add_field(

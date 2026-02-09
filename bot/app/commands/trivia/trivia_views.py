@@ -73,6 +73,41 @@ class TriviaAnswerModal(discord.ui.Modal, title="Submit Trivia Answer"):
             )
 
 
+class ClearStatsConfirmView(discord.ui.View):
+    """Confirmation view with buttons for clearing trivia stats."""
+
+    def __init__(self, guild_id: str):
+        super().__init__(timeout=60.0)  # 60 second timeout
+        self.guild_id = guild_id
+        self.confirmed = False
+
+    @discord.ui.button(label="Confirm Reset", style=discord.ButtonStyle.danger)
+    async def confirm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle confirmation button click."""
+        # Only the person who triggered the command can confirm
+        if str(interaction.user.id) != str(self.guild_id).split(':')[0]:
+            await interaction.response.send_message(
+                "Only an administrator can confirm this action.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.defer()
+        self.confirmed = True
+        self.stop()
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle cancel button click."""
+        await interaction.response.defer()
+        self.confirmed = False
+        self.stop()
+
+    async def on_timeout(self):
+        """Handle timeout."""
+        self.confirmed = False
+
+
 async def setup(bot: commands.Bot):
     """Empty setup function - this module is not a cog, just UI components."""
     pass

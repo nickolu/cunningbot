@@ -15,6 +15,36 @@ from bot.app.utils.logger import get_logger
 logger = get_logger()
 
 
+def calculate_question_points(is_correct: bool, difficulty: str, source: str) -> int:
+    """Calculate points for a single question answer.
+
+    Args:
+        is_correct: Whether the answer was correct
+        difficulty: Question difficulty ("easy", "medium", "hard")
+        source: Question source ("opentdb", "ai")
+
+    Returns:
+        Points earned (5 for wrong, 10/15/20 for correct based on difficulty)
+    """
+    if not is_correct:
+        return 5  # Participation points
+
+    # Correct answer points
+    if source == "ai":
+        return 15  # AI questions are medium difficulty equivalent
+
+    difficulty_lower = difficulty.lower() if difficulty else ""
+    if difficulty_lower == "easy":
+        return 10
+    elif difficulty_lower == "medium":
+        return 15
+    elif difficulty_lower == "hard":
+        return 20
+    else:
+        # Fallback for unknown difficulty
+        return 15
+
+
 def parse_batch_answers(answer_text: str) -> dict[str, str]:
     """Parse multi-line answer format into dict.
 
@@ -403,7 +433,8 @@ async def submit_trivia_answer(
         "submitted_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "is_correct": None,  # Will be set by validation
         "feedback": None,
-        "validated_at": None
+        "validated_at": None,
+        "points": None  # NEW: Will be set after validation
     }
 
     # Validate answer immediately (for user feedback)
@@ -419,6 +450,16 @@ async def submit_trivia_answer(
         submission_data["is_correct"] = validation_result["is_correct"]
         submission_data["feedback"] = validation_result.get("feedback", "")
         submission_data["validated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+
+        # Calculate points for this answer
+        difficulty = game_data.get("difficulty", "")
+        source = game_data.get("source", "opentdb")
+        points = calculate_question_points(
+            is_correct=validation_result["is_correct"],
+            difficulty=difficulty,
+            source=source
+        )
+        submission_data["points"] = points
 
     except Exception as e:
         logger.warning(f"Failed to validate answer immediately: {e}")
@@ -690,17 +731,39 @@ async def submit_batch_trivia_answer(
         )
         return
 
-    # Calculate score
-    correct_count = sum(1 for v in validated_answers.values() if v.get("is_correct", False))
+    # Calculate points for each question
+    total_points = 0
+    correct_count = 0
+    for q_num, answer_data in validated_answers.items():
+        question = questions[q_num]
+        is_correct = answer_data.get("is_correct", False)
+
+        # Calculate points for this question
+        points = calculate_question_points(
+            is_correct=is_correct,
+            difficulty=question.get("difficulty", ""),
+            source=question.get("source", "opentdb")
+        )
+
+        # Store points in answer data
+        answer_data["points"] = points
+        total_points += points
+
+        if is_correct:
+            correct_count += 1
+
     total_count = len(questions)
-    score = f"{correct_count}/{total_count}"
+    score = f"{correct_count}/{total_count}"  # Keep for backward compatibility
 
     # Prepare submission data
     user_id_str = str(interaction.user.id)
     submission_data = {
-        "answers": validated_answers,
+        "answers": validated_answers,  # Now includes "points" per answer
         "submitted_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-        "score": score
+        "score": score,  # Keep for backward compatibility
+        "points": total_points,  # NEW: Total points earned
+        "correct_count": correct_count,  # NEW: For easier sorting
+        "total_count": total_count  # NEW: For easier display
     }
 
     # Submit atomically using Lua script
