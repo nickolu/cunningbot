@@ -1188,10 +1188,41 @@ class TriviaCog(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def clear_stats(self, interaction: discord.Interaction) -> None:
         """Clear all trivia game history and statistics."""
-        # Defer since this might take a moment
-        await interaction.response.defer(ephemeral=True)
+        from bot.app.commands.trivia.trivia_views import ClearStatsConfirmView
 
+        # First, check if there are any stats to clear
         store = TriviaRedisStore()
+        trivia_history = await store.get_all_history_as_dict(str(interaction.guild_id))
+
+        if not trivia_history:
+            await interaction.response.send_message(
+                "No trivia stats found to clear.",
+                ephemeral=True
+            )
+            return
+
+        # Show confirmation dialog
+        view = ClearStatsConfirmView(str(interaction.guild_id))
+        await interaction.response.send_message(
+            "⚠️ **Are you sure you want to reset the leaderboard?**\n\n"
+            f"This will permanently delete all trivia history and stats ({len(trivia_history)} games).\n"
+            "Active games will be preserved, but all leaderboard data will be lost.\n\n"
+            "**This action cannot be undone.**",
+            view=view,
+            ephemeral=True
+        )
+
+        # Wait for user response
+        await view.wait()
+
+        if not view.confirmed:
+            await interaction.followup.send(
+                "❌ Reset cancelled. No changes were made.",
+                ephemeral=True
+            )
+            return
+
+        # User confirmed, proceed with clearing
         result = await store.clear_all_stats(str(interaction.guild_id))
 
         total_cleared = result["games"] + result["submissions"] + result["seeds"]
@@ -1203,14 +1234,24 @@ class TriviaCog(commands.Cog):
             )
         else:
             msg_parts = [
-                "🗑️ Cleared all trivia stats:",
+                "✅ **Leaderboard has been reset!**",
+                "",
+                "📊 Stats cleared:",
                 f"• {result['games']} game{'s' if result['games'] != 1 else ''} removed from history",
                 f"• {result['submissions']} submission set{'s' if result['submissions'] != 1 else ''} deleted",
                 f"• {result['seeds']} seed{'s' if result['seeds'] != 1 else ''} cleared",
                 "",
-                "⚠️ Leaderboard has been reset. Active games are preserved."
+                "🎮 Active games are preserved.",
+                "🆕 The new point-based scoring system is now active!"
             ]
             await interaction.followup.send("\n".join(msg_parts), ephemeral=True)
+
+    @trivia.command(name="reset", description="Reset the trivia leaderboard (alias for clear_stats).")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def reset_leaderboard(self, interaction: discord.Interaction) -> None:
+        """Reset the trivia leaderboard - alias for clear_stats."""
+        # Call the clear_stats command directly
+        await self.clear_stats(interaction)
 
     @trivia.command(name="answer", description="Submit your answer to the current trivia question.")
     @app_commands.describe(message="Your answer to the trivia question")
@@ -1419,7 +1460,7 @@ class TriviaCog(commands.Cog):
             title += f" ({timeframe.replace('-', ' ').title()})"
 
         leaderboard_text = []
-        for i, (user_id, correct, total, accuracy) in enumerate(leaderboard[:10], 1):
+        for i, (user_id, points, correct, total, accuracy) in enumerate(leaderboard[:10], 1):
             user = await self.bot.fetch_user(int(user_id))
             username = user.display_name if user else f"User {user_id}"
 
@@ -1432,7 +1473,7 @@ class TriviaCog(commands.Cog):
                 medal = "🥉"
 
             leaderboard_text.append(
-                f"{medal} **{i}.** {username}: {correct}/{total} correct ({accuracy*100:.1f}%)"
+                f"{medal} **{i}.** {username}: **{points} pts** ({correct}/{total} - {accuracy*100:.1f}%)"
             )
 
         embed = discord.Embed(
@@ -1488,9 +1529,12 @@ class TriviaCog(commands.Cog):
         embed.add_field(
             name="Overall",
             value=(
+                f"Total Points: **{user_stats['total_points']} pts**\n"
                 f"Games Played: **{user_stats['total_games']}**\n"
-                f"Correct Answers: **{user_stats['correct_answers']}**\n"
-                f"Accuracy: **{user_stats['accuracy']*100:.1f}%**"
+                f"Questions Answered: **{user_stats['total_answers']}**\n"
+                f"Correct: **{user_stats['correct_answers']}/{user_stats['total_answers']}** "
+                f"({user_stats['accuracy']*100:.1f}%)\n"
+                f"Avg Points/Game: **{user_stats['avg_points_per_game']:.1f} pts**"
             ),
             inline=False
         )
@@ -1500,8 +1544,8 @@ class TriviaCog(commands.Cog):
         for category, cat_stats in user_stats["by_category"].items():
             if cat_stats["total"] > 0:
                 category_lines.append(
-                    f"**{category}:** {cat_stats['correct']}/{cat_stats['total']} "
-                    f"({cat_stats['accuracy']*100:.1f}%)"
+                    f"**{category}:** **{cat_stats['points']} pts** "
+                    f"({cat_stats['correct']}/{cat_stats['total']} - {cat_stats['accuracy']*100:.1f}%)"
                 )
 
         if category_lines:
