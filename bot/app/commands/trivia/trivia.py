@@ -1,5 +1,6 @@
 """Trivia game Discord commands."""
 
+import asyncio
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -594,31 +595,63 @@ class TriviaCog(commands.Cog):
                 # Generate batch ID
                 batch_id = str(uuid.uuid4())
 
-                # Create batch embed
-                embed = create_batch_question_embed(
-                    questions=all_questions,
-                    batch_id=batch_id,
+                # Count question types for overview
+                difficulty_counts = {"easy": 0, "medium": 0, "hard": 0, "ai": 0}
+                for q in all_questions:
+                    if q.get("source") == "ai":
+                        difficulty_counts["ai"] += 1
+                    else:
+                        diff = q.get("difficulty", "").lower()
+                        if diff in difficulty_counts:
+                            difficulty_counts[diff] += 1
+
+                # Create overview embed
+                from bot.app.tasks.trivia_game_poster import create_batch_overview_embed, create_individual_question_embed
+
+                overview_embed = create_batch_overview_embed(
                     category=mapped_category,
+                    question_count=len(all_questions),
+                    difficulty_counts=difficulty_counts,
                     ends_at=ends_at,
-                    stats=None
+                    batch_id=batch_id
                 )
 
-                # Post message
-                message = await target_channel.send(embed=embed)
-                logger.info(f"Posted batch trivia to channel {target_channel.id}")
+                # Post overview message
+                overview_message = await target_channel.send(embed=overview_embed)
+                logger.info(f"Posted batch trivia overview to channel {target_channel.id}")
 
-                # Create thread
+                # Create thread from overview
                 now_pt = dt.datetime.now(PACIFIC_TZ)
                 thread_name = f"Trivia – {opentdb_name} – {now_pt:%Y-%m-%d %H:%M}"
                 thread = None
                 try:
-                    thread = await message.create_thread(
+                    thread = await overview_message.create_thread(
                         name=thread_name,
                         auto_archive_duration=1440  # 24 hours
                     )
                     logger.info(f"Created thread '{thread_name}' for batch trivia game")
                 except discord.HTTPException as exc:
                     logger.error(f"Failed to create thread: {exc}")
+
+                # Post each question as separate message in thread
+                question_message_ids = []
+                if thread:
+                    for i, question_data in enumerate(all_questions, start=1):
+                        question_embed = create_individual_question_embed(
+                            question_data=question_data,
+                            question_num=i,
+                            total_questions=len(all_questions),
+                            batch_id=batch_id,
+                            stats=None
+                        )
+                        question_message = await thread.send(embed=question_embed)
+                        question_message_ids.append(question_message.id)
+                        logger.info(f"Posted question {i}/{len(all_questions)} to thread")
+
+                        # Small delay to avoid rate limits
+                        await asyncio.sleep(0.1)
+                else:
+                    logger.warning("Thread creation failed, cannot post individual questions")
 
                 # Prepare question data for storage
                 questions_for_storage = []
@@ -657,7 +690,8 @@ class TriviaCog(commands.Cog):
                     "category": mapped_category,
                     "started_at": now_utc.isoformat(),
                     "ends_at": ends_at.isoformat(),
-                    "message_id": message.id,
+                    "overview_message_id": overview_message.id,
+                    "question_message_ids": question_message_ids,
                     "question_count": len(all_questions)
                 }
 

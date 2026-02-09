@@ -106,6 +106,143 @@ def create_question_embed(question_data: dict, game_id: str, ends_at: dt.datetim
     return embed
 
 
+def create_batch_overview_embed(
+    category: str,
+    question_count: int,
+    difficulty_counts: dict,
+    ends_at: dt.datetime,
+    batch_id: str
+) -> discord.Embed:
+    """Create overview embed for batch trivia (main post)."""
+    # Map categories to colors
+    category_colors = {
+        "History": 0x8B4513,
+        "Science": 0x4169E1,
+        "Sports": 0xFF4500,
+        "Entertainment": 0xFF1493,
+        "Arts & Literature": 0x9370DB,
+        "Geography": 0x228B22
+    }
+
+    color = category_colors.get(category, 0x0099FF)
+
+    # Build question summary
+    parts = []
+    if difficulty_counts.get("easy", 0) > 0:
+        parts.append(f"{difficulty_counts['easy']} Easy")
+    if difficulty_counts.get("medium", 0) > 0:
+        parts.append(f"{difficulty_counts['medium']} Medium")
+    if difficulty_counts.get("hard", 0) > 0:
+        parts.append(f"{difficulty_counts['hard']} Hard")
+    if difficulty_counts.get("ai", 0) > 0:
+        parts.append(f"{difficulty_counts['ai']} AI")
+
+    question_summary = ", ".join(parts) if parts else "Unknown"
+
+    description = f"**{question_count} questions to answer!**\n• {question_summary}"
+
+    embed = discord.Embed(
+        title=f"🎯 Daily Trivia - {category}",
+        description=description,
+        color=color,
+        timestamp=dt.datetime.now(dt.timezone.utc)
+    )
+
+    embed.add_field(
+        name="📝 How to Answer",
+        value=(
+            "Answer all questions in the thread below.\n\n"
+            "**Modal:** Use line breaks between answers\n"
+            "**Slash command:** Use semicolons\n"
+            "Example: `1. a; 2. b; 3. answer`\n\n"
+            "Right-click any question message and select 'Submit Answer' or use `/answer`"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="⏰ Ends At",
+        value=f"<t:{int(ends_at.timestamp())}:R>",
+        inline=False
+    )
+
+    embed.set_footer(text=f"Batch ID: {batch_id[:8]}")
+
+    return embed
+
+
+def create_individual_question_embed(
+    question_data: dict,
+    question_num: int,
+    total_questions: int,
+    batch_id: str,
+    stats: dict = None
+) -> discord.Embed:
+    """Create embed for a single question in the batch."""
+    # Determine question type and color
+    source = question_data.get("source", "")
+    difficulty = question_data.get("difficulty", "").capitalize()
+
+    if source == "ai":
+        type_label = "AI"
+        color = 0x9B59B6  # Purple for AI
+    elif difficulty == "Easy":
+        type_label = "Easy"
+        color = 0x2ECC71  # Green
+    elif difficulty == "Medium":
+        type_label = "Medium"
+        color = 0xF39C12  # Orange
+    elif difficulty == "Hard":
+        type_label = "Hard"
+        color = 0xE74C3C  # Red
+    else:
+        type_label = "Unknown"
+        color = 0x95A5A6  # Gray
+
+    # Build description with question and options
+    question_text = question_data.get("question", "")
+    options = question_data.get("options", [])
+
+    description = question_text
+
+    # Add options if multiple choice
+    if options and len(options) > 0:
+        description += "\n\n"
+        option_labels = ["A", "B", "C", "D", "E", "F"]
+        for i, option in enumerate(options):
+            if i < len(option_labels):
+                description += f"**{option_labels[i]}.** {option}\n"
+    else:
+        description += "\n\n_(text answer)_"
+
+    embed = discord.Embed(
+        title=f"Question {question_num}/{total_questions}",
+        description=description,
+        color=color,
+        timestamp=dt.datetime.now(dt.timezone.utc)
+    )
+
+    embed.add_field(name="Type", value=type_label, inline=True)
+
+    # Add stats field
+    if stats:
+        correct = stats.get("correct", 0)
+        incorrect = stats.get("incorrect", 0)
+        total = correct + incorrect
+        if total > 0:
+            stats_text = f"✅ {correct} | ❌ {incorrect}"
+        else:
+            stats_text = "No answers yet"
+    else:
+        stats_text = "No answers yet"
+
+    embed.add_field(name="📊 Responses", value=stats_text, inline=True)
+
+    embed.set_footer(text=f"Batch ID: {batch_id[:8]} • Question #{question_num}")
+
+    return embed
+
+
 def create_batch_question_embed(
     questions: list[dict],
     batch_id: str,
@@ -464,30 +601,60 @@ async def post_trivia_questions() -> None:
                     # Generate batch ID
                     batch_id = str(uuid.uuid4())
 
-                    # Create batch embed
-                    embed = create_batch_question_embed(
-                        questions=all_questions,
-                        batch_id=batch_id,
+                    # Count question types for overview
+                    difficulty_counts = {"easy": 0, "medium": 0, "hard": 0, "ai": 0}
+                    for q in all_questions:
+                        if q.get("source") == "ai":
+                            difficulty_counts["ai"] += 1
+                        else:
+                            diff = q.get("difficulty", "").lower()
+                            if diff in difficulty_counts:
+                                difficulty_counts[diff] += 1
+
+                    # Create overview embed
+                    overview_embed = create_batch_overview_embed(
                         category=mapped_category,
+                        question_count=len(all_questions),
+                        difficulty_counts=difficulty_counts,
                         ends_at=ends_at,
-                        stats=None
+                        batch_id=batch_id
                     )
 
-                    # Post message
-                    message = await channel.send(embed=embed)
-                    logger.info(f"✅ Posted batch trivia to channel {channel.id} (batch_id: {batch_id[:8]})")
+                    # Post overview message
+                    overview_message = await channel.send(embed=overview_embed)
+                    logger.info(f"✅ Posted batch trivia overview to channel {channel.id} (batch_id: {batch_id[:8]})")
 
-                    # Create thread (include OpenTDB category name)
+                    # Create thread from overview (include OpenTDB category name)
                     thread_name = f"Trivia – {opentdb_name} – {now_pt:%Y-%m-%d %H:%M}"
                     thread = None
                     try:
-                        thread = await message.create_thread(
+                        thread = await overview_message.create_thread(
                             name=thread_name,
                             auto_archive_duration=1440  # 24 hours
                         )
                         logger.info("Created thread '%s' for batch trivia game", thread_name)
                     except discord.HTTPException as exc:
                         logger.error("Failed to create thread: %s", exc)
+
+                    # Post each question as separate message in thread
+                    question_message_ids = []
+                    if thread:
+                        for i, question_data in enumerate(all_questions, start=1):
+                            question_embed = create_individual_question_embed(
+                                question_data=question_data,
+                                question_num=i,
+                                total_questions=len(all_questions),
+                                batch_id=batch_id,
+                                stats=None
+                            )
+                            question_message = await thread.send(embed=question_embed)
+                            question_message_ids.append(question_message.id)
+                            logger.info(f"Posted question {i}/{len(all_questions)} to thread")
+
+                            # Small delay to avoid rate limits
+                            await asyncio.sleep(0.1)
+                    else:
+                        logger.warning("Thread creation failed, cannot post individual questions")
 
                     # Prepare question data for storage
                     questions_for_storage = []
@@ -526,7 +693,8 @@ async def post_trivia_questions() -> None:
                         "category": mapped_category,
                         "started_at": now_utc.isoformat(),
                         "ends_at": ends_at.isoformat(),
-                        "message_id": message.id,
+                        "overview_message_id": overview_message.id,
+                        "question_message_ids": question_message_ids,
                         "question_count": len(all_questions)
                     }
 
