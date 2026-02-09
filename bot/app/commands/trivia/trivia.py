@@ -1631,14 +1631,21 @@ async def submit_trivia_answer_context_menu(
         return
 
     # Footer format is "Game ID: {id[:8]}" or "Batch ID: {id[:8]}"
+    # or "Batch ID: {id[:8]} • Question #X"
     try:
         footer_text = embed.footer.text
         is_batch = footer_text.startswith("Batch ID: ")
 
         if is_batch:
-            id_prefix = footer_text.replace("Batch ID: ", "").strip()
+            # Remove "Batch ID: " prefix
+            id_part = footer_text.replace("Batch ID: ", "").strip()
+            # Extract only the ID part before any " •" separator
+            id_prefix = id_part.split(" •")[0].strip()
         elif footer_text.startswith("Game ID: "):
-            id_prefix = footer_text.replace("Game ID: ", "").strip()
+            # Remove "Game ID: " prefix
+            id_part = footer_text.replace("Game ID: ", "").strip()
+            # Extract only the ID part before any " •" separator
+            id_prefix = id_part.split(" •")[0].strip()
         else:
             raise ValueError("Invalid footer format")
 
