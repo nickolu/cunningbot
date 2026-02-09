@@ -492,69 +492,72 @@ async def update_batch_question_stats(
     batch_data: dict,
     store: TriviaRedisStore
 ) -> None:
-    """Update the batch question message with current answer statistics.
+    """Update individual question messages with their stats.
 
     Args:
         bot: The Discord bot instance
         guild_id: Guild ID as string
         batch_id: Batch game ID
-        batch_data: Batch data containing message_id and channel_id
+        batch_data: Batch data containing question_message_ids and thread_id
         store: TriviaRedisStore instance
     """
-    # Import here to avoid circular dependency
-    from bot.app.commands.trivia.trivia import create_batch_question_embed
+    # Get question message IDs
+    question_message_ids = batch_data.get("question_message_ids")
 
-    message_id = batch_data.get("message_id")
-    channel_id = batch_data.get("channel_id")
-
-    if not message_id or not channel_id:
-        logger.warning(f"Missing message_id or channel_id for batch {batch_id[:8]}")
+    # Backward compatibility: if None, skip (legacy games)
+    if question_message_ids is None:
+        logger.warning(f"Batch {batch_id[:8]} has no question_message_ids, skipping stats update (legacy game)")
         return
 
-    # Get the channel and message
-    channel = bot.get_channel(channel_id)
-    if not channel:
-        logger.warning(f"Could not find channel {channel_id}")
+    # Get thread
+    thread_id = batch_data.get("thread_id")
+    if not thread_id:
+        logger.warning(f"Missing thread_id for batch {batch_id[:8]}")
         return
 
-    try:
-        message = await channel.fetch_message(message_id)
-    except discord.NotFound:
-        logger.warning(f"Could not find message {message_id}")
-        return
-    except discord.Forbidden:
-        logger.warning(f"No permission to fetch message {message_id}")
-        return
+    thread = bot.get_channel(thread_id)
+    if thread is None:
+        try:
+            thread = await bot.fetch_channel(thread_id)
+        except Exception as e:
+            logger.warning(f"Could not find thread {thread_id}: {e}")
+            return
 
-    # Get all submissions and questions
+    # Get submissions and questions
     submissions = await store.get_batch_submissions(guild_id, batch_id)
     questions = await store.get_batch_questions(guild_id, batch_id)
 
     # Count stats per question
     stats = count_batch_submissions(submissions, len(questions))
 
-    # Recreate the embed with stats
-    ends_at = dt.datetime.fromisoformat(batch_data["ends_at"])
+    # Import the embed function
+    from bot.app.tasks.trivia_game_poster import create_individual_question_embed
 
-    # Convert questions dict to list for embed creation
-    questions_list = [questions[str(i)] for i in range(1, len(questions) + 1)]
+    # Update each question message individually
+    for i, message_id in enumerate(question_message_ids, start=1):
+        try:
+            message = await thread.fetch_message(message_id)
+            question_data = questions[str(i)]
+            q_stats = stats.get(str(i), {"correct": 0, "incorrect": 0})
 
-    updated_embed = create_batch_question_embed(
-        questions=questions_list,
-        batch_id=batch_id,
-        category=batch_data.get("category", "General"),
-        ends_at=ends_at,
-        stats=stats
-    )
+            # Recreate embed with updated stats
+            updated_embed = create_individual_question_embed(
+                question_data=question_data,
+                question_num=i,
+                total_questions=len(questions),
+                batch_id=batch_id,
+                stats=q_stats
+            )
 
-    # Update the message
-    try:
-        await message.edit(embed=updated_embed)
-        logger.info(f"Updated batch question stats for game {batch_id[:8]}")
-    except discord.Forbidden:
-        logger.warning(f"No permission to edit message {message_id}")
-    except Exception as e:
-        logger.error(f"Failed to edit message: {e}")
+            await message.edit(embed=updated_embed)
+            logger.info(f"Updated stats for question {i}/{len(questions)} in batch {batch_id[:8]}")
+
+        except discord.NotFound:
+            logger.warning(f"Could not find message {message_id} for question {i}")
+        except discord.Forbidden:
+            logger.warning(f"No permission to edit message {message_id} for question {i}")
+        except Exception as e:
+            logger.warning(f"Failed to update question {i} message: {e}")
 
 
 def count_batch_submissions(

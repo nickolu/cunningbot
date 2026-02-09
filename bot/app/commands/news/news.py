@@ -337,6 +337,73 @@ class NewsCog(commands.Cog):
             ephemeral=True
         )
 
+    @news.command(name="remove-all", description="Permanently delete ALL RSS feeds from this channel.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def remove_all(self, interaction: discord.Interaction) -> None:
+        guild_id_str = guild_id_to_str(interaction.guild_id)
+        store = RSSRedisStore()
+
+        # Get all feeds for this guild
+        all_feeds = await store.get_feeds(guild_id_str)
+
+        # Filter to only feeds in the current channel
+        current_channel_id = interaction.channel_id
+        channel_feeds = {
+            name: info for name, info in all_feeds.items()
+            if info.get("channel_id") == current_channel_id
+        }
+
+        if not channel_feeds:
+            await interaction.response.send_message(
+                f"No RSS feeds found in {interaction.channel.mention}.",
+                ephemeral=True
+            )
+            return
+
+        # Defer response as this might take a moment
+        await interaction.response.defer(ephemeral=True)
+
+        # Delete each feed and track results
+        deleted_feeds = []
+        total_pending_cleared = 0
+
+        for feed_name, feed_info in channel_feeds.items():
+            # Delete the feed
+            await store.delete_feed(guild_id_str, feed_name)
+            deleted_feeds.append(feed_name)
+
+            # Clear pending articles for this feed
+            cleared_count = await store.clear_pending_for_feed(guild_id_str, current_channel_id, feed_name)
+            total_pending_cleared += cleared_count
+
+            logger.info(f"Removed feed '{feed_name}' from channel {current_channel_id} (cleared {cleared_count} pending articles)")
+
+        # Build confirmation message
+        feed_count = len(deleted_feeds)
+        feed_list = "\n".join(f"• **{name}**" for name in deleted_feeds)
+
+        embed = discord.Embed(
+            title="🗑️ All RSS Feeds Removed",
+            description=f"Removed **{feed_count}** feed{'s' if feed_count != 1 else ''} from {interaction.channel.mention}:",
+            color=0xff6b6b
+        )
+
+        # Add feed list (truncate if too long)
+        if len(feed_list) <= 1024:
+            embed.add_field(name="Deleted Feeds", value=feed_list, inline=False)
+        else:
+            # Truncate the list if it's too long for Discord embed field
+            truncated_list = feed_list[:1000] + "\n..."
+            embed.add_field(name="Deleted Feeds", value=truncated_list, inline=False)
+
+        # Add statistics
+        stats_text = f"• Feeds deleted: **{feed_count}**\n• Pending articles cleared: **{total_pending_cleared}**"
+        embed.add_field(name="Summary", value=stats_text, inline=False)
+
+        embed.set_footer(text="All feeds, seen items, and pending articles have been permanently deleted.")
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
     @news.command(name="reset", description="Reset a feed to repost all items (clears seen items history).")
     @app_commands.describe(feed_name="The name of the feed to reset")
     @app_commands.checks.has_permissions(administrator=True)

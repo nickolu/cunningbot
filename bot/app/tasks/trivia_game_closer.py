@@ -241,6 +241,57 @@ async def close_expired_games() -> None:
                                                 inline=False
                                             )
 
+                                        # Add per-question correct answers
+                                        question_lines = []
+                                        for i in range(1, len(questions) + 1):
+                                            q_data = questions[str(i)]
+                                            correct_answer = q_data.get("correct_answer", "Unknown")
+                                            source = q_data.get("source", "")
+                                            difficulty = q_data.get("difficulty", "").capitalize()
+
+                                            # Determine type label
+                                            if source == "ai":
+                                                type_label = "AI"
+                                            else:
+                                                type_label = difficulty if difficulty else "Unknown"
+
+                                            # Count how many got it right
+                                            correct_count = sum(
+                                                1 for sub in submissions.values()
+                                                if sub.get("answers", {}).get(str(i), {}).get("is_correct", False)
+                                            )
+
+                                            question_lines.append(
+                                                f"**Q{i} ({type_label}):** {correct_answer}\n✅ {correct_count} correct"
+                                            )
+
+                                        # Add to embed (split into multiple fields if needed for Discord's 1024 char limit)
+                                        if question_lines:
+                                            current_field = []
+                                            for line in question_lines:
+                                                # Check if adding this line would exceed field limit
+                                                current_length = sum(len(l) + 2 for l in current_field)  # +2 for \n\n separator
+                                                if current_length + len(line) > 1000:
+                                                    # Start new field
+                                                    field_name = "Correct Answers" if not any("Correct Answers" in str(f.name) for f in embed.fields) else "\u200b"
+                                                    embed.add_field(
+                                                        name=field_name,
+                                                        value="\n\n".join(current_field),
+                                                        inline=False
+                                                    )
+                                                    current_field = [line]
+                                                else:
+                                                    current_field.append(line)
+
+                                            # Add final field
+                                            if current_field:
+                                                field_name = "Correct Answers" if not any("Correct Answers" in str(f.name) for f in embed.fields) else "\u200b"
+                                                embed.add_field(
+                                                    name=field_name,
+                                                    value="\n\n".join(current_field),
+                                                    inline=False
+                                                )
+
                                         embed.set_footer(text=f"Category: {category} • Batch ID: {game_id[:8]}")
 
                                         logger.info("Posting batch results for game %s to thread %s", game_id[:8], thread_id)
