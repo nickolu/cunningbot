@@ -76,18 +76,18 @@ class TriviaAnswerModal(discord.ui.Modal, title="Submit Trivia Answer"):
 class ClearStatsConfirmView(discord.ui.View):
     """Confirmation view with buttons for clearing trivia stats."""
 
-    def __init__(self, guild_id: str):
+    def __init__(self, user_id: int):
         super().__init__(timeout=60.0)  # 60 second timeout
-        self.guild_id = guild_id
+        self.user_id = user_id
         self.confirmed = False
 
     @discord.ui.button(label="Confirm Reset", style=discord.ButtonStyle.danger)
     async def confirm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Handle confirmation button click."""
         # Only the person who triggered the command can confirm
-        if str(interaction.user.id) != str(self.guild_id).split(':')[0]:
+        if interaction.user.id != self.user_id:
             await interaction.response.send_message(
-                "Only an administrator can confirm this action.",
+                "Only the person who started this reset can confirm it.",
                 ephemeral=True
             )
             return

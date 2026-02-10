@@ -1202,7 +1202,7 @@ class TriviaCog(commands.Cog):
             return
 
         # Show confirmation dialog
-        view = ClearStatsConfirmView(str(interaction.guild_id))
+        view = ClearStatsConfirmView(interaction.user.id)
         await interaction.response.send_message(
             "⚠️ **Are you sure you want to reset the leaderboard?**\n\n"
             f"This will permanently delete all trivia history and stats ({len(trivia_history)} games).\n"
@@ -1250,8 +1250,63 @@ class TriviaCog(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def reset_leaderboard(self, interaction: discord.Interaction) -> None:
         """Reset the trivia leaderboard - alias for clear_stats."""
-        # Call the clear_stats command directly
-        await self.clear_stats(interaction)
+        from bot.app.commands.trivia.trivia_views import ClearStatsConfirmView
+
+        # First, check if there are any stats to clear
+        store = TriviaRedisStore()
+        trivia_history = await store.get_all_history_as_dict(str(interaction.guild_id))
+
+        if not trivia_history:
+            await interaction.response.send_message(
+                "No trivia stats found to clear.",
+                ephemeral=True
+            )
+            return
+
+        # Show confirmation dialog
+        view = ClearStatsConfirmView(interaction.user.id)
+        await interaction.response.send_message(
+            "⚠️ **Are you sure you want to reset the leaderboard?**\n\n"
+            f"This will permanently delete all trivia history and stats ({len(trivia_history)} games).\n"
+            "Active games will be preserved, but all leaderboard data will be lost.\n\n"
+            "**This action cannot be undone.**",
+            view=view,
+            ephemeral=True
+        )
+
+        # Wait for user response
+        await view.wait()
+
+        if not view.confirmed:
+            await interaction.followup.send(
+                "❌ Reset cancelled. No changes were made.",
+                ephemeral=True
+            )
+            return
+
+        # User confirmed, proceed with clearing
+        result = await store.clear_all_stats(str(interaction.guild_id))
+
+        total_cleared = result["games"] + result["submissions"] + result["seeds"]
+
+        if total_cleared == 0:
+            await interaction.followup.send(
+                "No trivia stats found to clear.",
+                ephemeral=True
+            )
+        else:
+            msg_parts = [
+                "✅ **Leaderboard has been reset!**",
+                "",
+                "📊 Stats cleared:",
+                f"• {result['games']} game{'s' if result['games'] != 1 else ''} removed from history",
+                f"• {result['submissions']} submission set{'s' if result['submissions'] != 1 else ''} deleted",
+                f"• {result['seeds']} seed{'s' if result['seeds'] != 1 else ''} cleared",
+                "",
+                "🎮 Active games are preserved.",
+                "🆕 The new point-based scoring system is now active!"
+            ]
+            await interaction.followup.send("\n".join(msg_parts), ephemeral=True)
 
     @trivia.command(name="answer", description="Submit your answer to the current trivia question.")
     @app_commands.describe(message="Your answer to the trivia question")
