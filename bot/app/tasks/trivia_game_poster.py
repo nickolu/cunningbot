@@ -155,7 +155,7 @@ def create_batch_overview_embed(
             "**Modal:** Use line breaks between answers\n"
             "**Slash command:** Use semicolons\n"
             "Example: `1. a; 2. b; 3. answer`\n\n"
-            "Right-click any question message and select 'Submit Answer' or use `/answer`"
+            "Right-click the main message and select 'Submit Answer' or use `/answer`"
         ),
         inline=False
     )
