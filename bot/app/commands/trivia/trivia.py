@@ -1139,6 +1139,138 @@ class TriviaCog(commands.Cog):
             ephemeral=True
         )
 
+    @trivia.command(name="close", description="Manually close an active trivia game.")
+    @app_commands.describe(game_id="Game/Batch ID (optional - will auto-detect from current channel)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def close_game(
+        self,
+        interaction: discord.Interaction,
+        game_id: Optional[str] = None
+    ) -> None:
+        """Manually close an active trivia game."""
+        await interaction.response.defer(ephemeral=True)
+
+        store = TriviaRedisStore()
+        guild_id = str(interaction.guild_id)
+
+        # If no game_id provided, try to find game in current channel
+        if not game_id:
+            active_games = await store.get_active_games(guild_id)
+            channel_id = interaction.channel.id
+
+            for gid, gdata in active_games.items():
+                if gdata.get("thread_id") == channel_id or gdata.get("channel_id") == channel_id:
+                    game_id = gid
+                    break
+
+            if not game_id:
+                await interaction.followup.send(
+                    "❌ No active game found in this channel. Specify a game ID or run this command in a trivia thread.",
+                    ephemeral=True
+                )
+                return
+        else:
+            # Try to find game by partial ID match
+            active_games = await store.get_active_games(guild_id)
+            matching_game = None
+            for gid in active_games.keys():
+                if gid.startswith(game_id):
+                    matching_game = gid
+                    break
+
+            if not matching_game:
+                await interaction.followup.send(
+                    f"❌ No active game found with ID starting with '{game_id}'.",
+                    ephemeral=True
+                )
+                return
+
+            game_id = matching_game
+
+        # Get game data
+        game_data = await store.get_game(guild_id, game_id)
+        if not game_data:
+            await interaction.followup.send(
+                "❌ Game not found or already closed.",
+                ephemeral=True
+            )
+            return
+
+        # Check if already closed
+        if game_data.get("closed_at"):
+            await interaction.followup.send(
+                f"⚠️ Game {game_id[:8]} is already closed.",
+                ephemeral=True
+            )
+            return
+
+        # Close the game
+        import datetime as dt
+        game_data["closed_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+        await store.update_game(guild_id, game_id, game_data)
+
+        # Check if batch or single game
+        is_batch = game_data.get("question_count") is not None
+
+        if is_batch:
+            # Move batch game to history
+            questions = await store.get_batch_questions(guild_id, game_id)
+            submissions = await store.get_batch_submissions(guild_id, game_id)
+            await store.move_batch_to_history(guild_id, game_id, game_data, questions, submissions)
+            await store.delete_batch_game(guild_id, game_id)
+
+            await interaction.followup.send(
+                f"✅ Batch game {game_id[:8]} has been closed manually.\n"
+                f"• Questions: {len(questions)}\n"
+                f"• Submissions: {len(submissions)}\n"
+                f"Game moved to history.",
+                ephemeral=True
+            )
+        else:
+            # Move single game to history
+            submissions = await store.get_submissions(guild_id, game_id)
+
+            # Validate any unvalidated submissions
+            from bot.domain.trivia.answer_validator import validate_answer
+            validated_submissions = {}
+
+            for user_id, submission in submissions.items():
+                is_correct = submission.get("is_correct")
+                if is_correct is None:
+                    # Validate now
+                    user_answer = submission.get("answer", "")
+                    correct_answer = game_data.get("correct_answer", "")
+                    question = game_data.get("question", "")
+                    try:
+                        validation_result = await validate_answer(user_answer, correct_answer, question)
+                        validated_submissions[user_id] = {
+                            "answer": user_answer,
+                            "is_correct": validation_result["is_correct"]
+                        }
+                    except Exception as e:
+                        logger.error(f"Failed to validate answer: {e}")
+                        validated_submissions[user_id] = {
+                            "answer": user_answer,
+                            "is_correct": False
+                        }
+                else:
+                    validated_submissions[user_id] = {
+                        "answer": submission.get("answer", ""),
+                        "is_correct": is_correct
+                    }
+
+            await store.move_to_history(guild_id, game_id, game_data, validated_submissions)
+            await store.delete_game(guild_id, game_id)
+
+            correct_count = sum(1 for v in validated_submissions.values() if v.get("is_correct"))
+            await interaction.followup.send(
+                f"✅ Game {game_id[:8]} has been closed manually.\n"
+                f"• Submissions: {len(validated_submissions)}\n"
+                f"• Correct: {correct_count}/{len(validated_submissions)}\n"
+                f"Game moved to history.",
+                ephemeral=True
+            )
+
     @trivia.command(name="clear_schedules", description="Clear all trivia schedules in a channel or entire server.")
     @app_commands.describe(
         channel="Channel to clear schedules from (if not provided, clears ALL schedules in server)"

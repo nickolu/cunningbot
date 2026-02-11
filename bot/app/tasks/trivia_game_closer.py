@@ -259,7 +259,8 @@ async def close_expired_games() -> None:
                                             q_data = questions[str(i)]
                                             correct_answer = q_data.get("correct_answer", "Unknown")
                                             source = q_data.get("source", "")
-                                            difficulty = q_data.get("difficulty", "").capitalize()
+                                            difficulty = q_data.get("difficulty") or ""
+                                            difficulty = difficulty.capitalize() if difficulty else ""
 
                                             # Determine type label
                                             if source == "ai":
