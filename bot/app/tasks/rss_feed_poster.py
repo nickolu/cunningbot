@@ -367,8 +367,16 @@ async def collect_rss_updates() -> None:
 
                     logger.info("Fetching feed '%s' from %s", feed_name, feed_url)
 
-                    # Fetch and parse the feed
-                    feed = feedparser.parse(feed_url)
+                    # Fetch and parse the feed with timeout protection
+                    # feedparser.parse() is synchronous and can hang, so run in thread with timeout
+                    try:
+                        feed = await asyncio.wait_for(
+                            asyncio.to_thread(feedparser.parse, feed_url),
+                            timeout=30.0  # 30 second timeout per feed
+                        )
+                    except asyncio.TimeoutError:
+                        logger.error("Feed '%s' timed out after 30 seconds, skipping", feed_name)
+                        continue
 
                     logger.info("Feed '%s' fetched: bozo=%s, entries=%d",
                                feed_name, feed.bozo, len(feed.entries))
