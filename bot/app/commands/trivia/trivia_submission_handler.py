@@ -577,11 +577,18 @@ async def update_batch_question_stats(
     # Update each question message individually
     for i, message_id in enumerate(question_message_ids, start=1):
         try:
-            message = await thread.fetch_message(message_id)
             question_data = questions[str(i)]
+            source = question_data.get("source", "opentdb")
+            logger.info(f"Updating question {i}: source={source}, message_id={message_id}")
+
+            message = await thread.fetch_message(message_id)
             q_stats = stats.get(str(i), {"correct": 0, "incorrect": 0})
 
+            # Log the stats we calculated for this question
+            logger.info(f"Question {i} stats: {q_stats}")
+
             # Recreate embed with updated stats
+            logger.info(f"About to edit message {message_id} for question {i}")
             updated_embed = create_individual_question_embed(
                 question_data=question_data,
                 question_num=i,
@@ -591,14 +598,18 @@ async def update_batch_question_stats(
             )
 
             await message.edit(embed=updated_embed)
-            logger.info(f"Updated stats for question {i}/{len(questions)} in batch {batch_id[:8]}")
+            logger.info(f"✅ Successfully updated question {i}/{len(questions)}")
 
         except discord.NotFound:
             logger.warning(f"Could not find message {message_id} for question {i}")
         except discord.Forbidden:
             logger.warning(f"No permission to edit message {message_id} for question {i}")
         except Exception as e:
-            logger.warning(f"Failed to update question {i} message: {e}")
+            # Log full error with traceback for AI questions
+            if questions[str(i)].get("source") == "ai":
+                logger.error(f"❌ Failed to update AI question {i}: {e}", exc_info=True)
+            else:
+                logger.warning(f"Failed to update question {i} message: {e}")
 
 
 def count_batch_submissions(

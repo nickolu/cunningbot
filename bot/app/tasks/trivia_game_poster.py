@@ -181,7 +181,8 @@ def create_individual_question_embed(
     """Create embed for a single question in the batch."""
     # Determine question type and color
     source = question_data.get("source", "")
-    difficulty = question_data.get("difficulty", "").capitalize()
+    difficulty = question_data.get("difficulty") or ""
+    difficulty = difficulty.capitalize() if difficulty else ""
 
     if source == "ai":
         type_label = "AI"
@@ -267,7 +268,8 @@ def create_batch_question_embed(
     description_parts = []
 
     for i, question_data in enumerate(questions, start=1):
-        difficulty = question_data.get("difficulty", "").capitalize()
+        difficulty = question_data.get("difficulty") or ""
+        difficulty = difficulty.capitalize() if difficulty else ""
         source = question_data.get("source", "")
 
         # Determine question type label
