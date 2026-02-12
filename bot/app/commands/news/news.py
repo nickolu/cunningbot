@@ -1,3 +1,4 @@
+import asyncio
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -202,7 +203,19 @@ class NewsCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
 
         try:
-            feed = feedparser.parse(feed_url)
+            # Fetch feed with timeout protection
+            try:
+                feed = await asyncio.wait_for(
+                    asyncio.to_thread(feedparser.parse, feed_url),
+                    timeout=30.0
+                )
+            except asyncio.TimeoutError:
+                await interaction.followup.send(
+                    "Feed URL timed out after 30 seconds. Please check the URL and try again.",
+                    ephemeral=True
+                )
+                return
+
             if feed.bozo and not feed.entries:
                 error_msg = f"Failed to parse RSS feed. Please check the URL and try again.\nError: {feed.get('bozo_exception', 'Unknown error')}"
 
@@ -1108,8 +1121,18 @@ class NewsCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
 
         try:
-            # Fetch the feed
-            feed = feedparser.parse(feed_url)
+            # Fetch the feed with timeout protection
+            try:
+                feed = await asyncio.wait_for(
+                    asyncio.to_thread(feedparser.parse, feed_url),
+                    timeout=30.0
+                )
+            except asyncio.TimeoutError:
+                await interaction.followup.send(
+                    "Feed URL timed out after 30 seconds.",
+                    ephemeral=True
+                )
+                return
 
             if feed.bozo and not feed.entries:
                 await interaction.followup.send(
