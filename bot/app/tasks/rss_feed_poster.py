@@ -310,10 +310,6 @@ async def collect_rss_updates() -> None:
     for guild_id_str, guild_state in all_guild_states.items():
         logger.info("Checking guild %s", guild_id_str)
 
-        if guild_id_str == "global":
-            logger.info("Skipping global state")
-            continue  # skip global state
-
         if not isinstance(guild_state, dict):
             logger.warning("Guild state for %s is not a dict (got %s) – skipping", guild_id_str, type(guild_state))
             continue
