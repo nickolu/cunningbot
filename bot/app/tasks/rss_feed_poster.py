@@ -316,13 +316,6 @@ async def collect_rss_updates() -> None:
 
         logger.info("Guild %s state keys: %s", guild_id_str, list(guild_state.keys()))
 
-        feeds = guild_state.get("rss_feeds", {})
-        logger.info("Guild %s has %d feeds", guild_id_str, len(feeds) if feeds else 0)
-
-        if not feeds:
-            logger.info("No feeds for guild %s, skipping", guild_id_str)
-            continue
-
         # Get feeds from Redis
         feeds = await store.get_feeds(guild_id_str)
         logger.info("Guild %s has %d feeds in Redis", guild_id_str, len(feeds) if feeds else 0)
