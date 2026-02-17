@@ -384,10 +384,9 @@ async def post_summaries() -> None:
 
                     logger.info(f"Channel {channel_id} verified, proceeding with summary generation")
 
-                    # Filter out articles from removed feeds
-                    all_guild_states = get_all_guild_states()
-                    guild_state = all_guild_states.get(str(guild_id), {})
-                    all_feeds = guild_state.get('rss_feeds', {})
+                    # Filter out articles from removed feeds - get feeds from Redis
+                    guild_id_str = str(guild_id)
+                    all_feeds = await store.get_feeds(guild_id_str)
 
                     # Check for orphaned feeds (feeds with pending articles but removed from config)
                     valid_feed_names = [name for name in feed_names if name in all_feeds]
@@ -413,7 +412,6 @@ async def post_summaries() -> None:
                     logger.info(f"Generating {edition} summary for channel {channel_id}: {len(articles)} articles from {len(feed_names)} feeds")
 
                     # Load story history within deduplication window from Redis
-                    guild_id_str = str(guild_id)
                     window_hours = get_channel_dedup_window(guild_id, channel_id)
                     story_history = await store.get_stories_within_window(guild_id_str, channel_id, window_hours)
                     logger.info(f"Using {window_hours}h dedup window for channel {channel_id}")
