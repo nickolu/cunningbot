@@ -21,6 +21,7 @@ from typing import Any, Dict, List
 import hashlib
 from html.parser import HTMLParser
 
+import aiohttp
 import discord
 import feedparser
 from dotenv import load_dotenv
@@ -279,6 +280,42 @@ def format_item_embed(entry, feed) -> discord.Embed:
     return embed
 
 
+async def validate_channels(token: str, channel_ids: set) -> Dict[int, bool]:
+    """Check which Discord channels still exist using the REST API.
+
+    Returns a dict mapping channel_id -> True (exists) or False (deleted/inaccessible).
+    Results are cached for the duration of this collection run.
+    """
+    results: Dict[int, bool] = {}
+    headers = {"Authorization": f"Bot {token}"}
+
+    async with aiohttp.ClientSession(headers=headers) as session:
+        for channel_id in channel_ids:
+            try:
+                async with session.get(
+                    f"https://discord.com/api/v10/channels/{channel_id}",
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as resp:
+                    if resp.status == 200:
+                        results[channel_id] = True
+                    elif resp.status in (404, 403):
+                        # 404 = deleted channel, 403 = no access
+                        logger.warning("Channel %s is inaccessible (HTTP %d)", channel_id, resp.status)
+                        results[channel_id] = False
+                    else:
+                        # Transient error — assume channel is fine to avoid disabling feeds incorrectly
+                        logger.warning("Unexpected status %d checking channel %s, assuming valid", resp.status, channel_id)
+                        results[channel_id] = True
+            except Exception as exc:
+                logger.warning("Error checking channel %s: %s, assuming valid", channel_id, exc)
+                results[channel_id] = True
+
+            # Small delay to respect rate limits
+            await asyncio.sleep(0.5)
+
+    return results
+
+
 async def collect_rss_updates() -> None:
     """Main entry point - collects RSS updates using Redis with distributed locks."""
     logger.info("=== RSS Feed Collector Starting ===")
@@ -297,6 +334,42 @@ async def collect_rss_updates() -> None:
         logger.info("No guilds with feeds found in Redis – nothing to collect.")
         await close_redis()
         return
+
+    # Validate Discord channels before processing feeds
+    token = os.getenv("DISCORD_TOKEN")
+    channel_valid: Dict[int, bool] = {}
+    if token:
+        # Collect all unique channel IDs across all guilds
+        all_channel_ids: set = set()
+        all_feeds_by_guild: Dict[str, Dict] = {}
+        for guild_id_str in guild_ids:
+            feeds = await store.get_feeds(guild_id_str)
+            all_feeds_by_guild[guild_id_str] = feeds or {}
+            if feeds:
+                for feed_info in feeds.values():
+                    ch = feed_info.get("channel_id")
+                    if ch and feed_info.get("enabled", True):
+                        all_channel_ids.add(int(ch))
+
+        if all_channel_ids:
+            logger.info("Validating %d unique channels...", len(all_channel_ids))
+            channel_valid = await validate_channels(token, all_channel_ids)
+            dead_channels = [ch for ch, valid in channel_valid.items() if not valid]
+            if dead_channels:
+                logger.warning("Found %d inaccessible channels: %s", len(dead_channels), dead_channels)
+
+                # Disable feeds targeting dead channels
+                for guild_id_str in guild_ids:
+                    feeds = all_feeds_by_guild.get(guild_id_str, {})
+                    for feed_name, feed_info in feeds.items():
+                        ch = int(feed_info.get("channel_id", 0))
+                        if ch in dead_channels and feed_info.get("enabled", True):
+                            logger.info("Disabling feed '%s' in guild %s — channel %d no longer exists",
+                                       feed_name, guild_id_str, ch)
+                            feed_info["enabled"] = False
+                            await store.save_feed(guild_id_str, feed_name, feed_info)
+    else:
+        logger.warning("DISCORD_TOKEN not set, skipping channel validation")
 
     # Track collected articles for logging
     total_collected = 0
