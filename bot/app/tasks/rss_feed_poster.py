@@ -27,8 +27,6 @@ from dotenv import load_dotenv
 
 # Load environment variables from .env
 load_dotenv()
-from bot.app.app_state import get_all_guild_states, set_state_value
-from bot.app.pending_news import add_pending_articles
 from bot.app.redis.rss_store import RSSRedisStore
 from bot.app.redis.locks import redis_lock
 from bot.app.redis.client import get_redis_client, initialize_redis, close_redis
@@ -186,8 +184,7 @@ def extract_article_data(entry, feed, feed_name: str) -> Dict[str, Any]:
 
 async def post_direct_items(
     to_post: Dict[int, List[Dict[str, Any]]],
-    token: str,
-    all_guild_states: Dict[str, Any]
+    token: str
 ) -> None:
     """Post items directly to Discord channels."""
     logger.info(f"Posting {sum(len(items) for items in to_post.values())} direct items to {len(to_post)} channels")
@@ -291,12 +288,13 @@ async def collect_rss_updates() -> None:
     store = RSSRedisStore()
     redis_client = get_redis_client()
 
-    logger.info("Loading guild states...")
-    all_guild_states = get_all_guild_states()
-    logger.info("Loaded %d guild states", len(all_guild_states))
+    # Discover guilds from Redis (more robust than relying on app_state.json)
+    logger.info("Discovering guilds with RSS feeds from Redis...")
+    guild_ids = await store.get_all_guilds_with_feeds()
+    logger.info("Found %d guilds with feeds in Redis", len(guild_ids))
 
-    if not all_guild_states:
-        logger.info("App state empty – nothing to collect.")
+    if not guild_ids:
+        logger.info("No guilds with feeds found in Redis – nothing to collect.")
         await close_redis()
         return
 
@@ -307,14 +305,8 @@ async def collect_rss_updates() -> None:
     # Build a mapping channel_id -> list[dict] of items to post directly
     to_post_direct: Dict[int, List[Dict[str, Any]]] = {}
 
-    for guild_id_str, guild_state in all_guild_states.items():
+    for guild_id_str in guild_ids:
         logger.info("Checking guild %s", guild_id_str)
-
-        if not isinstance(guild_state, dict):
-            logger.warning("Guild state for %s is not a dict (got %s) – skipping", guild_id_str, type(guild_state))
-            continue
-
-        logger.info("Guild %s state keys: %s", guild_id_str, list(guild_state.keys()))
 
         # Get feeds from Redis
         feeds = await store.get_feeds(guild_id_str)
@@ -468,7 +460,7 @@ async def collect_rss_updates() -> None:
         if not token:
             logger.error("DISCORD_TOKEN not set, cannot post direct items")
         else:
-            await post_direct_items(to_post_direct, token, all_guild_states)
+            await post_direct_items(to_post_direct, token)
 
     await close_redis()
     logger.info(f"=== RSS Feed Collector Finished ===")

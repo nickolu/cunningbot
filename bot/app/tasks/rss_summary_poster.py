@@ -527,17 +527,13 @@ async def post_summaries() -> None:
                         cleared_count = await store.clear_pending(guild_id_str, channel_id)
                         logger.info(f"Cleared {cleared_count} pending article lists for channel {channel_id}")
 
-                        # Update last_summary timestamp in app_state for feeds in this channel
-                        all_guild_states = get_all_guild_states()
-                        guild_state = all_guild_states.get(guild_id, {})
-                        all_feeds = guild_state.get('rss_feeds', {})
-
+                        # Update last_summary timestamp in Redis for feeds in this channel
                         for feed_name in feed_names:
-                            if feed_name in all_feeds:
-                                all_feeds[feed_name]["last_summary"] = dt.datetime.utcnow().isoformat()
+                            feed_config = await store.get_feed(guild_id_str, feed_name)
+                            if feed_config:
+                                feed_config["last_summary"] = dt.datetime.utcnow().isoformat()
+                                await store.save_feed(guild_id_str, feed_name, feed_config)
 
-                        # Save updated feeds back to state
-                        set_state_value("rss_feeds", all_feeds, guild_id)
                         logger.info(f"Updated last_summary for {len(feed_names)} feeds in guild {guild_id}")
 
                     except Exception as e:

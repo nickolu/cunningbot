@@ -662,3 +662,33 @@ class RSSRedisStore:
                 break
 
         return guilds
+
+    async def get_all_guilds_with_feeds(self) -> List[str]:
+        """Get list of all guild IDs that have RSS feeds configured.
+
+        Returns:
+            List of guild ID strings
+        """
+        # Scan for all feed configuration keys
+        pattern = "rss:*:feeds"
+        guilds = []
+
+        cursor = 0
+        while True:
+            cursor, keys = await self.redis.scan(cursor, match=pattern, count=100)
+
+            for key in keys:
+                # Extract guild_id from key pattern "rss:{guild_id}:feeds"
+                parts = key.split(":")
+                if len(parts) >= 2:
+                    guild_id = parts[1]
+
+                    # Check if hash is non-empty
+                    hash_len = await self.redis.hlen(key)
+                    if hash_len > 0:
+                        guilds.append(guild_id)
+
+            if cursor == 0:
+                break
+
+        return guilds
