@@ -29,30 +29,30 @@ logger = logging.getLogger("WeatherCommands")
 # ---------------------------------------------------------------------------
 
 WMO_CODES = {
-    0: "Clear sky",
+    0: "Clear",
     1: "Mainly clear",
     2: "Partly cloudy",
     3: "Overcast",
     45: "Fog",
     48: "Rime fog",
-    51: "Light drizzle",
+    51: "Lt drizzle",
     53: "Drizzle",
-    55: "Heavy drizzle",
-    61: "Light rain",
+    55: "Hvy drizzle",
+    61: "Lt rain",
     63: "Rain",
-    65: "Heavy rain",
-    71: "Light snow",
+    65: "Hvy rain",
+    71: "Lt snow",
     73: "Snow",
-    75: "Heavy snow",
+    75: "Hvy snow",
     77: "Snow grains",
-    80: "Light showers",
+    80: "Lt showers",
     81: "Showers",
-    82: "Heavy showers",
+    82: "Hvy showers",
     85: "Snow showers",
-    86: "Heavy snow showers",
-    95: "Thunderstorm",
-    96: "Thunderstorm+hail",
-    99: "Thunderstorm+hail",
+    86: "Hvy snow shwrs",
+    95: "Tstorm",
+    96: "Tstorm+hail",
+    99: "Tstorm+hail",
 }
 
 
@@ -105,12 +105,12 @@ def _fmt_wind(val) -> str:
 
 
 def _fmt_date(date_str: str) -> str:
-    """Format 'YYYY-MM-DD' to 'Mon DD' (e.g. 'Feb 08')."""
+    """Format 'YYYY-MM-DD' to 'MM/DD' (e.g. '02/08')."""
     try:
         d = datetime.strptime(date_str, "%Y-%m-%d")
-        return d.strftime("%b %d")
+        return d.strftime("%m/%d")
     except Exception:
-        return date_str[:6]
+        return date_str[5:10]
 
 
 def _fmt_time(time_str: str) -> str:
@@ -125,6 +125,13 @@ def _fmt_time(time_str: str) -> str:
 # Table builders
 # ---------------------------------------------------------------------------
 
+def _fmt_wind_gust(wind_val, gust_val) -> str:
+    """Format wind and gust as 'XX/YYmph'."""
+    w = int(round(float(wind_val))) if wind_val is not None else "?"
+    g = int(round(float(gust_val))) if gust_val is not None else "?"
+    return f"{w}/{g}mph"
+
+
 def _build_daily_table(weather_data: dict, num_days: int) -> str:
     """Build a monospace daily forecast/history table."""
     daily = weather_data.get("daily", {})
@@ -135,9 +142,8 @@ def _build_daily_table(weather_data: dict, num_days: int) -> str:
     rains = daily.get("precipitation_sum", [])
     winds = daily.get("wind_speed_10m_max", [])
     gusts = daily.get("wind_gusts_10m_max", [])
-    uvs = daily.get("uv_index_max", [])
 
-    header = f"{'Date':<9} {'Hi':<5} {'Lo':<5} {'Condition':<18} {'Rain':<7} {'Wind':<7} {'Gusts':<7} UV"
+    header = f"{'Date':<6} {'Hi':<5} {'Lo':<5} {'Condition':<15} {'Rain':<6} Wind/Gust"
     sep = "-" * len(header)
     rows = [header, sep]
 
@@ -145,15 +151,13 @@ def _build_daily_table(weather_data: dict, num_days: int) -> str:
         date_s = _fmt_date(dates[i]) if i < len(dates) else "N/A"
         hi = _fmt_temp(hi_temps[i] if i < len(hi_temps) else None)
         lo = _fmt_temp(lo_temps[i] if i < len(lo_temps) else None)
-        cond = _wmo_description(codes[i] if i < len(codes) else None)[:17]
+        cond = _wmo_description(codes[i] if i < len(codes) else None)[:14]
         rain = _fmt_precip(rains[i] if i < len(rains) else None)
-        wind = _fmt_wind(winds[i] if i < len(winds) else None)
-        gust = _fmt_wind(gusts[i] if i < len(gusts) else None)
-        uv_val = uvs[i] if i < len(uvs) else None
-        uv = str(int(round(float(uv_val)))) if uv_val is not None else "N/A"
-        rows.append(
-            f"{date_s:<9} {hi:<5} {lo:<5} {cond:<18} {rain:<7} {wind:<7} {gust:<7} {uv}"
+        wg = _fmt_wind_gust(
+            winds[i] if i < len(winds) else None,
+            gusts[i] if i < len(gusts) else None,
         )
+        rows.append(f"{date_s:<6} {hi:<5} {lo:<5} {cond:<15} {rain:<6} {wg}")
 
     return "```\n" + "\n".join(rows) + "\n```"
 
@@ -170,7 +174,7 @@ def _build_hourly_table(weather_data: dict, num_days: int) -> str:
     gusts = hourly.get("windgusts_10m", [])
 
     header = (
-        f"{'Time':<6} {'Temp':<5} {'Feels':<6} {'Condition':<18} {'Rain%':<6} {'Wind':<7} Gusts"
+        f"{'Time':<6} {'Temp':<5} {'Feels':<6} {'Condition':<15} {'Rain%':<6} Wind/Gust"
     )
     sep = "-" * len(header)
     rows = [header, sep]
@@ -184,13 +188,15 @@ def _build_hourly_table(weather_data: dict, num_days: int) -> str:
         time_s = _fmt_time(times[i])
         temp = _fmt_temp(temps[i] if i < len(temps) else None)
         feel = _fmt_temp(feels[i] if i < len(feels) else None)
-        cond = _wmo_description(codes[i] if i < len(codes) else None)[:17]
+        cond = _wmo_description(codes[i] if i < len(codes) else None)[:14]
         rp = rain_probs[i] if i < len(rain_probs) else None
         rain_pct = f"{int(rp)}%" if rp is not None else "N/A"
-        wind = _fmt_wind(winds[i] if i < len(winds) else None)
-        gust = _fmt_wind(gusts[i] if i < len(gusts) else None)
+        wg = _fmt_wind_gust(
+            winds[i] if i < len(winds) else None,
+            gusts[i] if i < len(gusts) else None,
+        )
         rows.append(
-            f"{time_s:<6} {temp:<5} {feel:<6} {cond:<18} {rain_pct:<6} {wind:<7} {gust}"
+            f"{time_s:<6} {temp:<5} {feel:<6} {cond:<15} {rain_pct:<6} {wg}"
         )
 
     return "```\n" + "\n".join(rows) + "\n```"
