@@ -142,6 +142,8 @@ class LunchboyzCog(commands.Cog):
             "reminders_sent": [],
         }
 
+        guild_id_str = guild_id_to_str(interaction.guild_id)
+
         store = LunchboyzRedisStore()
         await store.save_config(guild_id_str, config)
         await store.save_rotation(guild_id_str, user_ids)
