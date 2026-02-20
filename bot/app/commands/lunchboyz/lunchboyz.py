@@ -286,7 +286,7 @@ class LunchboyzCog(commands.Cog):
     @app_commands.describe(
         location="Where are we going? (e.g. Chipotle)",
         date="Date in MM/DD or MM/DD/YYYY format",
-        time="Time in HH:MM or H:MM AM/PM format",
+        time="Time in HH:MM or H:MM AM/PM format (optional)",
         notes="Optional extra details",
     )
     async def plan(
@@ -294,7 +294,7 @@ class LunchboyzCog(commands.Cog):
         interaction: discord.Interaction,
         location: str,
         date: str,
-        time: str,
+        time: Optional[str] = None,
         notes: Optional[str] = None,
     ) -> None:
         await interaction.response.defer(ephemeral=True)
@@ -307,13 +307,15 @@ class LunchboyzCog(commands.Cog):
             )
             return
 
-        parsed_time = parse_time(time)
-        if not parsed_time:
-            await interaction.followup.send(
-                f"Invalid time `{time}`. Use HH:MM or H:MM AM/PM (e.g. `12:30` or `12:30 PM`).",
-                ephemeral=True,
-            )
-            return
+        parsed_time = None
+        if time is not None:
+            parsed_time = parse_time(time)
+            if not parsed_time:
+                await interaction.followup.send(
+                    f"Invalid time `{time}`. Use HH:MM or H:MM AM/PM (e.g. `12:30` or `12:30 PM`).",
+                    ephemeral=True,
+                )
+                return
 
         guild_id_str = guild_id_to_str(interaction.guild_id)
         store = LunchboyzRedisStore()
@@ -335,15 +337,14 @@ class LunchboyzCog(commands.Cog):
         }
         await store.save_state(guild_id_str, state)
 
-        display_time_12h = datetime.datetime.strptime(parsed_time, "%H:%M").strftime("%I:%M %p").lstrip("0")
+        when = parsed_date.strftime("%m/%d/%Y")
+        if parsed_time:
+            display_time_12h = datetime.datetime.strptime(parsed_time, "%H:%M").strftime("%I:%M %p").lstrip("0")
+            when += f" at {display_time_12h}"
 
         embed = discord.Embed(title="📅 Next Lunch Boyz", color=0x2ECC71)
         embed.add_field(name="📍 Location", value=location, inline=False)
-        embed.add_field(
-            name="🗓️ When",
-            value=f"{parsed_date.strftime('%m/%d/%Y')} at {display_time_12h}",
-            inline=False,
-        )
+        embed.add_field(name="🗓️ When", value=when, inline=False)
         if notes:
             embed.add_field(name="📝 Notes", value=notes, inline=False)
         embed.set_footer(text=f"Planned by {interaction.user.display_name}")
