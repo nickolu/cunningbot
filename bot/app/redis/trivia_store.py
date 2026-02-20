@@ -624,6 +624,82 @@ class TriviaRedisStore:
 
         return result
 
+    # --- Weekly Snapshots ---
+
+    async def save_weekly_snapshot(
+        self, guild_id: str, week_id: str, snapshot_data: dict
+    ) -> None:
+        """Save a weekly leaderboard snapshot permanently (no TTL).
+
+        Args:
+            guild_id: Guild ID as string
+            week_id: Week identifier in YYYY-WW format (e.g. '2026-07')
+            snapshot_data: Full snapshot dict with rankings
+        """
+        # Parse week_start from snapshot to use as score in sorted set
+        week_start_str = snapshot_data.get("week_start", "")
+        try:
+            week_start_dt = datetime.fromisoformat(week_start_str)
+            score = week_start_dt.timestamp()
+        except (ValueError, TypeError):
+            score = 0.0
+
+        snapshots_set_key = f"trivia:{guild_id}:weekly:snapshots"
+        await self.redis.zadd(snapshots_set_key, {week_id: score})
+
+        snapshot_key = f"trivia:{guild_id}:weekly:snapshot:{week_id}"
+        await self.redis.set(snapshot_key, json.dumps(snapshot_data))
+
+        logger.info(f"Saved weekly snapshot {week_id} for guild {guild_id}")
+
+    async def get_all_weekly_snapshots(self, guild_id: str) -> list[dict]:
+        """Get all weekly snapshots, newest first.
+
+        Args:
+            guild_id: Guild ID as string
+
+        Returns:
+            List of snapshot dicts, ordered newest first
+        """
+        snapshots_set_key = f"trivia:{guild_id}:weekly:snapshots"
+        week_ids = await self.redis.zrevrange(snapshots_set_key, 0, -1)
+
+        result = []
+        for week_id in week_ids:
+            snapshot_key = f"trivia:{guild_id}:weekly:snapshot:{week_id}"
+            snapshot_json = await self.redis.get(snapshot_key)
+            if snapshot_json:
+                try:
+                    result.append(json.loads(snapshot_json))
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to decode snapshot {week_id}: {e}")
+
+        return result
+
+    async def get_last_reset_time(self, guild_id: str) -> Optional[str]:
+        """Get the ISO timestamp of the last weekly reset.
+
+        Args:
+            guild_id: Guild ID as string
+
+        Returns:
+            ISO timestamp string or None if never reset
+        """
+        key = f"trivia:{guild_id}:weekly:last_reset"
+        value = await self.redis.get(key)
+        return value if value else None
+
+    async def set_last_reset_time(self, guild_id: str, timestamp: str) -> None:
+        """Set the ISO timestamp of the last weekly reset.
+
+        Args:
+            guild_id: Guild ID as string
+            timestamp: ISO timestamp string
+        """
+        key = f"trivia:{guild_id}:weekly:last_reset"
+        await self.redis.set(key, timestamp)
+        logger.info(f"Set last reset time for guild {guild_id}: {timestamp}")
+
     # --- Bulk Operations ---
 
     async def clear_registrations_by_channel(self, guild_id: str, channel_id: int) -> int:

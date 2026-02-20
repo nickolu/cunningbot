@@ -116,6 +116,22 @@ services:
       redis:
         condition: service_healthy
     command: bash -c "while true; do python -m bot.app.tasks.trivia_game_closer; sleep 60; done"
+  trivia-weekly-reset:
+    build: .
+    restart: unless-stopped
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_PASSWORD=
+    volumes:
+      - ./bot/app:/app/bot/app
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: bash -c "while true; do python -m bot.app.tasks.trivia_weekly_reset; sleep 600; done"
   weather-poster:
     build: .
     restart: unless-stopped

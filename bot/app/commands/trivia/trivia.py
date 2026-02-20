@@ -1586,28 +1586,27 @@ class TriviaCog(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @trivia.command(name="leaderboard", description="Show trivia leaderboard.")
+    @trivia.command(name="leaderboard", description="Show this week's trivia leaderboard.")
     @app_commands.describe(
-        category="Filter by category (optional)",
-        timeframe="Timeframe for leaderboard (optional)"
+        category="Filter by category (optional)"
     )
     @app_commands.choices(
         category=[
             app_commands.Choice(name=cat, value=cat) for cat in CATEGORIES
-        ],
-        timeframe=[
-            app_commands.Choice(name="All Time", value="all-time"),
-            app_commands.Choice(name="Last 30 Days", value="30-days"),
-            app_commands.Choice(name="Last 7 Days", value="7-days")
         ]
     )
     async def leaderboard(
         self,
         interaction: discord.Interaction,
         category: Optional[str] = None,
-        timeframe: Optional[str] = None
     ) -> None:
-        """Show trivia leaderboard."""
+        """Show trivia leaderboard for the current week."""
+        # Compute last Monday 00:00 Pacific as the week cutoff
+        now_pt = dt.datetime.now(PACIFIC_TZ)
+        days_since_monday = now_pt.weekday()  # Monday=0
+        week_start_pt = now_pt.replace(hour=0, minute=0, second=0, microsecond=0) - dt.timedelta(days=days_since_monday)
+        week_start_utc = week_start_pt.astimezone(dt.timezone.utc)
+
         # Get trivia history from Redis
         store = TriviaRedisStore()
         trivia_history = await store.get_all_history_as_dict(str(interaction.guild_id))
@@ -1618,38 +1617,32 @@ class TriviaCog(commands.Cog):
             )
             return
 
-        # Parse timeframe to days
-        days = None
-        if timeframe == "30-days":
-            days = 30
-        elif timeframe == "7-days":
-            days = 7
-
-        # Calculate leaderboard
+        # Calculate leaderboard filtered to current week
         stats_service = TriviaStatsService()
-        leaderboard = stats_service.calculate_leaderboard(
+        leaderboard_data = stats_service.calculate_leaderboard(
             trivia_history,
             category=category,
-            days=days
+            since=week_start_utc,
         )
 
-        if not leaderboard:
+        week_label = week_start_pt.strftime("%b %-d")
+        title = f"🏆 Trivia Leaderboard — Week of {week_label}"
+        if category:
+            title += f" — {category}"
+
+        if not leaderboard_data:
             await interaction.response.send_message(
-                "No trivia participation data available for these filters.", ephemeral=True
+                f"No trivia games played this week (since {week_label}).", ephemeral=True
             )
             return
 
-        # Format leaderboard
-        title = "🏆 Trivia Leaderboard"
-        if category:
-            title += f" - {category}"
-        if timeframe and timeframe != "all-time":
-            title += f" ({timeframe.replace('-', ' ').title()})"
-
         leaderboard_text = []
-        for i, (user_id, points, correct, total, accuracy) in enumerate(leaderboard[:10], 1):
-            user = await self.bot.fetch_user(int(user_id))
-            username = user.display_name if user else f"User {user_id}"
+        for i, (user_id, points, correct, total, accuracy) in enumerate(leaderboard_data[:10], 1):
+            try:
+                user = await self.bot.fetch_user(int(user_id))
+                username = user.display_name if user else f"User {user_id}"
+            except Exception:
+                username = f"User {user_id}"
 
             medal = ""
             if i == 1:
@@ -1669,7 +1662,58 @@ class TriviaCog(commands.Cog):
             color=0xFFD700
         )
 
-        embed.set_footer(text=f"Total players: {len(leaderboard)}")
+        week_end_pt = week_start_pt + dt.timedelta(days=6)
+        embed.set_footer(
+            text=f"Week of {week_start_pt.strftime('%b %-d')}–{week_end_pt.strftime('%b %-d, %Y')} • "
+                 f"Total players: {len(leaderboard_data)}"
+        )
+
+        await interaction.response.send_message(embed=embed)
+
+    @trivia.command(name="alltime", description="Show all-time trivia stats across all weeks.")
+    async def alltime(self, interaction: discord.Interaction) -> None:
+        """Show all-time trivia leaderboard aggregated from weekly snapshots."""
+        store = TriviaRedisStore()
+        snapshots = await store.get_all_weekly_snapshots(str(interaction.guild_id))
+
+        if not snapshots:
+            await interaction.response.send_message(
+                "No weekly snapshots yet. The all-time leaderboard builds up after each week's reset.",
+                ephemeral=True
+            )
+            return
+
+        stats_service = TriviaStatsService()
+        alltime_data = stats_service.calculate_alltime_leaderboard(snapshots)
+
+        if not alltime_data:
+            await interaction.response.send_message(
+                "No participation data found in weekly snapshots.", ephemeral=True
+            )
+            return
+
+        leaderboard_text = []
+        for i, entry in enumerate(alltime_data[:10], 1):
+            medal = ""
+            if i == 1:
+                medal = "🥇"
+            elif i == 2:
+                medal = "🥈"
+            elif i == 3:
+                medal = "🥉"
+
+            wins_str = f" 👑×{entry['weekly_wins']}" if entry["weekly_wins"] > 0 else ""
+            leaderboard_text.append(
+                f"{medal} **{i}.** {entry['username']}: **{entry['total_points']} pts**"
+                f"{wins_str} | avg rank #{entry['avg_rank']} | {entry['weeks_played']} wk(s)"
+            )
+
+        embed = discord.Embed(
+            title="🏆 All-Time Trivia Leaderboard",
+            description="\n".join(leaderboard_text),
+            color=0xFFD700,
+        )
+        embed.set_footer(text=f"Based on {len(snapshots)} week(s) of data • Total players: {len(alltime_data)}")
 
         await interaction.response.send_message(embed=embed)
 

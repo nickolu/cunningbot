@@ -14,7 +14,8 @@ class TriviaStatsService:
     def calculate_leaderboard(
         trivia_history: Dict,
         category: Optional[str] = None,
-        days: Optional[int] = None
+        days: Optional[int] = None,
+        since: Optional[dt.datetime] = None,
     ) -> List[Tuple[str, int, int, int, float]]:
         """
         Calculate leaderboard from trivia history.
@@ -23,6 +24,7 @@ class TriviaStatsService:
             trivia_history: Dictionary of completed games
             category: Optional category filter
             days: Optional number of days to look back (None = all time)
+            since: Optional explicit cutoff datetime (takes precedence over days)
 
         Returns:
             List of (user_id, points, correct_count, total_count, accuracy) tuples,
@@ -30,8 +32,8 @@ class TriviaStatsService:
         """
         user_stats = defaultdict(lambda: {"correct": 0, "total": 0, "points": 0})
 
-        cutoff_date = None
-        if days:
+        cutoff_date = since
+        if cutoff_date is None and days:
             cutoff_date = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)
 
         for game_id, game in trivia_history.items():
@@ -269,3 +271,58 @@ class TriviaStatsService:
             "by_category": by_category,
             "recent_games": recent_games
         }
+
+    @staticmethod
+    def calculate_alltime_leaderboard(snapshots: List[dict]) -> List[dict]:
+        """Aggregate all weekly snapshots into lifetime stats per player.
+
+        Args:
+            snapshots: List of weekly snapshot dicts (from get_all_weekly_snapshots)
+
+        Returns:
+            List of dicts sorted by total_points descending:
+            {user_id, username, total_points, weekly_wins, avg_rank, weeks_played}
+        """
+        player_stats: Dict[str, dict] = {}
+
+        for snapshot in snapshots:
+            rankings = snapshot.get("rankings", [])
+            for entry in rankings:
+                user_id = entry.get("user_id")
+                if not user_id:
+                    continue
+
+                if user_id not in player_stats:
+                    player_stats[user_id] = {
+                        "user_id": user_id,
+                        "username": entry.get("username", f"User {user_id}"),
+                        "total_points": 0,
+                        "weekly_wins": 0,
+                        "rank_sum": 0,
+                        "weeks_played": 0,
+                    }
+
+                stats = player_stats[user_id]
+                stats["total_points"] += entry.get("points", 0)
+                stats["weeks_played"] += 1
+                rank = entry.get("rank", 999)
+                stats["rank_sum"] += rank
+                if rank == 1:
+                    stats["weekly_wins"] += 1
+                # Update username in case it changed
+                stats["username"] = entry.get("username", stats["username"])
+
+        result = []
+        for stats in player_stats.values():
+            weeks = stats["weeks_played"]
+            result.append({
+                "user_id": stats["user_id"],
+                "username": stats["username"],
+                "total_points": stats["total_points"],
+                "weekly_wins": stats["weekly_wins"],
+                "avg_rank": round(stats["rank_sum"] / weeks, 1) if weeks > 0 else 0,
+                "weeks_played": weeks,
+            })
+
+        result.sort(key=lambda x: x["total_points"], reverse=True)
+        return result
