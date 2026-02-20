@@ -132,6 +132,21 @@ services:
       redis:
         condition: service_healthy
     command: bash -c "while true; do python -m bot.app.tasks.weather_poster; sleep 300; done"
+  lunchboyz-reminder:
+    build: .
+    restart: unless-stopped
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_PASSWORD=
+    volumes:
+      - ./bot/app:/app/bot/app
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: bash -c "while true; do python -m bot.app.tasks.lunchboyz_reminder; sleep 3600; done"
 
 volumes:
   redis_data:
