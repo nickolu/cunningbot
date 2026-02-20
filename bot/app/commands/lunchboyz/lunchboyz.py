@@ -92,6 +92,7 @@ class LunchboyzCog(commands.Cog):
     @app_commands.describe(
         rotation="Mention all participants in order (e.g. @Alice @Bob @Carol)",
         frequency="Rotation period in days (default: 14)",
+        start_date="When the current rotation started, MM/DD or MM/DD/YYYY (default: today)",
         timezone="IANA timezone for reminders (default: America/Los_Angeles)",
     )
     async def setup(
@@ -99,6 +100,7 @@ class LunchboyzCog(commands.Cog):
         interaction: discord.Interaction,
         rotation: str,
         frequency: int = 14,
+        start_date: Optional[str] = None,
         timezone: str = "America/Los_Angeles",
     ) -> None:
         await interaction.response.defer(ephemeral=True)
@@ -116,8 +118,17 @@ class LunchboyzCog(commands.Cog):
             )
             return
 
-        guild_id_str = guild_id_to_str(interaction.guild_id)
-        today = datetime.date.today().isoformat()
+        if start_date is not None:
+            parsed_start = parse_date(start_date)
+            if not parsed_start:
+                await interaction.followup.send(
+                    f"Invalid start_date `{start_date}`. Use MM/DD or MM/DD/YYYY (e.g. `02/10` or `02/10/2026`).",
+                    ephemeral=True,
+                )
+                return
+            today = parsed_start.isoformat()
+        else:
+            today = datetime.date.today().isoformat()
 
         config = {
             "channel_id": str(interaction.channel.id),
@@ -140,9 +151,10 @@ class LunchboyzCog(commands.Cog):
         await interaction.channel.send(
             f"🍽️ Lunch Boyz rotation set! <@{user_ids[0]}> ({first_name}) is up first."
         )
+        deadline = make_deadline(today, frequency)
         await interaction.followup.send(
             f"Rotation configured with {len(user_ids)} participant(s), "
-            f"every {frequency} days.",
+            f"every {frequency} days. Deadline: {deadline.strftime('%m/%d/%Y')}.",
             ephemeral=True,
         )
 
