@@ -70,13 +70,15 @@ class TriviaAnswerModal(discord.ui.Modal, title="Submit Trivia Answer"):
 
         try:
             if self.batch_question_num is not None:
-                # Per-question batch submission via modal (context menu fallback)
+                # Per-question batch submission via modal (context menu fallback).
+                # Modal uses defer(), so responses must use followup.send.
                 await submit_batch_question_button(
                     interaction,
                     self.game_id,
                     self.guild_id,
                     self.batch_question_num,
                     self.answer.value,
+                    use_followup=True,
                 )
             elif self.is_batch:
                 await submit_batch_trivia_answer(

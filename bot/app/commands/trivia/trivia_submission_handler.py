@@ -613,11 +613,15 @@ async def update_batch_question_stats(
             logger.warning(f"Could not find message {message_id} for question {i}")
         except discord.Forbidden:
             logger.warning(f"No permission to edit message {message_id} for question {i}")
-        except Exception as e:
-            if questions[str(i)].get("source") == "ai":
-                logger.error(f"❌ Failed to update AI question {i}: {e}", exc_info=True)
+        except discord.HTTPException as e:
+            if e.code == 30046:
+                # Discord limits edits on messages older than 1 hour — stats won't
+                # refresh on the embed but the answer was recorded fine.
+                logger.debug(f"Skipping stats update for question {i}: message edit limit for messages >1h old")
             else:
-                logger.warning(f"Failed to update question {i} message: {e}")
+                logger.warning(f"Failed to update question {i} message (HTTP {e.status}): {e}")
+        except Exception as e:
+            logger.warning(f"Failed to update question {i} message: {e}")
 
 
 def count_batch_submissions(
@@ -833,6 +837,7 @@ async def submit_batch_question_button(
     guild_id: str,
     question_num: int,
     answer_input: str,
+    use_followup: bool = False,
 ) -> None:
     """Submit a single question's answer for a batch game (button or context menu).
 
@@ -840,28 +845,36 @@ async def submit_batch_question_button(
     batch_question_num is set.
 
     Args:
-        interaction: The Discord interaction (must already be deferred ephemerally)
+        interaction: The Discord interaction (must already be responded to)
         batch_id: Batch game ID
         guild_id: Guild ID as string
         question_num: The 1-based question index
         answer_input: The user's answer — a letter ("A"/"B") or free text
+        use_followup: If True, use followup.send (modal/defer flow).
+                      If False, use edit_original_response (button flow).
     """
     store = TriviaRedisStore()
     bot = interaction.client
+
+    async def respond(content: str) -> None:
+        if use_followup:
+            await interaction.followup.send(content, ephemeral=True)
+        else:
+            await interaction.edit_original_response(content=content)
 
     # Load batch game and question data
     active_games = await store.get_active_games(guild_id)
     batch_data = active_games.get(batch_id)
 
     if not batch_data:
-        await interaction.edit_original_response(content="❌ This trivia game is no longer active.")
+        await respond("❌ This trivia game is no longer active.")
         return
 
     questions = await store.get_batch_questions(guild_id, batch_id)
     q_data = questions.get(str(question_num))
 
     if not q_data:
-        await interaction.edit_original_response(content="❌ Could not load question data.")
+        await respond("❌ Could not load question data.")
         return
 
     # Map letter answers (A/B/C/D) to full answer text
@@ -908,35 +921,25 @@ async def submit_batch_question_button(
     if result.get("err"):
         error_code = result["err"]
         if error_code == "ALREADY_SUBMITTED":
-            await interaction.edit_original_response(
-                content="❌ You already answered this question."
-            )
+            await respond("❌ You already answered this question.")
         elif error_code == "WINDOW_CLOSED":
-            await interaction.edit_original_response(
-                content="❌ The answer window has closed. Wait for results!"
-            )
+            await respond("❌ The answer window has closed. Wait for results!")
         elif error_code == "GAME_NOT_FOUND":
-            await interaction.edit_original_response(
-                content="❌ This trivia game is no longer active."
-            )
+            await respond("❌ This trivia game is no longer active.")
         elif error_code == "GAME_CLOSED":
-            await interaction.edit_original_response(
-                content="❌ This game has already been closed."
-            )
+            await respond("❌ This game has already been closed.")
         else:
-            await interaction.edit_original_response(
-                content="❌ Failed to submit answer. Please try again."
-            )
+            await respond("❌ Failed to submit answer. Please try again.")
         return
 
-    # Update the "Got it!" message (button flow) or deferred response (modal flow)
-    # with the actual result
+    # For buttons: replaces "Got it!" with the result.
+    # For modals: sends result as a new followup after the thinking indicator.
     if is_correct:
         feedback_msg = "✅ **Correct!** Your answer has been recorded."
     else:
         feedback_msg = f"❌ **Incorrect.** The correct answer is: **{correct_answer}**"
 
-    await interaction.edit_original_response(content=feedback_msg)
+    await respond(feedback_msg)
 
     # Update question embeds with latest stats
     try:
