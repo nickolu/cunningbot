@@ -163,7 +163,7 @@ def create_question_embed(question_data: dict, game_id: str, ends_at: dt.datetim
 
     embed.add_field(
         name="How to Answer",
-        value="Right-click this message and select 'Submit Answer' or use `/answer`",
+        value="Right-click → **Apps** → **Submit Answer**, or use `/answer`",
         inline=False
     )
 
@@ -296,7 +296,7 @@ def create_batch_question_embed(
         value=(
             "**Modal:** Use line breaks between answers\n"
             "**Slash command:** Use semicolons: `1. a; 2. b; 3. answer`\n\n"
-            "Right-click this message and select 'Submit Answer' or use `/answer`"
+            "Right-click → **Apps** → **Submit Answer**, or use `/answer`"
         ),
         inline=False
     )
