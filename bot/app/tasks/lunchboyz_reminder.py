@@ -107,6 +107,12 @@ async def process_guild(
         logger.error(f"Guild {guild_id}: error fetching channel {channel_id_str}: {exc}")
         return
 
+    # Only act (advance or remind) between 9am and 6pm Pacific time
+    pacific_hour = datetime.datetime.now(ZoneInfo("America/Los_Angeles")).hour
+    if not (9 <= pacific_hour < 18):
+        logger.info(f"Guild {guild_id}: outside window (hour={pacific_hour} PT), skipping")
+        return
+
     if should_advance:
         # Auto-advance with distributed lock to prevent double-advance
         lock_resource = f"lunchboyz:{guild_id}:advance_lock"
@@ -153,12 +159,6 @@ async def process_guild(
             logger.info(f"Guild {guild_id}: advance lock held by another container, skipping")
 
     else:
-        # Only send reminders between 9am and 6pm Pacific time
-        pacific_hour = datetime.datetime.now(ZoneInfo("America/Los_Angeles")).hour
-        if not (9 <= pacific_hour < 18):
-            logger.info(f"Guild {guild_id}: outside reminder window (hour={pacific_hour} PT), skipping")
-            return
-
         # Build event detail snippet for reminder messages
         def event_details_str() -> str:
             parts = [f"📍 {event['location']}", f"🗓️ {datetime.date.fromisoformat(event['date']).strftime('%m/%d/%Y')}"]
