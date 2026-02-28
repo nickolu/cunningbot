@@ -620,38 +620,32 @@ class TriviaCog(commands.Cog):
                 overview_message = await target_channel.send(embed=overview_embed)
                 logger.info(f"Posted batch trivia overview to channel {target_channel.id}")
 
-                # Create thread from overview
-                now_pt = dt.datetime.now(PACIFIC_TZ)
-                thread_name = f"Trivia – {opentdb_name} – {now_pt:%Y-%m-%d %H:%M}"
-                thread = None
-                try:
-                    thread = await overview_message.create_thread(
-                        name=thread_name,
-                        auto_archive_duration=1440  # 24 hours
-                    )
-                    logger.info(f"Created thread '{thread_name}' for batch trivia game")
-                except discord.HTTPException as exc:
-                    logger.error(f"Failed to create thread: {exc}")
-
-                # Post each question as separate message in thread
+                # Post each question as a top-level channel message with A/B/C/D buttons
+                from bot.app.commands.trivia.trivia_views import TriviaQuestionView
                 question_message_ids = []
-                if thread:
-                    for i, question_data in enumerate(all_questions, start=1):
-                        question_embed = create_individual_question_embed(
-                            question_data=question_data,
-                            question_num=i,
-                            total_questions=len(all_questions),
-                            batch_id=batch_id,
-                            stats=None
-                        )
-                        question_message = await thread.send(embed=question_embed)
-                        question_message_ids.append(question_message.id)
-                        logger.info(f"Posted question {i}/{len(all_questions)} to thread")
+                for i, question_data in enumerate(all_questions, start=1):
+                    question_embed = create_individual_question_embed(
+                        question_data=question_data,
+                        question_num=i,
+                        total_questions=len(all_questions),
+                        batch_id=batch_id,
+                        stats=None
+                    )
+                    options = question_data.get("options", [])
+                    option_labels = ["A", "B", "C", "D", "E", "F"][:len(options)]
+                    view = TriviaQuestionView(
+                        batch_id=batch_id,
+                        guild_id=str(interaction.guild_id),
+                        question_num=i,
+                        option_labels=option_labels,
+                        bot=self.bot,
+                    )
+                    question_message = await target_channel.send(embed=question_embed, view=view)
+                    question_message_ids.append(question_message.id)
+                    logger.info(f"Posted question {i}/{len(all_questions)} to channel with buttons")
 
-                        # Small delay to avoid rate limits
-                        await asyncio.sleep(0.1)
-                else:
-                    logger.warning("Thread creation failed, cannot post individual questions")
+                    # Small delay to avoid rate limits
+                    await asyncio.sleep(0.1)
 
                 # Prepare question data for storage
                 questions_for_storage = []
@@ -682,11 +676,11 @@ class TriviaCog(commands.Cog):
 
                     questions_for_storage.append(q_data)
 
-                # Store batch game data
+                # Store batch game data (no thread — questions post to channel directly)
                 batch_data = {
                     "registration_id": None,  # Manual post
                     "channel_id": target_channel.id,
-                    "thread_id": thread.id if thread else None,
+                    "thread_id": None,
                     "category": mapped_category,
                     "started_at": now_utc.isoformat(),
                     "ends_at": ends_at.isoformat(),
