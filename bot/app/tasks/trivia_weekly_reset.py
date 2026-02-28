@@ -91,9 +91,15 @@ async def run_weekly_reset() -> None:
     all_guild_states = get_all_guild_states()
     guilds_to_reset: List[str] = []
 
+    # The reset runs on Monday to snapshot the *previous* week (Mon–Sun).
     current_week_id = get_current_week_id(now_pt)
     week_start_pt = get_week_start_pt(now_pt)
     week_start_utc = week_start_pt.astimezone(dt.timezone.utc)
+
+    # Previous week: the 7-day window that just ended (last Mon 00:00 → last Sun 23:59:59 PT)
+    prev_week_start_pt = week_start_pt - dt.timedelta(days=7)
+    prev_week_start_utc = prev_week_start_pt.astimezone(dt.timezone.utc)
+    prev_week_id = get_current_week_id(prev_week_start_pt)
 
     for guild_id_str, guild_state in all_guild_states.items():
         if guild_id_str == "global":
@@ -145,7 +151,11 @@ async def run_weekly_reset() -> None:
             try:
                 async with redis_lock(redis_client, lock_resource, timeout=120):
                     await process_guild_reset(
-                        client, store, guild_id_str, current_week_id, week_start_pt, week_start_utc, now_utc
+                        client, store, guild_id_str,
+                        current_week_id,
+                        prev_week_id, prev_week_start_pt, prev_week_start_utc,
+                        week_start_utc,
+                        now_utc,
                     )
             except LockAcquisitionError:
                 logger.info("Could not acquire lock for guild %s reset (another instance is processing)", guild_id_str)
@@ -163,19 +173,25 @@ async def process_guild_reset(
     store: TriviaRedisStore,
     guild_id_str: str,
     current_week_id: str,
-    week_start_pt: dt.datetime,
+    prev_week_id: str,
+    prev_week_start_pt: dt.datetime,
+    prev_week_start_utc: dt.datetime,
     week_start_utc: dt.datetime,
     now_utc: dt.datetime,
 ) -> None:
     """Perform the weekly reset for a single guild.
 
+    Snapshots the *previous* week (last Mon 00:00 → last Sun 23:59:59 PT).
+
     Args:
         client: Discord client
         store: TriviaRedisStore instance
         guild_id_str: Guild ID string
-        current_week_id: Week ID like '2026-07'
-        week_start_pt: Monday 00:00 Pacific datetime
-        week_start_utc: week_start_pt converted to UTC
+        current_week_id: ISO week ID of the week that just started (used for idempotency)
+        prev_week_id: ISO week ID of the week being snapshotted
+        prev_week_start_pt: Previous Monday 00:00 Pacific datetime
+        prev_week_start_utc: prev_week_start_pt converted to UTC
+        week_start_utc: This Monday 00:00 UTC (exclusive upper bound for game filter)
         now_utc: Current UTC datetime
     """
     # Re-check idempotency inside lock (double-check pattern)
@@ -190,17 +206,18 @@ async def process_guild_reset(
         except (ValueError, TypeError):
             pass
 
-    # Get all history for the current week
+    # Get all history and filter to the previous week window
     trivia_history = await store.get_all_history_as_dict(guild_id_str)
 
-    # Calculate leaderboard for the week
+    # Calculate leaderboard for the previous week only (since prev Mon, until this Mon)
     stats_service = TriviaStatsService()
     leaderboard = stats_service.calculate_leaderboard(
         trivia_history,
-        since=week_start_utc,
+        since=prev_week_start_utc,
+        until=week_start_utc,
     )
 
-    week_end_pt = get_week_end_pt(week_start_pt)
+    prev_week_end_pt = get_week_end_pt(prev_week_start_pt)
 
     if leaderboard:
         # Build snapshot rankings with usernames
@@ -221,19 +238,19 @@ async def process_guild_reset(
                 "total": total,
             })
 
-        # Save snapshot
+        # Save snapshot for the previous week
         snapshot_data = {
-            "week_id": current_week_id,
-            "week_start": week_start_pt.isoformat(),
-            "week_end": week_end_pt.isoformat(),
+            "week_id": prev_week_id,
+            "week_start": prev_week_start_pt.isoformat(),
+            "week_end": prev_week_end_pt.isoformat(),
             "rankings": rankings,
         }
-        await store.save_weekly_snapshot(guild_id_str, current_week_id, snapshot_data)
-        logger.info("Saved weekly snapshot for guild %s, week %s", guild_id_str, current_week_id)
+        await store.save_weekly_snapshot(guild_id_str, prev_week_id, snapshot_data)
+        logger.info("Saved weekly snapshot for guild %s, week %s", guild_id_str, prev_week_id)
 
         # Build winner announcement embed
         winner = rankings[0]
-        week_label = week_start_pt.strftime("%b %-d")
+        week_label = prev_week_start_pt.strftime("%b %-d")
 
         embed = discord.Embed(
             title=f"👑 Weekly Trivia Winner — Week of {week_label}",
@@ -255,7 +272,7 @@ async def process_guild_reset(
         embed.set_footer(
             text=(
                 f"{len(rankings)} player(s) participated • "
-                f"{week_start_pt.strftime('%b %-d')}–{week_end_pt.strftime('%b %-d, %Y')}"
+                f"{prev_week_start_pt.strftime('%b %-d')}–{prev_week_end_pt.strftime('%b %-d, %Y')}"
             )
         )
 
@@ -286,14 +303,14 @@ async def process_guild_reset(
                 logger.error("Error posting to channel %s: %s", channel_id, exc, exc_info=True)
 
     else:
-        logger.info("No participation for guild %s this week – saving empty snapshot.", guild_id_str)
+        logger.info("No participation for guild %s week %s – saving empty snapshot.", guild_id_str, prev_week_id)
         snapshot_data = {
-            "week_id": current_week_id,
-            "week_start": week_start_pt.isoformat(),
-            "week_end": week_end_pt.isoformat(),
+            "week_id": prev_week_id,
+            "week_start": prev_week_start_pt.isoformat(),
+            "week_end": prev_week_end_pt.isoformat(),
             "rankings": [],
         }
-        await store.save_weekly_snapshot(guild_id_str, current_week_id, snapshot_data)
+        await store.save_weekly_snapshot(guild_id_str, prev_week_id, snapshot_data)
 
     # Mark reset as done
     await store.set_last_reset_time(guild_id_str, now_utc.isoformat())

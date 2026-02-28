@@ -16,6 +16,7 @@ class TriviaStatsService:
         category: Optional[str] = None,
         days: Optional[int] = None,
         since: Optional[dt.datetime] = None,
+        until: Optional[dt.datetime] = None,
     ) -> List[Tuple[str, int, int, int, float]]:
         """
         Calculate leaderboard from trivia history.
@@ -25,6 +26,7 @@ class TriviaStatsService:
             category: Optional category filter
             days: Optional number of days to look back (None = all time)
             since: Optional explicit cutoff datetime (takes precedence over days)
+            until: Optional exclusive upper bound datetime (games ending on or after this are excluded)
 
         Returns:
             List of (user_id, points, correct_count, total_count, accuracy) tuples,
@@ -42,12 +44,14 @@ class TriviaStatsService:
                 continue
 
             # Filter by date if specified
-            if cutoff_date:
-                ended_at_str = game.get("ended_at")
+            ended_at_str = game.get("ended_at")
+            if cutoff_date or until:
                 if ended_at_str:
                     try:
                         game_date = dt.datetime.fromisoformat(ended_at_str)
-                        if game_date < cutoff_date:
+                        if cutoff_date and game_date < cutoff_date:
+                            continue
+                        if until and game_date >= until:
                             continue
                     except (ValueError, TypeError):
                         pass  # Skip if date parsing fails
