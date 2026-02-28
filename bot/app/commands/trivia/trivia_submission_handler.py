@@ -854,14 +854,14 @@ async def submit_batch_question_button(
     batch_data = active_games.get(batch_id)
 
     if not batch_data:
-        await interaction.followup.send("❌ This trivia game is no longer active.", ephemeral=True)
+        await interaction.edit_original_response(content="❌ This trivia game is no longer active.")
         return
 
     questions = await store.get_batch_questions(guild_id, batch_id)
     q_data = questions.get(str(question_num))
 
     if not q_data:
-        await interaction.followup.send("❌ Could not load question data.", ephemeral=True)
+        await interaction.edit_original_response(content="❌ Could not load question data.")
         return
 
     # Map letter answers (A/B/C/D) to full answer text
@@ -908,34 +908,35 @@ async def submit_batch_question_button(
     if result.get("err"):
         error_code = result["err"]
         if error_code == "ALREADY_SUBMITTED":
-            await interaction.followup.send(
-                "❌ You already answered this question.", ephemeral=True
+            await interaction.edit_original_response(
+                content="❌ You already answered this question."
             )
         elif error_code == "WINDOW_CLOSED":
-            await interaction.followup.send(
-                "❌ The answer window has closed. Wait for results!", ephemeral=True
+            await interaction.edit_original_response(
+                content="❌ The answer window has closed. Wait for results!"
             )
         elif error_code == "GAME_NOT_FOUND":
-            await interaction.followup.send(
-                "❌ This trivia game is no longer active.", ephemeral=True
+            await interaction.edit_original_response(
+                content="❌ This trivia game is no longer active."
             )
         elif error_code == "GAME_CLOSED":
-            await interaction.followup.send(
-                "❌ This game has already been closed.", ephemeral=True
+            await interaction.edit_original_response(
+                content="❌ This game has already been closed."
             )
         else:
-            await interaction.followup.send(
-                "❌ Failed to submit answer. Please try again.", ephemeral=True
+            await interaction.edit_original_response(
+                content="❌ Failed to submit answer. Please try again."
             )
         return
 
-    # Send immediate feedback
+    # Update the "Got it!" message (button flow) or deferred response (modal flow)
+    # with the actual result
     if is_correct:
         feedback_msg = "✅ **Correct!** Your answer has been recorded."
     else:
         feedback_msg = f"❌ **Incorrect.** The correct answer is: **{correct_answer}**"
 
-    await interaction.followup.send(feedback_msg, ephemeral=True)
+    await interaction.edit_original_response(content=feedback_msg)
 
     # Update question embeds with latest stats
     try:

@@ -1,5 +1,6 @@
 """Discord UI views and modals for trivia game interactions."""
 
+import asyncio
 import discord
 from discord.ext import commands
 from bot.app.utils.logger import get_logger
@@ -33,9 +34,7 @@ class TriviaAnswerModal(discord.ui.Modal, title="Submit Trivia Answer"):
 
         # Per-question batch modal (context menu on an individual question embed)
         if batch_question_num is not None:
-            placeholder = question if question else "Type A, B, C, D or your answer..."
-            if len(placeholder) > 100:
-                placeholder = placeholder[:97] + "..."
+            placeholder = "Type A, B, C, D or your full answer..."
             label = "Your Answer"
             max_length = 500
         elif is_batch:
@@ -69,23 +68,33 @@ class TriviaAnswerModal(discord.ui.Modal, title="Submit Trivia Answer"):
         # CRITICAL: Defer IMMEDIATELY to prevent "This interaction failed"
         await interaction.response.defer(ephemeral=True)
 
-        if self.batch_question_num is not None:
-            # Per-question batch submission via modal (context menu fallback)
-            await submit_batch_question_button(
-                interaction,
-                self.game_id,
-                self.guild_id,
-                self.batch_question_num,
-                self.answer.value,
-            )
-        elif self.is_batch:
-            await submit_batch_trivia_answer(
-                self.bot, interaction, self.answer.value, self.guild_id, self.game_id
-            )
-        else:
-            await submit_trivia_answer(
-                self.bot, interaction, self.answer.value, self.guild_id, self.game_id
-            )
+        try:
+            if self.batch_question_num is not None:
+                # Per-question batch submission via modal (context menu fallback)
+                await submit_batch_question_button(
+                    interaction,
+                    self.game_id,
+                    self.guild_id,
+                    self.batch_question_num,
+                    self.answer.value,
+                )
+            elif self.is_batch:
+                await submit_batch_trivia_answer(
+                    self.bot, interaction, self.answer.value, self.guild_id, self.game_id
+                )
+            else:
+                await submit_trivia_answer(
+                    self.bot, interaction, self.answer.value, self.guild_id, self.game_id
+                )
+        except Exception as e:
+            logger.error(f"Modal submission error: {e}", exc_info=True)
+            try:
+                await interaction.followup.send(
+                    "❌ An error occurred processing your answer. Please try again.",
+                    ephemeral=True,
+                )
+            except Exception:
+                pass
 
 
 class TriviaQuestionView(discord.ui.View):
@@ -116,14 +125,36 @@ class TriviaQuestionView(discord.ui.View):
 
     def _make_callback(self, label: str):
         async def callback(interaction: discord.Interaction):
-            await interaction.response.defer(ephemeral=True)
-            await submit_batch_question_button(
-                interaction,
-                self.batch_id,
-                self.guild_id,
-                self.question_num,
-                label,
-            )
+            # Respond IMMEDIATELY — Discord requires a response within 3 seconds.
+            # We acknowledge first, then process in the background.
+            try:
+                await interaction.response.send_message(
+                    "⏳ Got it! Checking your answer...",
+                    ephemeral=True,
+                )
+            except Exception as e:
+                logger.error(f"Failed to respond to trivia button: {e}")
+                return
+
+            async def process():
+                try:
+                    await submit_batch_question_button(
+                        interaction,
+                        self.batch_id,
+                        self.guild_id,
+                        self.question_num,
+                        label,
+                    )
+                except Exception as e:
+                    logger.error(f"Trivia button error for label={label}: {e}", exc_info=True)
+                    try:
+                        await interaction.edit_original_response(
+                            content="❌ An error occurred processing your answer. Please try again."
+                        )
+                    except Exception:
+                        pass
+
+            asyncio.create_task(process())
 
         return callback
 
