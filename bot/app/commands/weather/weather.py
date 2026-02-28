@@ -327,6 +327,33 @@ async def generate_llm_summary(
 
 
 # ---------------------------------------------------------------------------
+# View and factory functions for "Show Details" button
+# ---------------------------------------------------------------------------
+
+class WeatherTableView(discord.ui.View):
+    """A view with a single 'Show Details' button. No callback — handled by Cog listener."""
+    def __init__(self, custom_id: str):
+        super().__init__(timeout=None)
+        btn = discord.ui.Button(
+            label="Show Details",
+            style=discord.ButtonStyle.secondary,
+            emoji="📊",
+            custom_id=custom_id,
+        )
+        self.add_item(btn)
+
+
+def make_forecast_view(zip_code: str, forecast_days: int, past_days: int, label: str) -> WeatherTableView:
+    safe_label = label[:50].replace(":", "|")
+    return WeatherTableView(f"weather_table:{zip_code}:{forecast_days}:{past_days}:{safe_label}")
+
+
+def make_history_view(zip_code: str, start_date: str, end_date: str, label: str) -> WeatherTableView:
+    safe_label = label[:50].replace(":", "|")
+    return WeatherTableView(f"weather_history:{zip_code}:{start_date}:{end_date}:{safe_label}")
+
+
+# ---------------------------------------------------------------------------
 # Shared choice lists
 # ---------------------------------------------------------------------------
 
@@ -361,6 +388,76 @@ class WeatherCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
+    # ------------------------------------------------------------------
+    # Button interaction handler (handles clicks from poster-sent messages)
+    # ------------------------------------------------------------------
+
+    @commands.Cog.listener()
+    async def on_interaction(self, interaction: discord.Interaction) -> None:
+        if interaction.type != discord.InteractionType.component:
+            return
+        custom_id = (interaction.data or {}).get("custom_id", "")
+        if custom_id.startswith("weather_table:"):
+            await self._handle_forecast_button(interaction, custom_id)
+        elif custom_id.startswith("weather_history:"):
+            await self._handle_history_button(interaction, custom_id)
+
+    async def _handle_forecast_button(self, interaction: discord.Interaction, custom_id: str) -> None:
+        # Format: "weather_table:{zip}:{forecast_days}:{past_days}:{label}"
+        parts = custom_id.split(":", 4)
+        zip_code, forecast_days, past_days = parts[1], int(parts[2]), int(parts[3])
+        label = parts[4].replace("|", ":") if len(parts) > 4 else zip_code
+
+        coords = lookup_zip(zip_code)
+        if not coords:
+            await interaction.response.send_message("Could not resolve ZIP code.", ephemeral=True)
+            return
+
+        await interaction.response.defer()
+        lat, lon = coords
+        try:
+            weather_data = await asyncio.wait_for(
+                fetch_forecast(lat, lon, forecast_days, past_days), timeout=20.0
+            )
+        except Exception as e:
+            await interaction.edit_original_response(content=f"Failed to fetch weather data: {e}")
+            return
+
+        embeds = build_forecast_embeds(weather_data, label, zip_code, forecast_days, past_days)
+        await interaction.message.edit(
+            content=interaction.message.content,
+            embeds=embeds,
+            view=discord.ui.View(),
+        )
+
+    async def _handle_history_button(self, interaction: discord.Interaction, custom_id: str) -> None:
+        # Format: "weather_history:{zip}:{start_date}:{end_date}:{label}"
+        parts = custom_id.split(":", 4)
+        zip_code, start_date, end_date = parts[1], parts[2], parts[3]
+        label = parts[4].replace("|", ":") if len(parts) > 4 else zip_code
+
+        coords = lookup_zip(zip_code)
+        if not coords:
+            await interaction.response.send_message("Could not resolve ZIP code.", ephemeral=True)
+            return
+
+        await interaction.response.defer()
+        lat, lon = coords
+        try:
+            weather_data = await asyncio.wait_for(
+                fetch_history(lat, lon, start_date, end_date), timeout=20.0
+            )
+        except Exception as e:
+            await interaction.edit_original_response(content=f"Failed to fetch weather data: {e}")
+            return
+
+        embeds = build_history_embeds(weather_data, label, zip_code, start_date, end_date)
+        await interaction.message.edit(
+            content=interaction.message.content,
+            embeds=embeds,
+            view=discord.ui.View(),
+        )
 
     weather = app_commands.Group(
         name="weather",
@@ -625,10 +722,8 @@ class WeatherCog(commands.Cog):
         except Exception:
             summary = f"Here's the weather forecast for {display_label}."
 
-        embeds = build_forecast_embeds(
-            weather_data, display_label, zip, forecast_days, past_days
-        )
-        await interaction.followup.send(content=summary, embeds=embeds)
+        view = make_forecast_view(zip, forecast_days, past_days, display_label)
+        await interaction.followup.send(content=summary, view=view)
 
     # ------------------------------------------------------------------
     # /weather history
@@ -699,10 +794,11 @@ class WeatherCog(commands.Cog):
             await interaction.followup.send(f"Failed to fetch historical data: {e}")
             return
 
-        embeds = build_history_embeds(
-            weather_data, display_label, zip, start_date, end_date
+        view = make_history_view(zip, start_date, end_date, display_label)
+        await interaction.followup.send(
+            content=f"Historical weather for {display_label} ({start_date} to {end_date}).",
+            view=view,
         )
-        await interaction.followup.send(embeds=embeds)
 
 
 async def setup(bot: commands.Bot) -> None:

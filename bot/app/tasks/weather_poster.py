@@ -28,7 +28,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from bot.api.openmeteo.forecast_client import fetch_forecast
-from bot.app.commands.weather.weather import build_forecast_embeds, generate_llm_summary
+from bot.app.commands.weather.weather import generate_llm_summary, make_forecast_view
 from bot.app.redis.client import close_redis, get_redis_client, initialize_redis
 from bot.app.redis.exceptions import LockAcquisitionError
 from bot.app.redis.locks import redis_lock
@@ -234,13 +234,11 @@ async def post_weather() -> None:
                         logger.warning(f"LLM summary failed, using fallback: {e}")
                         summary = f"Here's the weather forecast for {label}."
 
-                    # Build embeds and post
-                    embeds = build_forecast_embeds(
-                        weather_data, label, zip_code, forecast_days, past_days
-                    )
+                    # Build view and post
+                    view = make_forecast_view(zip_code, forecast_days, past_days, label)
 
                     try:
-                        await channel.send(content=summary, embeds=embeds)
+                        await channel.send(content=summary, view=view)
                         logger.info(
                             f"Posted weather: guild={guild_id} channel={channel_id} slot={slot_key}"
                         )
