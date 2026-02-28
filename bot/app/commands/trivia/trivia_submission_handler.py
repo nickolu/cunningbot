@@ -535,11 +535,13 @@ async def update_batch_question_stats(
 ) -> None:
     """Update individual question messages with their stats.
 
+    Works with both thread-based (legacy) and channel-based (new) games.
+
     Args:
         bot: The Discord bot instance
         guild_id: Guild ID as string
         batch_id: Batch game ID
-        batch_data: Batch data containing question_message_ids and thread_id
+        batch_data: Batch data containing question_message_ids and channel_id/thread_id
         store: TriviaRedisStore instance
     """
     # Get question message IDs
@@ -550,19 +552,29 @@ async def update_batch_question_stats(
         logger.warning(f"Batch {batch_id[:8]} has no question_message_ids, skipping stats update (legacy game)")
         return
 
-    # Get thread
+    # Resolve the container (thread for legacy games, channel for new games)
     thread_id = batch_data.get("thread_id")
-    if not thread_id:
-        logger.warning(f"Missing thread_id for batch {batch_id[:8]}")
-        return
+    channel_id = batch_data.get("channel_id")
 
-    thread = bot.get_channel(thread_id)
-    if thread is None:
-        try:
-            thread = await bot.fetch_channel(thread_id)
-        except Exception as e:
-            logger.warning(f"Could not find thread {thread_id}: {e}")
-            return
+    container = None
+    if thread_id:
+        container = bot.get_channel(thread_id)
+        if container is None:
+            try:
+                container = await bot.fetch_channel(thread_id)
+            except Exception as e:
+                logger.warning(f"Could not find thread {thread_id}: {e}")
+    elif channel_id:
+        container = bot.get_channel(channel_id)
+        if container is None:
+            try:
+                container = await bot.fetch_channel(channel_id)
+            except Exception as e:
+                logger.warning(f"Could not find channel {channel_id}: {e}")
+
+    if container is None:
+        logger.warning(f"No container found for batch {batch_id[:8]}, skipping stats update")
+        return
 
     # Get submissions and questions
     submissions = await store.get_batch_submissions(guild_id, batch_id)
@@ -581,14 +593,11 @@ async def update_batch_question_stats(
             source = question_data.get("source", "opentdb")
             logger.info(f"Updating question {i}: source={source}, message_id={message_id}")
 
-            message = await thread.fetch_message(message_id)
+            message = await container.fetch_message(message_id)
             q_stats = stats.get(str(i), {"correct": 0, "incorrect": 0})
 
-            # Log the stats we calculated for this question
             logger.info(f"Question {i} stats: {q_stats}")
 
-            # Recreate embed with updated stats
-            logger.info(f"About to edit message {message_id} for question {i}")
             updated_embed = create_individual_question_embed(
                 question_data=question_data,
                 question_num=i,
@@ -605,7 +614,6 @@ async def update_batch_question_stats(
         except discord.Forbidden:
             logger.warning(f"No permission to edit message {message_id} for question {i}")
         except Exception as e:
-            # Log full error with traceback for AI questions
             if questions[str(i)].get("source") == "ai":
                 logger.error(f"❌ Failed to update AI question {i}: {e}", exc_info=True)
             else:
@@ -813,6 +821,123 @@ async def submit_batch_trivia_answer(
     await interaction.followup.send(feedback_message, ephemeral=True)
 
     # Update the question message with latest stats
+    try:
+        await update_batch_question_stats(bot, guild_id, batch_id, batch_data, store)
+    except Exception as e:
+        logger.warning(f"Failed to update batch question stats: {e}")
+
+
+async def submit_batch_question_button(
+    interaction: discord.Interaction,
+    batch_id: str,
+    guild_id: str,
+    question_num: int,
+    answer_input: str,
+) -> None:
+    """Submit a single question's answer for a batch game (button or context menu).
+
+    Called by TriviaQuestionView button callbacks and TriviaAnswerModal when
+    batch_question_num is set.
+
+    Args:
+        interaction: The Discord interaction (must already be deferred ephemerally)
+        batch_id: Batch game ID
+        guild_id: Guild ID as string
+        question_num: The 1-based question index
+        answer_input: The user's answer — a letter ("A"/"B") or free text
+    """
+    store = TriviaRedisStore()
+    bot = interaction.client
+
+    # Load batch game and question data
+    active_games = await store.get_active_games(guild_id)
+    batch_data = active_games.get(batch_id)
+
+    if not batch_data:
+        await interaction.followup.send("❌ This trivia game is no longer active.", ephemeral=True)
+        return
+
+    questions = await store.get_batch_questions(guild_id, batch_id)
+    q_data = questions.get(str(question_num))
+
+    if not q_data:
+        await interaction.followup.send("❌ Could not load question data.", ephemeral=True)
+        return
+
+    # Map letter answers (A/B/C/D) to full answer text
+    answer_map = q_data.get("answer_map", {})
+    letter = answer_input.strip().upper()
+    mapped_answer = answer_map.get(letter, answer_input.strip())
+
+    # Validate immediately
+    correct_answer = q_data.get("correct_answer", "")
+    question_text = q_data.get("question", "")
+    options = q_data.get("options", [])
+
+    try:
+        validation_result = await validate_answer(mapped_answer, correct_answer, question_text, options)
+        is_correct = validation_result["is_correct"]
+        feedback = validation_result.get("feedback", "")
+    except Exception as e:
+        logger.error(f"Failed to validate answer for Q{question_num}: {e}")
+        is_correct = False
+        feedback = ""
+
+    # Calculate points
+    points = calculate_question_points(
+        is_correct=is_correct,
+        difficulty=q_data.get("difficulty", ""),
+        source=q_data.get("source", "opentdb"),
+    )
+
+    answer_obj = {
+        "answer": answer_input.strip(),
+        "mapped_answer": mapped_answer,
+        "is_correct": is_correct,
+        "feedback": feedback,
+        "points": points,
+        "submitted_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+    }
+
+    # Submit atomically
+    user_id_str = str(interaction.user.id)
+    result = await store.submit_batch_question_answer_atomic(
+        guild_id, batch_id, user_id_str, str(question_num), answer_obj
+    )
+
+    if result.get("err"):
+        error_code = result["err"]
+        if error_code == "ALREADY_SUBMITTED":
+            await interaction.followup.send(
+                "❌ You already answered this question.", ephemeral=True
+            )
+        elif error_code == "WINDOW_CLOSED":
+            await interaction.followup.send(
+                "❌ The answer window has closed. Wait for results!", ephemeral=True
+            )
+        elif error_code == "GAME_NOT_FOUND":
+            await interaction.followup.send(
+                "❌ This trivia game is no longer active.", ephemeral=True
+            )
+        elif error_code == "GAME_CLOSED":
+            await interaction.followup.send(
+                "❌ This game has already been closed.", ephemeral=True
+            )
+        else:
+            await interaction.followup.send(
+                "❌ Failed to submit answer. Please try again.", ephemeral=True
+            )
+        return
+
+    # Send immediate feedback
+    if is_correct:
+        feedback_msg = "✅ **Correct!** Your answer has been recorded."
+    else:
+        feedback_msg = f"❌ **Incorrect.** The correct answer is: **{correct_answer}**"
+
+    await interaction.followup.send(feedback_msg, ephemeral=True)
+
+    # Update question embeds with latest stats
     try:
         await update_batch_question_stats(bot, guild_id, batch_id, batch_data, store)
     except Exception as e:

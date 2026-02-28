@@ -186,148 +186,195 @@ async def close_expired_games() -> None:
                                        game_id[:8], len(submissions), len(questions))
 
                             thread_id = game_data.get("thread_id")
+                            channel_id_for_results = game_data.get("channel_id")
                             category = game_data.get("category", "Unknown")
 
-                            # Post results to Discord
+                            # Resolve where to post results:
+                            # - Legacy games: post to thread (backward compat)
+                            # - New games: post to main channel
+                            results_target = None
+                            results_thread = None
+
                             if thread_id:
+                                # Legacy: try to get the thread
                                 try:
-                                    thread = client.get_channel(thread_id)
-                                    if thread is None:
-                                        thread = await client.fetch_channel(thread_id)  # type: ignore[attr-defined]
+                                    results_thread = client.get_channel(thread_id)
+                                    if results_thread is None:
+                                        results_thread = await client.fetch_channel(thread_id)  # type: ignore[attr-defined]
+                                    if isinstance(results_thread, discord.Thread):
+                                        results_target = results_thread
+                                    else:
+                                        results_thread = None
+                                except Exception as exc:
+                                    logger.warning("Could not fetch thread %s: %s", thread_id, exc)
 
-                                    if isinstance(thread, discord.Thread):
-                                        # Build results message for batch
-                                        embed = discord.Embed(
-                                            title="✅ Trivia Results",
-                                            color=0x00FF00,
-                                            timestamp=dt.datetime.now(dt.timezone.utc)
-                                        )
+                            if results_target is None and channel_id_for_results:
+                                # New style: post to main channel
+                                results_channel = client.get_channel(channel_id_for_results)
+                                if results_channel is None:
+                                    try:
+                                        results_channel = await client.fetch_channel(channel_id_for_results)  # type: ignore[attr-defined]
+                                    except Exception as exc:
+                                        logger.error("Could not fetch channel %s: %s", channel_id_for_results, exc)
+                                if results_channel:
+                                    results_target = results_channel
 
-                                        # Add summary stats
-                                        total_players = len(submissions)
+                            if results_target is not None:
+                                try:
+                                    # Build results embed for batch
+                                    embed = discord.Embed(
+                                        title="✅ Trivia Results",
+                                        color=0x00FF00,
+                                        timestamp=dt.datetime.now(dt.timezone.utc)
+                                    )
+
+                                    # Add summary stats
+                                    total_players = len(submissions)
+                                    embed.add_field(
+                                        name="Participation",
+                                        value=f"**{total_players}** player(s) answered",
+                                        inline=False
+                                    )
+
+                                    # Show top scores
+                                    if submissions:
+                                        scores = []
+                                        for user_id, sub_data in submissions.items():
+                                            points = sub_data.get("points")
+                                            if points is not None:
+                                                correct = sub_data.get("correct_count", 0)
+                                                total = sub_data.get("total_count", 0)
+                                            else:
+                                                # Backward compatibility: old format
+                                                score_parts = sub_data.get("score", "0/0").split("/")
+                                                correct = int(score_parts[0])
+                                                total = int(score_parts[1])
+                                                points = (correct * 15) + ((total - correct) * 5)
+
+                                            scores.append((user_id, points, correct, total))
+
+                                        scores.sort(key=lambda x: (x[1], x[2]), reverse=True)
+
+                                        top_scores = scores[:10]
+                                        score_lines = []
+                                        for user_id, points, correct, total in top_scores:
+                                            try:
+                                                user = await client.fetch_user(int(user_id))
+                                                user_mention = user.mention
+                                            except:
+                                                user_mention = f"<@{user_id}>"
+
+                                            score_lines.append(f"• {user_mention}: **{points} pts** ({correct}/{total})")
+
                                         embed.add_field(
-                                            name="Participation",
-                                            value=f"**{total_players}** player(s) answered",
+                                            name="🏆 Top Scores",
+                                            value="\n".join(score_lines) if score_lines else "No scores",
                                             inline=False
                                         )
 
-                                        # Show top scores
-                                        if submissions:
-                                            scores = []
-                                            for user_id, sub_data in submissions.items():
-                                                # Try new format first, fall back to old format
-                                                points = sub_data.get("points")
-                                                if points is not None:
-                                                    # New format with points
-                                                    correct = sub_data.get("correct_count", 0)
-                                                    total = sub_data.get("total_count", 0)
-                                                else:
-                                                    # Backward compatibility: old format
-                                                    score_parts = sub_data.get("score", "0/0").split("/")
-                                                    correct = int(score_parts[0])
-                                                    total = int(score_parts[1])
-                                                    # Estimate points (assume medium difficulty)
-                                                    points = (correct * 15) + ((total - correct) * 5)
+                                    # Add per-question correct answers
+                                    question_lines = []
+                                    for i in range(1, len(questions) + 1):
+                                        q_data = questions[str(i)]
+                                        correct_answer = q_data.get("correct_answer", "Unknown")
+                                        source = q_data.get("source", "")
+                                        difficulty = q_data.get("difficulty") or ""
+                                        difficulty = difficulty.capitalize() if difficulty else ""
 
-                                                scores.append((user_id, points, correct, total))
+                                        if source == "ai":
+                                            type_label = "AI"
+                                        else:
+                                            type_label = difficulty if difficulty else "Unknown"
 
-                                            # Sort by points (descending), then by correct count
-                                            scores.sort(key=lambda x: (x[1], x[2]), reverse=True)
+                                        correct_count = sum(
+                                            1 for sub in submissions.values()
+                                            if sub.get("answers", {}).get(str(i), {}).get("is_correct", False)
+                                        )
 
-                                            # Show top 10 or all if less
-                                            top_scores = scores[:10]
-                                            score_lines = []
-                                            for user_id, points, correct, total in top_scores:
-                                                try:
-                                                    user = await client.fetch_user(int(user_id))
-                                                    user_mention = user.mention
-                                                except:
-                                                    user_mention = f"<@{user_id}>"
+                                        question_lines.append(
+                                            f"**Q{i} ({type_label}):** {correct_answer}\n✅ {correct_count} correct"
+                                        )
 
-                                                # Display: "• @User: **45 pts** (3/6 correct)"
-                                                score_lines.append(f"• {user_mention}: **{points} pts** ({correct}/{total})")
-
-                                            embed.add_field(
-                                                name="🏆 Top Scores",
-                                                value="\n".join(score_lines) if score_lines else "No scores",
-                                                inline=False
-                                            )
-
-                                        # Add per-question correct answers
-                                        question_lines = []
-                                        for i in range(1, len(questions) + 1):
-                                            q_data = questions[str(i)]
-                                            correct_answer = q_data.get("correct_answer", "Unknown")
-                                            source = q_data.get("source", "")
-                                            difficulty = q_data.get("difficulty") or ""
-                                            difficulty = difficulty.capitalize() if difficulty else ""
-
-                                            # Determine type label
-                                            if source == "ai":
-                                                type_label = "AI"
-                                            else:
-                                                type_label = difficulty if difficulty else "Unknown"
-
-                                            # Count how many got it right
-                                            correct_count = sum(
-                                                1 for sub in submissions.values()
-                                                if sub.get("answers", {}).get(str(i), {}).get("is_correct", False)
-                                            )
-
-                                            question_lines.append(
-                                                f"**Q{i} ({type_label}):** {correct_answer}\n✅ {correct_count} correct"
-                                            )
-
-                                        # Add to embed (split into multiple fields if needed for Discord's 1024 char limit)
-                                        if question_lines:
-                                            current_field = []
-                                            for line in question_lines:
-                                                # Check if adding this line would exceed field limit
-                                                current_length = sum(len(l) + 2 for l in current_field)  # +2 for \n\n separator
-                                                if current_length + len(line) > 1000:
-                                                    # Start new field
-                                                    field_name = "Correct Answers" if not any("Correct Answers" in str(f.name) for f in embed.fields) else "\u200b"
-                                                    embed.add_field(
-                                                        name=field_name,
-                                                        value="\n\n".join(current_field),
-                                                        inline=False
-                                                    )
-                                                    current_field = [line]
-                                                else:
-                                                    current_field.append(line)
-
-                                            # Add final field
-                                            if current_field:
+                                    if question_lines:
+                                        current_field = []
+                                        for line in question_lines:
+                                            current_length = sum(len(l) + 2 for l in current_field)
+                                            if current_length + len(line) > 1000:
                                                 field_name = "Correct Answers" if not any("Correct Answers" in str(f.name) for f in embed.fields) else "\u200b"
                                                 embed.add_field(
                                                     name=field_name,
                                                     value="\n\n".join(current_field),
                                                     inline=False
                                                 )
+                                                current_field = [line]
+                                            else:
+                                                current_field.append(line)
 
-                                        embed.set_footer(text=f"Category: {category} • Batch ID: {game_id[:8]}")
+                                        if current_field:
+                                            field_name = "Correct Answers" if not any("Correct Answers" in str(f.name) for f in embed.fields) else "\u200b"
+                                            embed.add_field(
+                                                name=field_name,
+                                                value="\n\n".join(current_field),
+                                                inline=False
+                                            )
 
-                                        logger.info("Posting batch results for game %s to thread %s", game_id[:8], thread_id)
-                                        await thread.send(embed=embed)
+                                    embed.set_footer(text=f"Category: {category} • Batch ID: {game_id[:8]}")
 
-                                        # Post AI explanation follow-up if there are AI questions
-                                        from bot.app.commands.trivia.trivia_submission_handler import post_ai_explanation_followup
-                                        channel = client.get_channel(game_data.get("channel_id"))
-                                        if channel is None:
-                                            channel = await client.fetch_channel(game_data.get("channel_id"))
-                                        await post_ai_explanation_followup(channel, thread, questions, game_id)
+                                    logger.info("Posting batch results for game %s", game_id[:8])
+                                    await results_target.send(embed=embed)
 
-                                        logger.info("Posted batch results to thread %s", thread_id)
+                                    # Post AI explanation follow-up
+                                    from bot.app.commands.trivia.trivia_submission_handler import post_ai_explanation_followup
+                                    ai_channel = client.get_channel(channel_id_for_results)
+                                    if ai_channel is None:
+                                        ai_channel = await client.fetch_channel(channel_id_for_results)
+                                    await post_ai_explanation_followup(ai_channel, results_thread, questions, game_id)
+
+                                    logger.info("Posted batch results for game %s", game_id[:8])
 
                                 except discord.Forbidden:
-                                    logger.error("Missing permissions to post in thread %s", thread_id)
+                                    logger.error("Missing permissions to post batch results for game %s", game_id[:8])
                                 except discord.HTTPException as exc:
-                                    logger.error("HTTP error posting to thread %s: %s", thread_id, exc)
+                                    logger.error("HTTP error posting batch results for game %s: %s", game_id[:8], exc)
                                 except Exception as exc:
                                     logger.error(
-                                        "Unexpected error posting to thread %s: %s",
-                                        thread_id, exc, exc_info=True
+                                        "Unexpected error posting batch results for game %s: %s",
+                                        game_id[:8], exc, exc_info=True
                                     )
+
+                            # Disable buttons on question messages (new-style games only)
+                            if not thread_id:
+                                question_message_ids = game_data.get("question_message_ids", [])
+                                results_channel_obj = client.get_channel(channel_id_for_results)
+                                if results_channel_obj is None:
+                                    try:
+                                        results_channel_obj = await client.fetch_channel(channel_id_for_results)
+                                    except Exception:
+                                        results_channel_obj = None
+
+                                if results_channel_obj and question_message_ids:
+                                    for i, msg_id in enumerate(question_message_ids, start=1):
+                                        try:
+                                            msg = await results_channel_obj.fetch_message(msg_id)
+                                            q_data = questions.get(str(i), {})
+                                            options = q_data.get("options", [])
+                                            labels = ["A", "B", "C", "D", "E", "F"][:len(options)]
+                                            disabled_view = discord.ui.View()
+                                            for label in labels:
+                                                btn = discord.ui.Button(
+                                                    label=label,
+                                                    style=discord.ButtonStyle.secondary,
+                                                    custom_id=f"trivia_q_done:{game_id}:{i}:{label}",
+                                                    disabled=True,
+                                                )
+                                                disabled_view.add_item(btn)
+                                            await msg.edit(view=disabled_view)
+                                        except discord.NotFound:
+                                            logger.warning("Could not find question message %s to disable", msg_id)
+                                        except discord.Forbidden:
+                                            logger.warning("No permission to edit question message %s", msg_id)
+                                        except Exception as exc:
+                                            logger.warning("Failed to disable buttons for question %s: %s", i, exc)
 
                             # Move batch game to history in Redis
                             await store.move_batch_to_history(guild_id, game_id, game_data, questions, submissions)

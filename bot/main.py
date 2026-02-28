@@ -70,6 +70,32 @@ async def on_ready() -> None:
     await initialize_redis()
     logger.info("Redis client initialized")
 
+    # Re-register persistent trivia question views for active batch games
+    # so button interactions survive bot restarts
+    try:
+        from bot.app.redis.trivia_store import TriviaRedisStore
+        from bot.app.commands.trivia.trivia_views import TriviaQuestionView
+        store = TriviaRedisStore()
+        for guild in bot.guilds:
+            guild_id = str(guild.id)
+            active_games = await store.get_active_games(guild_id)
+            for game_id, game_data in active_games.items():
+                if game_data.get("question_count") is None:
+                    continue  # not a batch game
+                if game_data.get("thread_id"):
+                    continue  # legacy thread-based game, no button views to re-register
+                questions = await store.get_batch_questions(guild_id, game_id)
+                msg_ids = game_data.get("question_message_ids", [])
+                for i, msg_id in enumerate(msg_ids, start=1):
+                    q_data = questions.get(str(i), {})
+                    options = q_data.get("options", [])
+                    labels = ["A", "B", "C", "D", "E", "F"][:len(options)]
+                    view = TriviaQuestionView(game_id, guild_id, i, labels, bot)
+                    bot.add_view(view, message_id=msg_id)
+        logger.info("Re-registered trivia question views for active batch games")
+    except Exception as e:
+        logger.error(f"Failed to re-register trivia views: {e}")
+
     # Initialize task queue
     from bot.app.task_queue import get_task_queue
     task_queue = get_task_queue()

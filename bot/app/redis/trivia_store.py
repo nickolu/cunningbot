@@ -279,6 +279,53 @@ class TriviaRedisStore:
             logger.error(f"Failed to execute batch submission script: {e}")
             return {"err": "SCRIPT_ERROR"}
 
+    async def submit_batch_question_answer_atomic(
+        self,
+        guild_id: str,
+        batch_id: str,
+        user_id: str,
+        question_num: str,
+        answer_obj: Dict[str, Any],
+    ) -> Dict[str, str]:
+        """Submit a single question's answer within a batch game atomically.
+
+        Reads the user's existing submission (if any), checks that the specific
+        question hasn't been answered yet, then merges the new answer in.
+
+        Args:
+            guild_id: Guild ID as string
+            batch_id: Batch game ID
+            user_id: User ID as string
+            question_num: Question number as string ("1", "2", …)
+            answer_obj: Answer dict with is_correct, points, mapped_answer, etc.
+
+        Returns:
+            {"ok": "SUBMITTED"} or {"err": "ERROR_CODE"}
+            Error codes: GAME_NOT_FOUND, GAME_CLOSED, WINDOW_CLOSED, ALREADY_SUBMITTED
+        """
+        games_key = f"trivia:{guild_id}:games:active"
+        submissions_key = f"trivia:{guild_id}:game:{batch_id}:submissions"
+        current_timestamp = datetime.now().timestamp()
+
+        try:
+            result = await self.redis_client.execute_script(
+                "trivia_submit_batch_question",
+                keys=[games_key, submissions_key],
+                args=[
+                    batch_id,
+                    user_id,
+                    question_num,
+                    json.dumps(answer_obj),
+                    str(current_timestamp),
+                ],
+            )
+
+            logger.info(f"Per-question submission Lua result: {result}")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to execute per-question submission script: {e}")
+            return {"err": "SCRIPT_ERROR"}
+
     async def delete_batch_game(self, guild_id: str, batch_id: str) -> bool:
         """Delete a batch game and its questions.
 

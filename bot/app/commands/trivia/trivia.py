@@ -1842,11 +1842,12 @@ async def submit_trivia_answer_context_menu(
     embed = message.embeds[0]
 
     # Check if this is a trivia question by looking for the title
-    # Support both single questions and batch questions
+    # Support single questions, batch overview, and per-question batch embeds
     is_single_question = embed.title == "🎯 Trivia Question"
     is_batch_question = embed.title and embed.title.startswith("🎯 Daily Trivia")
+    is_individual_batch_question = embed.title and embed.title.startswith("Question ")
 
-    if not is_single_question and not is_batch_question:
+    if not is_single_question and not is_batch_question and not is_individual_batch_question:
         await interaction.response.send_message(
             "❌ This message doesn't appear to be a trivia question.",
             ephemeral=True
@@ -1883,6 +1884,15 @@ async def submit_trivia_answer_context_menu(
         # Extract question text from embed description
         question_text = embed.description if embed.description else None
 
+        # For individual batch question embeds, extract the question number from the footer
+        # Footer format: "Batch ID: {id[:8]} • Question #X"
+        batch_question_num = None
+        if is_batch and " • Question #" in footer_text:
+            try:
+                batch_question_num = int(footer_text.split("• Question #")[1].strip())
+            except (ValueError, IndexError):
+                logger.warning(f"Could not parse question number from footer: {footer_text}")
+
         # Look up the full id from Redis using the prefix
         from bot.app.redis.trivia_store import TriviaRedisStore
         store = TriviaRedisStore()
@@ -1905,9 +1915,18 @@ async def submit_trivia_answer_context_menu(
         # Get bot instance from interaction
         bot = interaction.client
 
-        # Show the answer modal with the question text
-        # Modal will handle both single and batch questions based on game data
-        modal = TriviaAnswerModal(game_id, str(interaction.guild_id), bot, question=question_text, is_batch=is_batch)
+        # Show the answer modal.
+        # - Individual batch question embed → per-question modal (batch_question_num set)
+        # - Overview embed → full batch modal
+        # - Single question embed → single-question modal
+        modal = TriviaAnswerModal(
+            game_id,
+            str(interaction.guild_id),
+            bot,
+            question=question_text,
+            is_batch=is_batch,
+            batch_question_num=batch_question_num,
+        )
         await interaction.response.send_modal(modal)
 
     except Exception as e:
