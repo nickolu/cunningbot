@@ -153,15 +153,36 @@ async def process_guild(
             logger.info(f"Guild {guild_id}: advance lock held by another container, skipping")
 
     else:
-        # Send reminders if within threshold and not already sent
+        # Only send reminders between 9am and 6pm Pacific time
+        pacific_hour = datetime.datetime.now(ZoneInfo("America/Los_Angeles")).hour
+        if not (9 <= pacific_hour < 18):
+            logger.info(f"Guild {guild_id}: outside reminder window (hour={pacific_hour} PT), skipping")
+            return
+
+        # Build event detail snippet for reminder messages
+        def event_details_str() -> str:
+            parts = [f"📍 {event['location']}", f"🗓️ {datetime.date.fromisoformat(event['date']).strftime('%m/%d/%Y')}"]
+            if event.get("time"):
+                display_time = datetime.datetime.strptime(event["time"], "%H:%M").strftime("%I:%M %p").lstrip("0")
+                parts[-1] += f" at {display_time}"
+            if event.get("notes"):
+                parts.append(f"📝 {event['notes']}")
+            return "  ".join(parts)
+
         needs_save = False
 
         if days_until <= 7 and "7d" not in reminders_sent:
-            event_hint = f"You have until {target_date.strftime('%m/%d/%Y')}"
-            msg = (
-                f"📣 <@{current_user_id}>, you're up for Lunch Boyz in {days_until} day(s)! "
-                f"{event_hint}. Don't forget to use `/lunchboyz plan` to let the crew know where we're going."
-            )
+            if event:
+                msg = (
+                    f"📣 <@{current_user_id}>, Lunch Boyz is in {days_until} day(s)!\n"
+                    f"{event_details_str()}"
+                )
+            else:
+                msg = (
+                    f"📣 <@{current_user_id}>, you're up for Lunch Boyz in {days_until} day(s)! "
+                    f"You have until {target_date.strftime('%m/%d/%Y')}. "
+                    "Don't forget to use `/lunchboyz plan` to let the crew know where we're going."
+                )
             try:
                 await channel.send(msg)
                 reminders_sent.append("7d")
@@ -171,14 +192,16 @@ async def process_guild(
                 logger.error(f"Guild {guild_id}: failed to send 7d reminder: {exc}")
 
         if days_until <= 1 and "1d" not in reminders_sent:
-            if days_until <= 0:
-                urgency = "TODAY"
+            urgency = "TODAY" if days_until <= 0 else "TOMORROW"
+            if event:
+                msg = (
+                    f"🚨 <@{current_user_id}> — Lunch Boyz is {urgency}!\n"
+                    f"{event_details_str()}"
+                )
             else:
-                urgency = "TOMORROW"
-            event_set_hint = "Have you set your event yet?" if not event else "See you there!"
-            msg = (
-                f"🚨 <@{current_user_id}> — Lunch Boyz is {urgency}! {event_set_hint}"
-            )
+                msg = (
+                    f"🚨 <@{current_user_id}> — Lunch Boyz is {urgency}! Have you set your event yet?"
+                )
             try:
                 await channel.send(msg)
                 reminders_sent.append("1d")
