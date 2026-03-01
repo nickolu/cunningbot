@@ -9,7 +9,7 @@ import asyncio
 import logging
 import signal
 from typing import Any, Callable
-from discord.ext import commands
+from discord.ext import commands, tasks
 import discord
 from dotenv import load_dotenv
 
@@ -61,6 +61,48 @@ async def load_cogs_from_dir(directory: str) -> None:
             except Exception as e:
                 logger.error(f"Failed to load extension {ext}: {e}")
 
+async def sync_trivia_views() -> None:
+    """Register trivia button views for all active batch games.
+
+    Called on startup and periodically so the main bot picks up games
+    posted by the trivia-poster container after the bot last started.
+    Calling bot.add_view() for an already-registered message_id is safe —
+    it simply replaces the existing view entry.
+    """
+    from bot.app.redis.trivia_store import TriviaRedisStore
+    from bot.app.commands.trivia.trivia_views import TriviaQuestionView
+    store = TriviaRedisStore()
+    registered = 0
+    for guild in bot.guilds:
+        guild_id = str(guild.id)
+        active_games = await store.get_active_games(guild_id)
+        for game_id, game_data in active_games.items():
+            if game_data.get("question_count") is None:
+                continue  # not a batch game
+            if game_data.get("thread_id"):
+                continue  # legacy thread-based game, no button views
+            questions = await store.get_batch_questions(guild_id, game_id)
+            msg_ids = game_data.get("question_message_ids", [])
+            for i, msg_id in enumerate(msg_ids, start=1):
+                q_data = questions.get(str(i), {})
+                options = q_data.get("options", [])
+                labels = ["A", "B", "C", "D", "E", "F"][:len(options)]
+                view = TriviaQuestionView(game_id, guild_id, i, labels, bot)
+                bot.add_view(view, message_id=msg_id)
+                registered += 1
+    if registered:
+        logger.info(f"Synced {registered} trivia question views")
+
+
+@tasks.loop(minutes=2)
+async def trivia_view_sync_task() -> None:
+    """Periodically re-register trivia views so games posted after startup work."""
+    try:
+        await sync_trivia_views()
+    except Exception as e:
+        logger.error(f"Failed to sync trivia views: {e}")
+
+
 @bot.event
 async def on_ready() -> None:
     logger.info(f"Bot ready as {bot.user}")
@@ -70,31 +112,14 @@ async def on_ready() -> None:
     await initialize_redis()
     logger.info("Redis client initialized")
 
-    # Re-register persistent trivia question views for active batch games
-    # so button interactions survive bot restarts
+    # Register trivia views and start the periodic sync task
     try:
-        from bot.app.redis.trivia_store import TriviaRedisStore
-        from bot.app.commands.trivia.trivia_views import TriviaQuestionView
-        store = TriviaRedisStore()
-        for guild in bot.guilds:
-            guild_id = str(guild.id)
-            active_games = await store.get_active_games(guild_id)
-            for game_id, game_data in active_games.items():
-                if game_data.get("question_count") is None:
-                    continue  # not a batch game
-                if game_data.get("thread_id"):
-                    continue  # legacy thread-based game, no button views to re-register
-                questions = await store.get_batch_questions(guild_id, game_id)
-                msg_ids = game_data.get("question_message_ids", [])
-                for i, msg_id in enumerate(msg_ids, start=1):
-                    q_data = questions.get(str(i), {})
-                    options = q_data.get("options", [])
-                    labels = ["A", "B", "C", "D", "E", "F"][:len(options)]
-                    view = TriviaQuestionView(game_id, guild_id, i, labels, bot)
-                    bot.add_view(view, message_id=msg_id)
-        logger.info("Re-registered trivia question views for active batch games")
+        await sync_trivia_views()
     except Exception as e:
-        logger.error(f"Failed to re-register trivia views: {e}")
+        logger.error(f"Failed to register trivia views on startup: {e}")
+
+    if not trivia_view_sync_task.is_running():
+        trivia_view_sync_task.start()
 
     # Initialize task queue
     from bot.app.task_queue import get_task_queue
