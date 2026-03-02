@@ -227,7 +227,12 @@ async def post_weather() -> None:
                     # Generate LLM summary (with fallback on any failure)
                     try:
                         summary = await asyncio.wait_for(
-                            generate_llm_summary(weather_data, label, forecast_days),
+                            generate_llm_summary(
+                                weather_data,
+                                label,
+                                forecast_days,
+                                past_days,
+                            ),
                             timeout=30.0,
                         )
                     except Exception as e:

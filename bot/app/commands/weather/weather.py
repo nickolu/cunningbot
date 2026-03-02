@@ -278,6 +278,7 @@ async def generate_llm_summary(
     weather_data: dict,
     label: str,
     forecast_days: int,
+    past_days: int = 0,
 ) -> str:
     """Generate a friendly TV-meteorologist style weather intro via OpenAI.
 
@@ -294,9 +295,11 @@ async def generate_llm_summary(
     snows = daily.get("snowfall_sum", [])
 
     # Past days offset: first forecast day is at index past_days; use first 3 forecast days
-    # weather_data may contain past days too; we summarize the first 3 available days
+    # weather_data may contain past days too; we summarize the first 3 forecast days
     lines = []
-    for i in range(min(3, len(dates))):
+    start_index = max(past_days, 0)
+    max_index = min(len(dates), start_index + 3)
+    for i in range(start_index, max_index):
         cond = _wmo_description(codes[i] if i < len(codes) else None)
         hi = int(round(float(hi_temps[i]))) if i < len(hi_temps) and hi_temps[i] is not None else "?"
         lo = int(round(float(lo_temps[i]))) if i < len(lo_temps) and lo_temps[i] is not None else "?"
@@ -311,10 +314,12 @@ async def generate_llm_summary(
         )
 
     summary_data = "\n".join(lines)
+    today_date = dates[start_index] if start_index < len(dates) else "today"
     prompt = (
         f"You are a friendly TV meteorologist. Write a 2-3 sentence weather intro for {label}. "
+        f"Focus ONLY on today ({today_date}), the first row of data. "
         f"Be specific with numbers and give practical local advice. Keep it under 300 characters.\n\n"
-        f"Weather data:\n{summary_data}"
+        f"Weather data (first row is today):\n{summary_data}"
     )
 
     try:
@@ -716,7 +721,12 @@ class WeatherCog(commands.Cog):
 
         try:
             summary = await asyncio.wait_for(
-                generate_llm_summary(weather_data, display_label, forecast_days),
+                generate_llm_summary(
+                    weather_data,
+                    display_label,
+                    forecast_days,
+                    past_days,
+                ),
                 timeout=30.0,
             )
         except Exception:
