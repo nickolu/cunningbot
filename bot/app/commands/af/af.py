@@ -172,10 +172,77 @@ class AFPickerView(discord.ui.View):
         self.stop()
 
 
+class AFCommandGroup(app_commands.Group):
+    def __init__(self, cog: "AFCog") -> None:
+        super().__init__(
+            name="af",
+            description="Animation Factory GIF commands.",
+        )
+        self.cog = cog
+
+    @app_commands.command(name="query", description="Search AF GIFs with a preview picker.")
+    @app_commands.describe(query="Search query for GIFs", style="GIF variant style")
+    @app_commands.choices(
+        style=[
+            app_commands.Choice(name="Clear", value="clear"),
+            app_commands.Choice(name="Default", value="default"),
+            app_commands.Choice(name="Black", value="black"),
+        ]
+    )
+    async def query(
+        self,
+        interaction: discord.Interaction,
+        query: str,
+        style: str = "clear",
+    ) -> None:
+        await self.cog.run_af_query(interaction=interaction, query=query, style=style)
+
+    @app_commands.command(
+        name="file",
+        description="Autocomplete AF GIF filenames and post directly.",
+    )
+    @app_commands.describe(file="GIF filename to post", style="GIF variant style")
+    @app_commands.choices(
+        style=[
+            app_commands.Choice(name="Clear", value="clear"),
+            app_commands.Choice(name="Default", value="default"),
+            app_commands.Choice(name="Black", value="black"),
+        ]
+    )
+    async def file(
+        self,
+        interaction: discord.Interaction,
+        file: str,
+        style: str = "clear",
+    ) -> None:
+        await self.cog.run_af_file(interaction=interaction, file=file, style=style)
+
+    @file.autocomplete("file")
+    async def file_autocomplete(
+        self,
+        interaction: discord.Interaction,
+        current: str,
+    ) -> list[app_commands.Choice[str]]:
+        return await self.cog.af_file_autocomplete(interaction=interaction, current=current)
+
+
 class AFCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.client = AnimationFactoryClient()
+        self.af_group = AFCommandGroup(self)
+
+    async def cog_load(self) -> None:
+        try:
+            self.bot.tree.add_command(self.af_group)
+        except Exception as exc:
+            logger.error(f"Could not register /af group command: {exc}")
+
+    async def cog_unload(self) -> None:
+        try:
+            self.bot.tree.remove_command("af")
+        except Exception:
+            pass
 
     @staticmethod
     def _to_absolute_url(path_or_url: str) -> str:
@@ -235,16 +302,7 @@ class AFCog(commands.Cog):
 
         return re.sub(r"_h[a-z](\.gif)$", rf"_h{suffix}\1", url, flags=re.IGNORECASE)
 
-    @app_commands.command(name="af", description="Search Animation Factory GIFs and post one.")
-    @app_commands.describe(query="Search query for GIFs", style="GIF variant style")
-    @app_commands.choices(
-        style=[
-            app_commands.Choice(name="Clear", value="clear"),
-            app_commands.Choice(name="Default", value="default"),
-            app_commands.Choice(name="Black", value="black"),
-        ]
-    )
-    async def af(
+    async def run_af_query(
         self,
         interaction: discord.Interaction,
         query: str,
@@ -313,8 +371,64 @@ class AFCog(commands.Cog):
                 ephemeral=True,
             )
 
-    @af.autocomplete("query")
-    async def af_query_autocomplete(
+    async def run_af_file(
+        self,
+        interaction: discord.Interaction,
+        file: str,
+        style: str = "clear",
+    ) -> None:
+        await interaction.response.defer()
+
+        try:
+            selected_url = self._to_absolute_url(file.strip())
+            if selected_url:
+                await interaction.followup.send(
+                    self._apply_style_to_direct_url(selected_url, style)
+                )
+                return
+
+            search_query = file.strip()
+            matches = await self.client.search(search_query, limit=25)
+            exact_match = next(
+                (
+                    item
+                    for item in matches
+                    if str(item.get("filename", "")).lower() == search_query.lower()
+                ),
+                None,
+            )
+            picked = exact_match or (matches[0] if matches else None)
+
+            if not picked:
+                await interaction.followup.send(
+                    f"No Animation Factory GIFs found for `{search_query}`.",
+                    ephemeral=True,
+                )
+                return
+
+            gif_url = self._resolve_style_url(picked, style)
+            if not gif_url:
+                await interaction.followup.send(
+                    "Animation Factory returned an invalid GIF URL.",
+                    ephemeral=True,
+                )
+                return
+
+            await interaction.followup.send(gif_url)
+        except RuntimeError as exc:
+            logger.error(f"Animation Factory API error: {exc}")
+            await interaction.followup.send(
+                f"Could not fetch Animation Factory GIFs right now: {exc}",
+                ephemeral=True,
+            )
+        except Exception as exc:
+            logger.error(f"Unexpected /af-file command error: {exc}", exc_info=True)
+            await interaction.followup.send(
+                "Something went wrong while selecting Animation Factory GIFs.",
+                ephemeral=True,
+            )
+
+    async def af_file_autocomplete(
         self,
         interaction: discord.Interaction,
         current: str,

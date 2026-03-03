@@ -11,7 +11,8 @@ CunningBot is a full-featured Discord bot powered by OpenAI.  It provides natura
 | `/chat` | Chat with the LLM about anything.  Supports model selection, message-history window size, persona selection, and private replies. |
 | `/image` | Create an image from a text prompt using OpenAI's DALL-E API. |
 | `/image-json` | Create highly specific images using structured photography parameters formatted as JSON. |
-| `/af` | Search Animation Factory GIFs and post a matching result in chat (supports query autocomplete and style variants). |
+| `/af query` | Search Animation Factory GIFs with an ephemeral preview picker and post the selected result (supports style variants). |
+| `/af file` | Autocomplete Animation Factory GIF filenames and post the selected result directly (supports style variants). |
 | `/roll` | Roll dice using expressions like `4d6`, `1d20+5`, or `d20`. Defaults to 1d20 if no expression provided. |
 | `/persona default [persona]` | Set or view the default persona for the chat in this guild. |
 | `/persona list` | List all available personas with descriptions. |

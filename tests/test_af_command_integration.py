@@ -10,7 +10,7 @@ from bot.app.commands.af.af import AFCog, AFPickerView
 
 class TestAFCommandAutocomplete:
     @pytest.mark.asyncio
-    async def test_autocomplete_returns_choices_from_api(self) -> None:
+    async def test_af_file_autocomplete_returns_choices_from_api(self) -> None:
         mock_bot = MagicMock()
         cog = AFCog(mock_bot)
         cog.client.search = AsyncMock(
@@ -25,7 +25,7 @@ class TestAFCommandAutocomplete:
 
         mock_interaction = AsyncMock(spec=discord.Interaction)
 
-        choices = await cog.af_query_autocomplete(mock_interaction, "potato")
+        choices = await cog.af_file_autocomplete(mock_interaction, "potato")
 
         assert len(choices) == 1
         assert choices[0].name.startswith("potato_walking_hc.gif")
@@ -44,7 +44,7 @@ class TestAFCommandExecution:
         mock_interaction.followup.send = AsyncMock()
 
         selected_url = "https://manchat.men/af/gifs/d15/food/vegetables/potato_walking_hc.gif"
-        await cog.af.callback(cog, mock_interaction, query=selected_url)
+        await cog.run_af_query(mock_interaction, query=selected_url)
 
         mock_interaction.response.defer.assert_called_once()
         mock_interaction.followup.send.assert_called_once_with(selected_url)
@@ -61,12 +61,50 @@ class TestAFCommandExecution:
         mock_interaction.followup.send = AsyncMock()
 
         selected_url = "https://manchat.men/af/gifs/d15/food/vegetables/potato_walking_ha.gif"
-        await cog.af.callback(cog, mock_interaction, query=selected_url, style="clear")
+        await cog.run_af_query(mock_interaction, query=selected_url, style="clear")
 
         mock_interaction.followup.send.assert_called_once_with(
             "https://manchat.men/af/gifs/d15/food/vegetables/potato_walking_hc.gif"
         )
         cog.client.search.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_af_file_posts_selected_filename_match(self) -> None:
+        mock_bot = MagicMock()
+        cog = AFCog(mock_bot)
+        cog.client.search = AsyncMock(
+            return_value=[
+                {
+                    "url": "/af/gifs/d15/food/vegetables/potato_walking_ha.gif",
+                    "filename": "potato_walking_ha.gif",
+                    "variants": [
+                        {
+                            "label": "Clear",
+                            "url": "/af/gifs/d15/food/vegetables/potato_walking_hc.gif",
+                        },
+                        {
+                            "label": "Black",
+                            "url": "/af/gifs/d15/food/vegetables/potato_walking_hb.gif",
+                        },
+                    ],
+                }
+            ]
+        )
+
+        mock_interaction = AsyncMock(spec=discord.Interaction)
+        mock_interaction.response.defer = AsyncMock()
+        mock_interaction.followup.send = AsyncMock()
+
+        await cog.run_af_file(
+            mock_interaction,
+            file="potato_walking_ha.gif",
+            style="black",
+        )
+
+        cog.client.search.assert_called_once_with("potato_walking_ha.gif", limit=25)
+        mock_interaction.followup.send.assert_called_once_with(
+            "https://manchat.men/af/gifs/d15/food/vegetables/potato_walking_hb.gif"
+        )
 
     @pytest.mark.asyncio
     async def test_searches_and_shows_picker_for_plain_text(self) -> None:
@@ -85,7 +123,7 @@ class TestAFCommandExecution:
         mock_interaction.response.defer = AsyncMock()
         mock_interaction.followup.send = AsyncMock()
 
-        await cog.af.callback(cog, mock_interaction, query="potato")
+        await cog.run_af_query(mock_interaction, query="potato")
 
         cog.client.search.assert_called_once_with("potato", limit=25)
         mock_interaction.followup.send.assert_called_once()
@@ -158,7 +196,7 @@ class TestAFCommandExecution:
         mock_interaction.response.defer = AsyncMock()
         mock_interaction.followup.send = AsyncMock()
 
-        await cog.af.callback(cog, mock_interaction, query="nosuchgif")
+        await cog.run_af_query(mock_interaction, query="nosuchgif")
 
         mock_interaction.followup.send.assert_called_once()
         args, kwargs = mock_interaction.followup.send.call_args
@@ -175,7 +213,7 @@ class TestAFCommandExecution:
         mock_interaction.response.defer = AsyncMock()
         mock_interaction.followup.send = AsyncMock()
 
-        await cog.af.callback(cog, mock_interaction, query="potato")
+        await cog.run_af_query(mock_interaction, query="potato")
 
         mock_interaction.followup.send.assert_called_once()
         args, kwargs = mock_interaction.followup.send.call_args
