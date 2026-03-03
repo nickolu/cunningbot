@@ -142,7 +142,7 @@ class AFPickerView(discord.ui.View):
 
         await interaction.response.defer()
         try:
-            await interaction.message.delete()
+            await interaction.delete_original_response()
         except Exception:
             for item in self.children:
                 if isinstance(item, discord.ui.Button):
@@ -163,7 +163,7 @@ class AFPickerView(discord.ui.View):
         del button
         await interaction.response.defer()
         try:
-            await interaction.message.delete()
+            await interaction.delete_original_response()
         except Exception:
             for item in self.children:
                 if isinstance(item, discord.ui.Button):
