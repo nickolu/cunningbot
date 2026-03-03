@@ -239,8 +239,8 @@ class AFCog(commands.Cog):
     @app_commands.describe(query="Search query for GIFs", style="GIF variant style")
     @app_commands.choices(
         style=[
-            app_commands.Choice(name="Default", value="default"),
             app_commands.Choice(name="Clear", value="clear"),
+            app_commands.Choice(name="Default", value="default"),
             app_commands.Choice(name="Black", value="black"),
         ]
     )
@@ -248,7 +248,7 @@ class AFCog(commands.Cog):
         self,
         interaction: discord.Interaction,
         query: str,
-        style: str = "default",
+        style: str = "clear",
     ) -> None:
         await interaction.response.defer(ephemeral=True)
 
