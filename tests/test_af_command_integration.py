@@ -131,8 +131,10 @@ class TestAFCommandExecution:
         mock_interaction.user.id = 12345
         mock_interaction.channel = AsyncMock()
         mock_interaction.channel.send = AsyncMock()
-        mock_interaction.response.edit_message = AsyncMock()
+        mock_interaction.response.defer = AsyncMock()
         mock_interaction.response.send_message = AsyncMock()
+        mock_interaction.message = AsyncMock()
+        mock_interaction.message.delete = AsyncMock()
 
         send_button = next(
             item
@@ -144,7 +146,8 @@ class TestAFCommandExecution:
         mock_interaction.channel.send.assert_called_once_with(
             "https://manchat.men/af/gifs/d15/food/vegetables/potato_walking_hb.gif"
         )
-        mock_interaction.response.edit_message.assert_called_once()
+        mock_interaction.response.defer.assert_called_once()
+        mock_interaction.message.delete.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_handles_no_results(self) -> None:

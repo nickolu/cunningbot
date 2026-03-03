@@ -140,15 +140,19 @@ class AFPickerView(discord.ui.View):
             )
             return
 
-        for item in self.children:
-            if isinstance(item, discord.ui.Button):
-                item.disabled = True
-
-        await interaction.response.edit_message(
-            content="Posted your selected Animation Factory GIF.",
-            embed=self._build_embed(),
-            view=self,
-        )
+        await interaction.response.defer()
+        try:
+            await interaction.message.delete()
+        except Exception:
+            for item in self.children:
+                if isinstance(item, discord.ui.Button):
+                    item.disabled = True
+            await interaction.edit_original_response(
+                content="Posted your selected Animation Factory GIF.",
+                embed=self._build_embed(),
+                view=self,
+            )
+        self.stop()
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger)
     async def cancel_button(
@@ -157,10 +161,14 @@ class AFPickerView(discord.ui.View):
         button: discord.ui.Button,
     ) -> None:
         del button
-        for item in self.children:
-            if isinstance(item, discord.ui.Button):
-                item.disabled = True
-        await interaction.response.edit_message(content="Picker closed.", view=self)
+        await interaction.response.defer()
+        try:
+            await interaction.message.delete()
+        except Exception:
+            for item in self.children:
+                if isinstance(item, discord.ui.Button):
+                    item.disabled = True
+            await interaction.edit_original_response(content="Picker closed.", view=self)
         self.stop()
 
 
@@ -242,7 +250,7 @@ class AFCog(commands.Cog):
         query: str,
         style: str = "default",
     ) -> None:
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
 
         try:
             selected_url = self._to_absolute_url(query.strip())
