@@ -15,6 +15,155 @@ from bot.app.utils.logger import get_logger
 logger = get_logger()
 
 
+class AFPickerView(discord.ui.View):
+    def __init__(
+        self,
+        cog: "AFCog",
+        owner_id: int,
+        results: list[dict[str, Any]],
+        style: str,
+        timeout: float = 120,
+    ) -> None:
+        super().__init__(timeout=timeout)
+        self.cog = cog
+        self.owner_id = owner_id
+        self.results = results
+        self.style = style
+        self.index = 0
+        self.message: discord.Message | None = None
+        self._set_nav_button_state()
+
+    def _set_nav_button_state(self) -> None:
+        for item in self.children:
+            if not isinstance(item, discord.ui.Button):
+                continue
+            if item.label == "Prev":
+                item.disabled = self.index == 0
+            elif item.label == "Next":
+                item.disabled = self.index >= len(self.results) - 1
+
+    def _selected_result(self) -> dict[str, Any]:
+        return self.results[self.index]
+
+    def _selected_url(self) -> str:
+        return self.cog._resolve_style_url(self._selected_result(), self.style)
+
+    def _selected_filename(self) -> str:
+        return str(self._selected_result().get("filename", "Unknown GIF"))
+
+    def _build_embed(self) -> discord.Embed:
+        embed = discord.Embed(
+            title="Animation Factory Results",
+            description=f"`{self._selected_filename()}`",
+            color=discord.Color.blurple(),
+        )
+        embed.set_image(url=self._selected_url())
+        embed.set_footer(
+            text=f"{self.index + 1}/{len(self.results)} • Style: {self.style.title()}"
+        )
+        return embed
+
+    async def _refresh_message(self, interaction: discord.Interaction) -> None:
+        self._set_nav_button_state()
+        await interaction.response.edit_message(embed=self._build_embed(), view=self)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message(
+                "Only the command user can use this picker.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    async def on_timeout(self) -> None:
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                item.disabled = True
+
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
+    @discord.ui.button(label="Prev", style=discord.ButtonStyle.secondary)
+    async def previous_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        del button
+        if self.index > 0:
+            self.index -= 1
+        await self._refresh_message(interaction)
+
+    @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary)
+    async def next_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        del button
+        if self.index < len(self.results) - 1:
+            self.index += 1
+        await self._refresh_message(interaction)
+
+    @discord.ui.button(label="Send", style=discord.ButtonStyle.success)
+    async def send_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        del button
+        selected_url = self._selected_url()
+        if not selected_url:
+            await interaction.response.send_message(
+                "This result has an invalid GIF URL.",
+                ephemeral=True,
+            )
+            return
+
+        if not interaction.channel:
+            await interaction.response.send_message(
+                "Could not access this channel to post the GIF.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            await interaction.channel.send(selected_url)
+        except Exception:
+            await interaction.response.send_message(
+                "I could not post that GIF in this channel.",
+                ephemeral=True,
+            )
+            return
+
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                item.disabled = True
+
+        await interaction.response.edit_message(
+            content="Posted your selected Animation Factory GIF.",
+            embed=self._build_embed(),
+            view=self,
+        )
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger)
+    async def cancel_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        del button
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                item.disabled = True
+        await interaction.response.edit_message(content="Picker closed.", view=self)
+        self.stop()
+
+
 class AFCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -105,7 +254,7 @@ class AFCog(commands.Cog):
 
             search_query = query.strip()
             if search_query.lower().endswith(".gif"):
-                matches = await self.client.search(search_query, limit=10)
+                matches = await self.client.search(search_query, limit=25)
                 exact_match = next(
                     (
                         item
@@ -114,27 +263,35 @@ class AFCog(commands.Cog):
                     ),
                     None,
                 )
-                picked = exact_match or (matches[0] if matches else None)
+                if exact_match:
+                    matches = [exact_match] + [
+                        item for item in matches if item is not exact_match
+                    ]
             else:
-                matches = await self.client.search(search_query, limit=1)
-                picked = matches[0] if matches else None
+                matches = await self.client.search(search_query, limit=25)
 
-            if not picked:
+            if not matches:
                 await interaction.followup.send(
                     f"No Animation Factory GIFs found for `{search_query}`.",
                     ephemeral=True,
                 )
                 return
 
-            gif_url = self._resolve_style_url(picked, style)
-            if not gif_url:
-                await interaction.followup.send(
-                    "Animation Factory returned an invalid GIF URL.",
-                    ephemeral=True,
-                )
-                return
+            view = AFPickerView(
+                cog=self,
+                owner_id=interaction.user.id,
+                results=matches,
+                style=style,
+            )
 
-            await interaction.followup.send(gif_url)
+            picker_message = await interaction.followup.send(
+                content="Pick an Animation Factory GIF to send:",
+                embed=view._build_embed(),
+                view=view,
+                ephemeral=True,
+                wait=True,
+            )
+            view.message = picker_message
         except RuntimeError as exc:
             logger.error(f"Animation Factory API error: {exc}")
             await interaction.followup.send(
