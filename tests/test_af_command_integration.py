@@ -8,30 +8,6 @@ import pytest
 from bot.app.commands.af.af import AFCog, AFPickerView
 
 
-class TestAFCommandAutocomplete:
-    @pytest.mark.asyncio
-    async def test_af_file_autocomplete_returns_choices_from_api(self) -> None:
-        mock_bot = MagicMock()
-        cog = AFCog(mock_bot)
-        cog.client.search = AsyncMock(
-            return_value=[
-                {
-                    "url": "/af/gifs/d15/food/vegetables/potato_walking_hc.gif",
-                    "filename": "potato_walking_hc.gif",
-                    "pathLabels": ["d15", "food", "vegetables", "potato_walking_hc"],
-                }
-            ]
-        )
-
-        mock_interaction = AsyncMock(spec=discord.Interaction)
-
-        choices = await cog.af_file_autocomplete(mock_interaction, "potato")
-
-        assert len(choices) == 1
-        assert choices[0].name.startswith("potato_walking_hc.gif")
-        assert choices[0].value == "potato_walking_hc.gif"
-
-
 class TestAFCommandExecution:
     @pytest.mark.asyncio
     async def test_uses_selected_url_without_search(self) -> None:
@@ -51,7 +27,7 @@ class TestAFCommandExecution:
         cog.client.search.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_applies_style_to_selected_url(self) -> None:
+    async def test_applies_clear_style_to_selected_url(self) -> None:
         mock_bot = MagicMock()
         cog = AFCog(mock_bot)
         cog.client.search = AsyncMock()
@@ -69,42 +45,22 @@ class TestAFCommandExecution:
         cog.client.search.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_af_file_posts_selected_filename_match(self) -> None:
+    async def test_applies_white_style_to_selected_url(self) -> None:
         mock_bot = MagicMock()
         cog = AFCog(mock_bot)
-        cog.client.search = AsyncMock(
-            return_value=[
-                {
-                    "url": "/af/gifs/d15/food/vegetables/potato_walking_ha.gif",
-                    "filename": "potato_walking_ha.gif",
-                    "variants": [
-                        {
-                            "label": "Clear",
-                            "url": "/af/gifs/d15/food/vegetables/potato_walking_hc.gif",
-                        },
-                        {
-                            "label": "Black",
-                            "url": "/af/gifs/d15/food/vegetables/potato_walking_hb.gif",
-                        },
-                    ],
-                }
-            ]
-        )
+        cog.client.search = AsyncMock()
 
         mock_interaction = AsyncMock(spec=discord.Interaction)
         mock_interaction.response.defer = AsyncMock()
         mock_interaction.followup.send = AsyncMock()
 
-        await cog.run_af_file(
-            mock_interaction,
-            file="potato_walking_ha.gif",
-            style="black",
-        )
+        selected_url = "https://manchat.men/af/gifs/d15/food/vegetables/potato_walking_hc.gif"
+        await cog.run_af_query(mock_interaction, query=selected_url, style="white")
 
-        cog.client.search.assert_called_once_with("potato_walking_ha.gif", limit=25)
         mock_interaction.followup.send.assert_called_once_with(
-            "https://manchat.men/af/gifs/d15/food/vegetables/potato_walking_hb.gif"
+            "https://manchat.men/af/gifs/d15/food/vegetables/potato_walking_ha.gif"
         )
+        cog.client.search.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_searches_and_shows_picker_for_plain_text(self) -> None:
@@ -134,7 +90,7 @@ class TestAFCommandExecution:
         assert kwargs["content"].startswith("Pick an Animation Factory GIF")
 
     @pytest.mark.asyncio
-    async def test_picker_send_posts_selected_style_variant(self) -> None:
+    async def test_picker_send_posts_black_style_variant(self) -> None:
         mock_bot = MagicMock()
         cog = AFCog(mock_bot)
         results = [
@@ -185,6 +141,57 @@ class TestAFCommandExecution:
         )
         mock_interaction.response.defer.assert_called_once()
         mock_interaction.delete_original_response.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_picker_send_posts_white_style_variant(self) -> None:
+        mock_bot = MagicMock()
+        cog = AFCog(mock_bot)
+        results = [
+            {
+                "url": "/af/gifs/d15/food/vegetables/potato_walking_ha.gif",
+                "filename": "potato_walking_ha.gif",
+                "variants": [
+                    {
+                        "label": "Clear",
+                        "url": "/af/gifs/d15/food/vegetables/potato_walking_hc.gif",
+                    },
+                    {
+                        "label": "Black",
+                        "url": "/af/gifs/d15/food/vegetables/potato_walking_hb.gif",
+                    },
+                    {
+                        "label": "Default",
+                        "url": "/af/gifs/d15/food/vegetables/potato_walking_ha.gif",
+                    },
+                ],
+            }
+        ]
+
+        view = AFPickerView(
+            cog=cog,
+            owner_id=12345,
+            results=results,
+            style="white",
+        )
+
+        mock_interaction = AsyncMock(spec=discord.Interaction)
+        mock_interaction.user.id = 12345
+        mock_interaction.channel = AsyncMock()
+        mock_interaction.channel.send = AsyncMock()
+        mock_interaction.response.defer = AsyncMock()
+        mock_interaction.response.send_message = AsyncMock()
+        mock_interaction.delete_original_response = AsyncMock()
+
+        send_button = next(
+            item
+            for item in view.children
+            if isinstance(item, discord.ui.Button) and item.label == "Send"
+        )
+        await send_button.callback(mock_interaction)
+
+        mock_interaction.channel.send.assert_called_once_with(
+            "https://manchat.men/af/gifs/d15/food/vegetables/potato_walking_ha.gif"
+        )
 
     @pytest.mark.asyncio
     async def test_handles_no_results(self) -> None:

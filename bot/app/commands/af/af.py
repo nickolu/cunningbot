@@ -14,6 +14,12 @@ from bot.app.utils.logger import get_logger
 
 logger = get_logger()
 
+STYLE_CHOICES = [
+    app_commands.Choice(name="Clear", value="clear"),
+    app_commands.Choice(name="White", value="white"),
+    app_commands.Choice(name="Black", value="black"),
+]
+
 
 class AFPickerView(discord.ui.View):
     def __init__(
@@ -182,13 +188,7 @@ class AFCommandGroup(app_commands.Group):
 
     @app_commands.command(name="query", description="Search AF GIFs with a preview picker.")
     @app_commands.describe(query="Search query for GIFs", style="GIF variant style")
-    @app_commands.choices(
-        style=[
-            app_commands.Choice(name="Clear", value="clear"),
-            app_commands.Choice(name="Default", value="default"),
-            app_commands.Choice(name="Black", value="black"),
-        ]
-    )
+    @app_commands.choices(style=STYLE_CHOICES)
     async def query(
         self,
         interaction: discord.Interaction,
@@ -196,34 +196,6 @@ class AFCommandGroup(app_commands.Group):
         style: str = "clear",
     ) -> None:
         await self.cog.run_af_query(interaction=interaction, query=query, style=style)
-
-    @app_commands.command(
-        name="file",
-        description="Autocomplete AF GIF filenames and post directly.",
-    )
-    @app_commands.describe(file="GIF filename to post", style="GIF variant style")
-    @app_commands.choices(
-        style=[
-            app_commands.Choice(name="Clear", value="clear"),
-            app_commands.Choice(name="Default", value="default"),
-            app_commands.Choice(name="Black", value="black"),
-        ]
-    )
-    async def file(
-        self,
-        interaction: discord.Interaction,
-        file: str,
-        style: str = "clear",
-    ) -> None:
-        await self.cog.run_af_file(interaction=interaction, file=file, style=style)
-
-    @file.autocomplete("file")
-    async def file_autocomplete(
-        self,
-        interaction: discord.Interaction,
-        current: str,
-    ) -> list[app_commands.Choice[str]]:
-        return await self.cog.af_file_autocomplete(interaction=interaction, current=current)
 
 
 class AFCog(commands.Cog):
@@ -258,22 +230,11 @@ class AFCog(commands.Cog):
     def _truncate(value: str, max_len: int) -> str:
         return value if len(value) <= max_len else value[:max_len]
 
-    def _choice_value_from_result(self, result: dict[str, Any], fallback: str) -> str:
-        filename = str(result.get("filename", "")).strip()
-        if filename and len(filename) <= 100:
-            return filename
-
-        absolute_url = self._to_absolute_url(str(result.get("url", "")))
-        if absolute_url and len(absolute_url) <= 100:
-            return absolute_url
-
-        return self._truncate(fallback, 100)
-
     def _resolve_style_url(self, result: dict[str, Any], style: str) -> str:
         style_map = {
             "clear": "Clear",
+            "white": "Default",
             "black": "Black",
-            "default": "Default",
         }
 
         variants = result.get("variants", [])
@@ -293,8 +254,8 @@ class AFCog(commands.Cog):
     def _apply_style_to_direct_url(self, url: str, style: str) -> str:
         suffix_by_style = {
             "clear": "c",
+            "white": "a",
             "black": "b",
-            "default": "a",
         }
         suffix = suffix_by_style.get(style)
         if not suffix:
@@ -370,98 +331,6 @@ class AFCog(commands.Cog):
                 "Something went wrong while searching Animation Factory GIFs.",
                 ephemeral=True,
             )
-
-    async def run_af_file(
-        self,
-        interaction: discord.Interaction,
-        file: str,
-        style: str = "clear",
-    ) -> None:
-        await interaction.response.defer()
-
-        try:
-            selected_url = self._to_absolute_url(file.strip())
-            if selected_url:
-                await interaction.followup.send(
-                    self._apply_style_to_direct_url(selected_url, style)
-                )
-                return
-
-            search_query = file.strip()
-            matches = await self.client.search(search_query, limit=25)
-            exact_match = next(
-                (
-                    item
-                    for item in matches
-                    if str(item.get("filename", "")).lower() == search_query.lower()
-                ),
-                None,
-            )
-            picked = exact_match or (matches[0] if matches else None)
-
-            if not picked:
-                await interaction.followup.send(
-                    f"No Animation Factory GIFs found for `{search_query}`.",
-                    ephemeral=True,
-                )
-                return
-
-            gif_url = self._resolve_style_url(picked, style)
-            if not gif_url:
-                await interaction.followup.send(
-                    "Animation Factory returned an invalid GIF URL.",
-                    ephemeral=True,
-                )
-                return
-
-            await interaction.followup.send(gif_url)
-        except RuntimeError as exc:
-            logger.error(f"Animation Factory API error: {exc}")
-            await interaction.followup.send(
-                f"Could not fetch Animation Factory GIFs right now: {exc}",
-                ephemeral=True,
-            )
-        except Exception as exc:
-            logger.error(f"Unexpected /af-file command error: {exc}", exc_info=True)
-            await interaction.followup.send(
-                "Something went wrong while selecting Animation Factory GIFs.",
-                ephemeral=True,
-            )
-
-    async def af_file_autocomplete(
-        self,
-        interaction: discord.Interaction,
-        current: str,
-    ) -> list[app_commands.Choice[str]]:
-        del interaction
-
-        query = current.strip()
-        if not query:
-            return []
-
-        try:
-            results = await self.client.search(query, limit=25)
-        except Exception:
-            return []
-
-        choices: list[app_commands.Choice[str]] = []
-        for result in results[:25]:
-            filename = str(result.get("filename", "")) or "Unknown GIF"
-            path_labels = result.get("pathLabels", [])
-            if isinstance(path_labels, list) and len(path_labels) >= 3:
-                category = f"{path_labels[1]}/{path_labels[2]}"
-                label = f"{filename} ({category})"
-            else:
-                label = filename
-
-            choices.append(
-                app_commands.Choice(
-                    name=self._truncate(label, 100),
-                    value=self._choice_value_from_result(result, fallback=query),
-                )
-            )
-
-        return choices
 
 
 async def setup(bot: commands.Bot) -> None:
