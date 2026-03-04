@@ -222,8 +222,22 @@ async def close_expired_games() -> None:
                             if results_target is not None:
                                 try:
                                     # Build results embed for batch
+                                    # Title includes the date the game was posted
+                                    started_at_str = game_data.get("started_at", "")
+                                    try:
+                                        started_at_dt = dt.datetime.fromisoformat(started_at_str).astimezone(PACIFIC_TZ)
+                                        results_date_label = started_at_dt.strftime("%-m/%-d")
+                                    except (ValueError, TypeError):
+                                        results_date_label = None
+
+                                    results_title = (
+                                        f"✅ Trivia Results — {results_date_label}"
+                                        if results_date_label
+                                        else "✅ Trivia Results"
+                                    )
+
                                     embed = discord.Embed(
-                                        title="✅ Trivia Results",
+                                        title=results_title,
                                         color=0x00FF00,
                                         timestamp=dt.datetime.now(dt.timezone.utc)
                                     )
@@ -446,8 +460,22 @@ async def close_expired_games() -> None:
 
                                 if isinstance(thread, discord.Thread):
                                     # Build results message
+                                    # Title includes the date the game was posted
+                                    started_at_str = game_data.get("started_at", "")
+                                    try:
+                                        started_at_dt = dt.datetime.fromisoformat(started_at_str).astimezone(PACIFIC_TZ)
+                                        results_date_label = started_at_dt.strftime("%-m/%-d")
+                                    except (ValueError, TypeError):
+                                        results_date_label = None
+
+                                    results_title = (
+                                        f"✅ Trivia Results — {results_date_label}"
+                                        if results_date_label
+                                        else "✅ Trivia Results"
+                                    )
+
                                     embed = discord.Embed(
-                                        title="✅ Trivia Results",
+                                        title=results_title,
                                         color=0x00FF00,
                                         timestamp=dt.datetime.now(dt.timezone.utc)
                                     )

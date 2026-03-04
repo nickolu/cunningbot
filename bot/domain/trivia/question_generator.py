@@ -2,7 +2,7 @@
 
 import json
 import re
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from bot.api.openai.chat_completions_client import ChatCompletionsClient
 from bot.domain.trivia.question_seeds import CATEGORIES
@@ -36,13 +36,20 @@ def answer_appears_in_question(question: str, answer: str) -> bool:
     return False
 
 
-async def generate_trivia_question(seed: str, category: str = None) -> Dict[str, str]:
+async def generate_trivia_question(
+    seed: str,
+    category: Optional[str] = None,
+    context_questions: Optional[List[Dict[str, str]]] = None,
+) -> Dict[str, str]:
     """
     Generate a trivia question using LLM with the given seed.
 
     Args:
         seed: Seed string in format "baseword_modifier"
         category: Optional category to constrain the question to (one of CATEGORIES)
+        context_questions: Optional list of existing questions (e.g. from OpenTDB) that
+            the AI question should complement. Each dict should have at least a "question"
+            key and optionally a "correct_answer" key.
 
     Returns:
         dict: {
@@ -74,6 +81,22 @@ async def generate_trivia_question(seed: str, category: str = None) -> Dict[str,
                 category_instruction = f"- Choose the most appropriate category from: {', '.join(CATEGORIES)}"
                 category_format = "CATEGORY: [category name]"
 
+            # Build optional context section listing existing questions to complement
+            context_section = ""
+            if context_questions:
+                context_lines = []
+                for i, q in enumerate(context_questions, 1):
+                    q_text = q.get("question", "")
+                    a_text = q.get("correct_answer", "")
+                    if q_text:
+                        context_lines.append(f"  {i}. Q: {q_text}" + (f" | A: {a_text}" if a_text else ""))
+                if context_lines:
+                    context_section = (
+                        "\n\nContext — these questions are already in the same trivia set. "
+                        "Your question should complement them (same topic area) but must NOT "
+                        "duplicate or closely overlap any of them:\n" + "\n".join(context_lines)
+                    )
+
             prompt = f"""Generate a trivia question that is at least somewhat related to this seed: {topic}/{context}
 
 Requirements:
@@ -83,7 +106,7 @@ Requirements:
 - the seed itself should not be the answer to the question
 {category_instruction}
 - Provide a brief explanation of the answer
-- CRITICAL: Do not mention the answer or any part of it in the question text
+- CRITICAL: Do not mention the answer or any part of it in the question text{context_section}
 
 Return in this EXACT format:
 {category_format}

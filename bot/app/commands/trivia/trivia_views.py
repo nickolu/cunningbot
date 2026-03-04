@@ -35,7 +35,15 @@ class TriviaAnswerModal(discord.ui.Modal, title="Submit Trivia Answer"):
         # Per-question batch modal (context menu on an individual question embed)
         if batch_question_num is not None:
             placeholder = "Type A, B, C, D or your full answer..."
-            label = "Your Answer"
+            # Show a snippet of the question text in the label so the user has context.
+            # The description contains the question + options; take only the first line.
+            if question:
+                first_line = question.split("\n")[0].strip()
+                label = first_line if len(first_line) <= 45 else first_line[:42] + "..."
+            else:
+                label = f"Q{batch_question_num} — Your Answer"
+                if len(label) > 45:
+                    label = label[:45]
             max_length = 500
         elif is_batch:
             # Full batch modal (context menu on the overview embed)
@@ -48,10 +56,13 @@ class TriviaAnswerModal(discord.ui.Modal, title="Submit Trivia Answer"):
             label = "Your Answers (Line Breaks or Semicolons)"
             max_length = 2000
         else:
-            placeholder = question if question else "Type your answer here..."
-            if len(placeholder) > 100:
-                placeholder = placeholder[:97] + "..."
-            label = "Your Answer"
+            # Single AI question modal — show question text in both label and placeholder
+            if question:
+                label = question if len(question) <= 45 else question[:42] + "..."
+                placeholder = question if len(question) <= 100 else question[:97] + "..."
+            else:
+                label = "Your Answer"
+                placeholder = "Type your answer here..."
             max_length = 500
 
         self.answer = discord.ui.TextInput(

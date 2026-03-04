@@ -1,8 +1,9 @@
 """trivia_weekly_reset.py
 
 Script intended to be invoked every 10 minutes to perform the weekly trivia reset.
-On Mondays (Pacific time), it saves a snapshot of the prior week's leaderboard and
-announces the weekly winner in all registered trivia channels.
+On Sundays (Pacific time), it saves a snapshot of the prior week's leaderboard
+(Monday through Saturday) and announces the weekly winner in all registered trivia
+channels. Sunday's game is not yet closed when this runs, so it is excluded.
 
 Uses an idempotency guard (last_reset_time) to ensure the reset fires exactly once
 per week regardless of how many times this script runs.
@@ -54,14 +55,22 @@ def get_current_week_id(now_pt: dt.datetime) -> str:
 
 
 def get_week_start_pt(now_pt: dt.datetime) -> dt.datetime:
-    """Return Monday 00:00 Pacific for the week containing now_pt."""
-    days_since_monday = now_pt.weekday()  # Monday=0
+    """Return Monday 00:00 Pacific for the Mon–Sat scoring window that ends this Saturday.
+
+    When called on a Sunday, this returns the most recent Monday (6 days ago).
+    """
+    # Sunday=6, Monday=0. On Sunday, days_since_monday == 6.
+    days_since_monday = now_pt.weekday()  # Monday=0 … Sunday=6
     return now_pt.replace(hour=0, minute=0, second=0, microsecond=0) - dt.timedelta(days=days_since_monday)
 
 
 def get_week_end_pt(week_start_pt: dt.datetime) -> dt.datetime:
-    """Return Sunday 23:59:59 Pacific for the week starting at week_start_pt."""
-    return week_start_pt + dt.timedelta(days=6, hours=23, minutes=59, seconds=59)
+    """Return Saturday 23:59:59 Pacific for the scoring window starting at week_start_pt.
+
+    The window covers Monday through Saturday (6 days). Sunday's game is posted that
+    day but only closes on Monday, so it is excluded from the weekly summary.
+    """
+    return week_start_pt + dt.timedelta(days=5, hours=23, minutes=59, seconds=59)
 
 
 async def run_weekly_reset() -> None:
@@ -81,9 +90,9 @@ async def run_weekly_reset() -> None:
 
     logger.info("Trivia weekly reset check at %s PT (weekday=%d)", now_pt.isoformat(), now_pt.weekday())
 
-    # Only run on Mondays (weekday 0)
-    if now_pt.weekday() != 0:
-        logger.info("Not Monday (weekday=%d) – skipping weekly reset.", now_pt.weekday())
+    # Only run on Sundays (weekday 6)
+    if now_pt.weekday() != 6:
+        logger.info("Not Sunday (weekday=%d) – skipping weekly reset.", now_pt.weekday())
         await close_redis()
         return
 
@@ -91,15 +100,20 @@ async def run_weekly_reset() -> None:
     all_guild_states = get_all_guild_states()
     guilds_to_reset: List[str] = []
 
-    # The reset runs on Monday to snapshot the *previous* week (Mon–Sun).
+    # The reset runs on Sunday to snapshot the current week (Mon–Sat).
+    # current_week_id is used as the idempotency key so we reset at most once per calendar week.
     current_week_id = get_current_week_id(now_pt)
+    # week_start_pt = this Monday 00:00 PT (6 days ago when called on Sunday)
     week_start_pt = get_week_start_pt(now_pt)
     week_start_utc = week_start_pt.astimezone(dt.timezone.utc)
+    # week_end_pt = this Saturday 23:59:59 PT
+    week_end_pt = get_week_end_pt(week_start_pt)
+    week_end_utc = week_end_pt.astimezone(dt.timezone.utc)
 
-    # Previous week: the 7-day window that just ended (last Mon 00:00 → last Sun 23:59:59 PT)
-    prev_week_start_pt = week_start_pt - dt.timedelta(days=7)
-    prev_week_start_utc = prev_week_start_pt.astimezone(dt.timezone.utc)
-    prev_week_id = get_current_week_id(prev_week_start_pt)
+    # Scoring window: Monday 00:00 → Saturday 23:59:59 (the week we're summarising)
+    prev_week_start_pt = week_start_pt       # Monday of this week
+    prev_week_start_utc = week_start_utc
+    prev_week_id = current_week_id           # snapshot key uses current week
 
     for guild_id_str, guild_state in all_guild_states.items():
         if guild_id_str == "global":
@@ -154,7 +168,7 @@ async def run_weekly_reset() -> None:
                         client, store, guild_id_str,
                         current_week_id,
                         prev_week_id, prev_week_start_pt, prev_week_start_utc,
-                        week_start_utc,
+                        week_end_utc,
                         now_utc,
                     )
             except LockAcquisitionError:
@@ -176,22 +190,22 @@ async def process_guild_reset(
     prev_week_id: str,
     prev_week_start_pt: dt.datetime,
     prev_week_start_utc: dt.datetime,
-    week_start_utc: dt.datetime,
+    week_end_utc: dt.datetime,
     now_utc: dt.datetime,
 ) -> None:
     """Perform the weekly reset for a single guild.
 
-    Snapshots the *previous* week (last Mon 00:00 → last Sun 23:59:59 PT).
+    Snapshots the current week's Mon–Sat window. Called on Sundays.
 
     Args:
         client: Discord client
         store: TriviaRedisStore instance
         guild_id_str: Guild ID string
-        current_week_id: ISO week ID of the week that just started (used for idempotency)
-        prev_week_id: ISO week ID of the week being snapshotted
-        prev_week_start_pt: Previous Monday 00:00 Pacific datetime
+        current_week_id: ISO week ID of the current week (used for idempotency)
+        prev_week_id: ISO week ID being snapshotted (same as current_week_id when posting on Sunday)
+        prev_week_start_pt: Monday 00:00 Pacific datetime (start of scoring window)
         prev_week_start_utc: prev_week_start_pt converted to UTC
-        week_start_utc: This Monday 00:00 UTC (exclusive upper bound for game filter)
+        week_end_utc: Saturday 23:59:59 UTC (inclusive upper bound for game filter)
         now_utc: Current UTC datetime
     """
     # Re-check idempotency inside lock (double-check pattern)
@@ -209,12 +223,12 @@ async def process_guild_reset(
     # Get all history and filter to the previous week window
     trivia_history = await store.get_all_history_as_dict(guild_id_str)
 
-    # Calculate leaderboard for the previous week only (since prev Mon, until this Mon)
+    # Calculate leaderboard for Mon–Sat of the current week
     stats_service = TriviaStatsService()
     leaderboard = stats_service.calculate_leaderboard(
         trivia_history,
         since=prev_week_start_utc,
-        until=week_start_utc,
+        until=week_end_utc,
     )
 
     prev_week_end_pt = get_week_end_pt(prev_week_start_pt)
@@ -250,10 +264,10 @@ async def process_guild_reset(
 
         # Build winner announcement embed
         winner = rankings[0]
-        week_label = prev_week_start_pt.strftime("%b %-d")
+        week_label = f"{prev_week_start_pt.strftime('%b %-d')}–{prev_week_end_pt.strftime('%b %-d')}"
 
         embed = discord.Embed(
-            title=f"👑 Weekly Trivia Winner — Week of {week_label}",
+            title=f"👑 Weekly Trivia Winner — {week_label}",
             description=f"**{winner['username']}** dominated this week with **{winner['points']} pts**!",
             color=0xFFD700,
             timestamp=now_utc,

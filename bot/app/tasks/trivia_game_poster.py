@@ -237,6 +237,14 @@ def create_individual_question_embed(
 
     embed.add_field(name="📊 Responses", value=stats_text, inline=True)
 
+    # AI questions have no A/B/C/D buttons — show instructions for how to answer
+    if source == "ai":
+        embed.add_field(
+            name="📝 How to Answer",
+            value="Right-click → **Apps** → **Submit Answer** to type your answer.",
+            inline=False
+        )
+
     embed.set_footer(text=f"Batch ID: {batch_id[:8]} • Question #{question_num}")
 
     return embed
@@ -571,15 +579,32 @@ async def post_trivia_questions() -> None:
                     if ai_count > 0:
                         logger.info(f"Generating {ai_count} AI questions in category: {mapped_category}")
 
+                        # Build context from the OpenTDB questions so AI questions
+                        # complement rather than duplicate the existing ones
+                        opentdb_context = [
+                            {"question": q["question"], "correct_answer": q["correct_answer"]}
+                            for q in opentdb_questions
+                        ]
+
                         for ai_idx in range(ai_count):
                             # Generate new seed with custom words if provided
                             seed = get_unused_seed(used_seeds, registration.get("base_words"), registration.get("modifiers"))
                             used_seeds.add(seed)
                             used_seeds_for_ai.add(seed)
 
+                            # Include previously generated AI questions in context too
+                            full_context = opentdb_context + [
+                                {"question": q["question"], "correct_answer": q["correct_answer"]}
+                                for q in ai_questions
+                            ]
+
                             # Generate AI question with same category as OpenTDB questions
                             logger.info(f"🤖 Generating AI trivia question with seed: {seed}")
-                            ai_question_data = await generate_trivia_question(seed, category=mapped_category)
+                            ai_question_data = await generate_trivia_question(
+                                seed,
+                                category=mapped_category,
+                                context_questions=full_context,
+                            )
                             ai_question_data["source"] = "ai"
                             ai_question_data["seed"] = seed
                             ai_questions.append(ai_question_data)
