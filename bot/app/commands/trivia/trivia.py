@@ -501,6 +501,15 @@ class TriviaCog(commands.Cog):
         # Defer response since question generation takes time
         await interaction.response.defer(ephemeral=True)
 
+        # Blocked users
+        BLOCKED_USER_IDS = {844006425163333632}
+        if interaction.user.id in BLOCKED_USER_IDS:
+            await interaction.followup.send(
+                "⛔ Your privileges to use `/trivia post` have been revoked until further notice.",
+                ephemeral=True
+            )
+            return
+
         # Default to current channel
         target_channel = channel or interaction.channel
         if not isinstance(target_channel, discord.TextChannel):
@@ -510,8 +519,8 @@ class TriviaCog(commands.Cog):
             return
 
         try:
-            # Parse answer window (default to 1 hour)
-            answer_window_minutes = parse_duration(answer_window) if answer_window else 60
+            # Parse answer window (default to 24 hours)
+            answer_window_minutes = parse_duration(answer_window) if answer_window else 1440
 
         except ValueError as e:
             await interaction.followup.send(
