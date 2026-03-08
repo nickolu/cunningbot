@@ -468,7 +468,7 @@ class TriviaCog(commands.Cog):
     @trivia.command(name="post", description="Post a trivia question immediately.")
     @app_commands.describe(
         channel="Channel to post in (defaults to current channel)",
-        answer_window="How long users can answer (e.g., '1h', '30m', '2h') - defaults to 1h",
+        answer_window="How long users can answer (e.g., '1h', '30m', '2h') - defaults to 24h",
         method="Question source (default: OpenTrivia)",
         easy_count="Number of easy questions (OpenTrivia only, default: 3)",
         medium_count="Number of medium questions (OpenTrivia only, default: 2)",
@@ -500,15 +500,6 @@ class TriviaCog(commands.Cog):
         """Post a trivia question immediately."""
         # Defer response since question generation takes time
         await interaction.response.defer(ephemeral=True)
-
-        # Blocked users
-        BLOCKED_USER_IDS = {844006425163333632}
-        if interaction.user.id in BLOCKED_USER_IDS:
-            await interaction.followup.send(
-                "⛔ Your privileges to use `/trivia post` have been revoked until further notice.",
-                ephemeral=True
-            )
-            return
 
         # Default to current channel
         target_channel = channel or interaction.channel
