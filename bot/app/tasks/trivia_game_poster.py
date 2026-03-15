@@ -543,12 +543,21 @@ async def post_trivia_questions() -> None:
                     category_name = OPENTDB_CATEGORIES[category_id]
                     logger.info("Selected category: %s", category_name)
 
-                    # Generate AI questions if ai_count > 0
+                    # Determine AI question counts
+                    ai_easy = registration.get("ai_easy_count", 0)
+                    ai_medium = registration.get("ai_medium_count", 0)
+                    ai_hard = registration.get("ai_hard_count", 0)
+                    # Backward compat: old registrations with ai_count
+                    legacy_ai = registration.get("ai_count", 0)
+                    if legacy_ai > 0 and ai_easy + ai_medium + ai_hard == 0:
+                        ai_medium = legacy_ai
+                    ai_total = ai_easy + ai_medium + ai_hard
+
+                    # Generate AI questions if any AI counts > 0
                     ai_questions = []
                     used_seeds_for_ai = set()
-                    ai_count = registration.get("ai_count", 0)
-                    if ai_count > 0:
-                        logger.info(f"Generating {ai_count} AI questions in category: {category_name}")
+                    if ai_total > 0:
+                        logger.info(f"Generating {ai_total} AI questions in category: {category_name}")
 
                         # Build context from the OpenTDB questions so AI questions
                         # complement rather than duplicate the existing ones
@@ -570,7 +579,9 @@ async def post_trivia_questions() -> None:
                         ai_questions_data = await generate_trivia_questions(
                             seed=ai_seed_result.seed,
                             category=ai_seed_result.category,
-                            medium_count=ai_count,
+                            easy_count=ai_easy,
+                            medium_count=ai_medium,
+                            hard_count=ai_hard,
                             context_questions=opentdb_context,
                         )
 
@@ -704,81 +715,119 @@ async def post_trivia_questions() -> None:
                     logger.info("Saved batch game state for batch_id %s", batch_id[:8])
 
                 elif method == "AI":
-                    # Generate question using two-step pipeline
-                    logger.info("Generating AI trivia question with seed: %s", seed_result.seed)
+                    # Read difficulty counts from registration
+                    ai_easy = registration.get("easy_count", 0)
+                    ai_medium = registration.get("medium_count", 1)
+                    ai_hard = registration.get("hard_count", 0)
+                    # Backward compat: old registrations with ai_count=1 and no difficulty
+                    if ai_easy + ai_medium + ai_hard == 0:
+                        ai_medium = 1
+
+                    # Generate questions using two-step pipeline
+                    logger.info("Generating AI trivia questions with seed: %s", seed_result.seed)
                     questions = await generate_trivia_questions(
                         seed=seed_result.seed,
                         category=seed_result.category,
-                        medium_count=1,
+                        easy_count=ai_easy,
+                        medium_count=ai_medium,
+                        hard_count=ai_hard,
                     )
-                    question_data = questions[0]
-                    question_data["source"] = "ai"
-                    question_data["seed"] = seed_result.seed
+                    for q in questions:
+                        q["source"] = "ai"
+                        q["seed"] = seed_result.seed
+
+                    all_questions = questions
 
                     # Log question details for debugging
-                    logger.info(f"Posting AI-generated question")
-                    logger.info(f"   Question: {question_data['question'][:100]}")
-                    logger.info(f"   Answer: {question_data['correct_answer']}")
+                    for idx, question_data in enumerate(all_questions, 1):
+                        logger.info(f"AI Q{idx}/{len(all_questions)}: {question_data['question'][:100]}")
 
                     # Calculate end time
                     now_utc = dt.datetime.now(dt.timezone.utc)
                     ends_at = now_utc + dt.timedelta(minutes=answer_window_minutes)
 
-                    # Generate game ID
-                    game_id = str(uuid.uuid4())
+                    # Generate batch ID
+                    batch_id = str(uuid.uuid4())
 
-                    # Create embed with initial stats (no answers yet)
-                    embed = create_question_embed(question_data, game_id, ends_at, stats={"correct": 0, "incorrect": 0})
+                    # Count question types for overview
+                    difficulty_counts = {"easy": 0, "medium": 0, "hard": 0, "ai": 0}
+                    for q in all_questions:
+                        difficulty_counts["ai"] += 1
+                        diff = q.get("difficulty", "").lower()
+                        if diff in difficulty_counts:
+                            difficulty_counts[diff] += 1
 
-                    # Post message (no view needed - users will right-click for context menu)
-                    message = await channel.send(embed=embed)
-                    logger.info(f"✅ Posted AI trivia question to channel {channel.id} (game_id: {game_id[:8]})")
+                    # Create and post overview embed
+                    overview_embed = create_batch_overview_embed(
+                        category=seed_result.category,
+                        question_count=len(all_questions),
+                        difficulty_counts=difficulty_counts,
+                        ends_at=ends_at,
+                        batch_id=batch_id
+                    )
+                    overview_message = await channel.send(embed=overview_embed)
+                    logger.info("Posted AI batch overview to channel %s (batch_id: %s)", channel.id, batch_id[:8])
 
-                    # Create thread
-                    thread_name = f"Trivia – {question_data['category']} – {now_pt:%Y-%m-%d %H:%M}"
-                    thread = None
-                    try:
-                        thread = await message.create_thread(
-                            name=thread_name,
-                            auto_archive_duration=1440  # 24 hours
+                    # Post each question as a top-level channel message
+                    from bot.app.commands.trivia.trivia_views import TriviaQuestionView
+                    question_message_ids = []
+                    for idx, question_data in enumerate(all_questions, 1):
+                        question_embed = create_individual_question_embed(
+                            question_data=question_data,
+                            question_num=idx,
+                            total_questions=len(all_questions),
+                            batch_id=batch_id,
+                            stats=None,
                         )
-                        logger.info("Created thread '%s' for trivia game", thread_name)
-                    except discord.HTTPException as exc:
-                        logger.error("Failed to create thread: %s", exc)
+                        q_msg = await channel.send(embed=question_embed)
+                        question_message_ids.append(q_msg.id)
 
-                    # Create answer map for multiple choice questions (empty for AI questions)
-                    answer_map = {}
-                    options = question_data.get("options", [])
-                    if options:
-                        labels = ["A", "B", "C", "D", "E", "F"]
-                        for i, option in enumerate(options):
-                            if i < len(labels):
-                                answer_map[labels[i]] = option
+                    # Build storage data
+                    questions_for_storage = []
+                    for question_data in all_questions:
+                        answer_map = {}
+                        options = question_data.get("options", [])
+                        if options:
+                            labels = ["A", "B", "C", "D", "E", "F"]
+                            for i, option in enumerate(options):
+                                if i < len(labels):
+                                    answer_map[labels[i]] = option
 
-                    # Store game in Redis
-                    game_data = {
+                        q_data = {
+                            "question": question_data["question"],
+                            "correct_answer": question_data["correct_answer"],
+                            "options": options,
+                            "answer_map": answer_map,
+                            "category": question_data.get("category", seed_result.category),
+                            "explanation": question_data.get("explanation", ""),
+                            "difficulty": question_data.get("difficulty"),
+                            "source": "ai",
+                        }
+                        if "seed" in question_data:
+                            q_data["seed"] = question_data["seed"]
+                        questions_for_storage.append(q_data)
+
+                    # Store batch game data
+                    batch_data = {
                         "registration_id": reg_id,
                         "channel_id": channel_id,
-                        "thread_id": thread.id if thread else None,
-                        "question": question_data["question"],
-                        "correct_answer": question_data["correct_answer"],
-                        "options": options,
-                        "answer_map": answer_map,
-                        "category": question_data["category"],
-                        "explanation": question_data["explanation"],
-                        "seed": seed_result.seed,
-                        "source": "ai",
+                        "thread_id": None,
+                        "category": seed_result.category,
                         "started_at": now_utc.isoformat(),
                         "ends_at": ends_at.isoformat(),
-                        "message_id": message.id,
+                        "overview_message_id": overview_message.id,
+                        "question_message_ids": question_message_ids,
+                        "question_count": len(all_questions),
+                        "questions": questions_for_storage,
+                        "source": "ai",
                     }
 
-                    await store.create_game(guild_id, game_id, game_data)
+                    await store.create_game(guild_id, batch_id, batch_data)
 
-                    # Mark seed as used in Redis (atomic operation)
+                    # Mark seed as used in Redis
                     await store.mark_seed_used(guild_id, seed_result.seed)
 
-                    logger.info("Saved game state for game_id %s", game_id[:8])
+                    logger.info("Saved AI batch game state for batch_id %s", batch_id[:8])
 
             except discord.Forbidden:
                 logger.error("Missing permissions to post in channel %s", channel_id)

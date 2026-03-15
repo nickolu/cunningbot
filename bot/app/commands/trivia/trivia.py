@@ -304,10 +304,12 @@ class TriviaCog(commands.Cog):
         answer_window="How long users can answer (e.g., '1h', '30m', '2h')",
         channel="Channel to post in (defaults to current channel)",
         method="Question source (default: OpenTrivia)",
-        easy_count="Number of easy questions per session (OpenTrivia only, default: 3)",
-        medium_count="Number of medium questions per session (OpenTrivia only, default: 2)",
-        hard_count="Number of hard questions per session (OpenTrivia only, default: 1)",
-        ai_count="Number of AI questions per session (default: 0, works with OpenTrivia method)",
+        easy_count="Number of easy questions per session (default: 3)",
+        medium_count="Number of medium questions per session (default: 2)",
+        hard_count="Number of hard questions per session (default: 1)",
+        ai_easy_count="Number of easy AI questions per session (default: 0, OpenTrivia method only)",
+        ai_medium_count="Number of medium AI questions per session (default: 0, OpenTrivia method only)",
+        ai_hard_count="Number of hard AI questions per session (default: 0, OpenTrivia method only)",
         base_words="Optional: comma-separated list of topic words (AI only)",
         modifiers="Optional: comma-separated list of modifier words (AI only)"
     )
@@ -328,7 +330,9 @@ class TriviaCog(commands.Cog):
         easy_count: Optional[int] = 3,
         medium_count: Optional[int] = 2,
         hard_count: Optional[int] = 1,
-        ai_count: Optional[int] = 0,
+        ai_easy_count: Optional[int] = 0,
+        ai_medium_count: Optional[int] = 0,
+        ai_hard_count: Optional[int] = 0,
         base_words: Optional[str] = None,
         modifiers: Optional[str] = None
     ) -> None:
@@ -357,13 +361,18 @@ class TriviaCog(commands.Cog):
         # Generate unique registration ID
         registration_id = str(uuid.uuid4())
 
-        # Validate difficulty counts for OpenTrivia
+        # Validate difficulty counts
+        ai_total = ai_easy_count + ai_medium_count + ai_hard_count
         if method == "OpenTrivia":
-            if easy_count + medium_count + hard_count + ai_count == 0:
+            if easy_count + medium_count + hard_count + ai_total == 0:
                 await interaction.response.send_message(
                     "❌ At least one question count must be greater than 0.", ephemeral=True
                 )
                 return
+        elif method == "AI":
+            if easy_count + medium_count + hard_count == 0:
+                # Default to 1 medium if no counts specified
+                medium_count = 1
 
         # Parse custom seed words if provided for AI method
         custom_base_words = None
@@ -386,9 +395,9 @@ class TriviaCog(commands.Cog):
                     )
                     return
 
-            # Warn if OpenTrivia-specific params provided
-            if easy_count != 3 or medium_count != 2 or hard_count != 1:
-                logger.warning("Difficulty counts ignored for AI method")
+            # Warn if AI supplement params provided (only for OpenTrivia)
+            if ai_total > 0:
+                logger.warning("AI supplement counts ignored for AI method — use easy_count/medium_count/hard_count instead")
 
         # Create registration data
         reg_data = {
@@ -404,10 +413,13 @@ class TriviaCog(commands.Cog):
             reg_data["easy_count"] = easy_count
             reg_data["medium_count"] = medium_count
             reg_data["hard_count"] = hard_count
-            reg_data["ai_count"] = ai_count
+            reg_data["ai_easy_count"] = ai_easy_count
+            reg_data["ai_medium_count"] = ai_medium_count
+            reg_data["ai_hard_count"] = ai_hard_count
         elif method == "AI":
-            # Legacy AI-only mode
-            reg_data["ai_count"] = 1
+            reg_data["easy_count"] = easy_count
+            reg_data["medium_count"] = medium_count
+            reg_data["hard_count"] = hard_count
             if custom_base_words:
                 reg_data["base_words"] = custom_base_words
             if custom_modifiers:
@@ -430,13 +442,15 @@ class TriviaCog(commands.Cog):
 
         if method == "OpenTrivia":
             opentdb_total = easy_count + medium_count + hard_count
-            total = opentdb_total + ai_count
+            total = opentdb_total + ai_total
             if opentdb_total > 0:
                 msg_parts.append(f"• OpenTDB questions: {opentdb_total} ({easy_count} easy, {medium_count} medium, {hard_count} hard)")
-            if ai_count > 0:
-                msg_parts.append(f"• AI questions: {ai_count}")
+            if ai_total > 0:
+                msg_parts.append(f"• AI questions: {ai_total} ({ai_easy_count} easy, {ai_medium_count} medium, {ai_hard_count} hard)")
             msg_parts.append(f"• Total questions per session: {total}")
         elif method == "AI":
+            total = easy_count + medium_count + hard_count
+            msg_parts.append(f"• Questions: {total} ({easy_count} easy, {medium_count} medium, {hard_count} hard)")
             if custom_base_words:
                 msg_parts.append(f"• Custom topics: {len(custom_base_words)} words")
             if custom_modifiers:
@@ -451,10 +465,12 @@ class TriviaCog(commands.Cog):
         channel="Channel to post in (defaults to current channel)",
         answer_window="How long users can answer (e.g., '1h', '30m', '2h') - defaults to 24h",
         method="Question source (default: OpenTrivia)",
-        easy_count="Number of easy questions (OpenTrivia only, default: 3)",
-        medium_count="Number of medium questions (OpenTrivia only, default: 2)",
-        hard_count="Number of hard questions (OpenTrivia only, default: 1)",
-        ai_count="Number of AI questions (default: 0, works with OpenTrivia method)",
+        easy_count="Number of easy questions (default: 3)",
+        medium_count="Number of medium questions (default: 2)",
+        hard_count="Number of hard questions (default: 1)",
+        ai_easy_count="Number of easy AI questions (default: 0, OpenTrivia method only)",
+        ai_medium_count="Number of medium AI questions (default: 0, OpenTrivia method only)",
+        ai_hard_count="Number of hard AI questions (default: 0, OpenTrivia method only)",
         base_words="Optional: comma-separated list of topic words (AI only)",
         modifiers="Optional: comma-separated list of modifier words (AI only)"
     )
@@ -474,7 +490,9 @@ class TriviaCog(commands.Cog):
         easy_count: Optional[int] = 3,
         medium_count: Optional[int] = 2,
         hard_count: Optional[int] = 1,
-        ai_count: Optional[int] = 0,
+        ai_easy_count: Optional[int] = 0,
+        ai_medium_count: Optional[int] = 0,
+        ai_hard_count: Optional[int] = 0,
         base_words: Optional[str] = None,
         modifiers: Optional[str] = None
     ) -> None:
@@ -501,12 +519,17 @@ class TriviaCog(commands.Cog):
             return
 
         # Validate method-specific parameters
+        ai_total = ai_easy_count + ai_medium_count + ai_hard_count
         if method == "OpenTrivia":
-            if easy_count + medium_count + hard_count + ai_count == 0:
+            if easy_count + medium_count + hard_count + ai_total == 0:
                 await interaction.followup.send(
                     "❌ At least one question count must be greater than 0.", ephemeral=True
                 )
                 return
+        elif method == "AI":
+            if easy_count + medium_count + hard_count == 0:
+                # Default to 1 medium if no counts specified
+                medium_count = 1
 
         # Parse custom seed words if provided for AI method
         custom_base_words = None
@@ -547,10 +570,10 @@ class TriviaCog(commands.Cog):
                 # Get category display name
                 category_name = OPENTDB_CATEGORIES[category_id]
 
-                # Generate AI questions if ai_count > 0
+                # Generate AI questions if any AI counts > 0
                 ai_questions = []
                 used_seeds_for_ai = set()
-                if ai_count > 0:
+                if ai_total > 0:
                     used_seeds = await store.get_used_seeds(str(interaction.guild_id))
 
                     ai_seed_result = get_unused_seed(
@@ -567,11 +590,13 @@ class TriviaCog(commands.Cog):
                         for q in opentdb_questions
                     ]
 
-                    logger.info(f"Generating {ai_count} AI questions with seed: {ai_seed_result.seed} in category: {ai_seed_result.category}")
+                    logger.info(f"Generating {ai_total} AI questions with seed: {ai_seed_result.seed} in category: {ai_seed_result.category}")
                     ai_questions_data = await generate_trivia_questions(
                         seed=ai_seed_result.seed,
                         category=ai_seed_result.category,
-                        medium_count=ai_count,
+                        easy_count=ai_easy_count,
+                        medium_count=ai_medium_count,
+                        hard_count=ai_hard_count,
                         context_questions=opentdb_context,
                     )
 
@@ -724,83 +749,134 @@ class TriviaCog(commands.Cog):
                 # Generate new seed with custom words if provided
                 seed_result = get_unused_seed(used_seeds, base_words=custom_base_words, modifiers=custom_modifiers)
 
-                # Generate question using two-step pipeline
-                logger.info(f"Generating trivia question with seed: {seed_result.seed}")
+                # Generate questions using two-step pipeline
+                logger.info(f"Generating AI trivia questions with seed: {seed_result.seed}")
                 questions = await generate_trivia_questions(
                     seed=seed_result.seed,
                     category=seed_result.category,
-                    medium_count=1,
+                    easy_count=easy_count,
+                    medium_count=medium_count,
+                    hard_count=hard_count,
                 )
-                question_data = questions[0]
-                question_data["source"] = "ai"
-                question_data["seed"] = seed_result.seed
+
+                for q in questions:
+                    q["source"] = "ai"
+                    q["seed"] = seed_result.seed
+
+                all_questions = questions
 
                 # Calculate end time
                 now_utc = dt.datetime.now(dt.timezone.utc)
                 ends_at = now_utc + dt.timedelta(minutes=answer_window_minutes)
 
-                # Generate game ID
-                game_id = str(uuid.uuid4())
+                # Generate batch ID
+                batch_id = str(uuid.uuid4())
 
-                # Create embed with initial stats (no answers yet)
-                embed = create_question_embed(question_data, game_id, ends_at, stats={"correct": 0, "incorrect": 0})
+                # Count question types for overview
+                difficulty_counts = {"easy": 0, "medium": 0, "hard": 0, "ai": 0}
+                for q in all_questions:
+                    difficulty_counts["ai"] += 1
+                    diff = q.get("difficulty", "").lower()
+                    if diff in difficulty_counts:
+                        difficulty_counts[diff] += 1
 
-                # Post message (no view needed - users will right-click for context menu)
-                message = await target_channel.send(embed=embed)
-                logger.info(f"Posted trivia question to channel {target_channel.id}")
+                # Create overview embed
+                from bot.app.tasks.trivia_game_poster import create_batch_overview_embed, create_individual_question_embed
 
-                # Create thread
-                now_pt = dt.datetime.now(PACIFIC_TZ)
-                thread_name = f"Trivia – {question_data['category']} – {now_pt:%Y-%m-%d %H:%M}"
-                thread = None
-                try:
-                    thread = await message.create_thread(
-                        name=thread_name,
-                        auto_archive_duration=1440  # 24 hours
+                overview_embed = create_batch_overview_embed(
+                    category=seed_result.category,
+                    question_count=len(all_questions),
+                    difficulty_counts=difficulty_counts,
+                    ends_at=ends_at,
+                    batch_id=batch_id
+                )
+
+                # Post overview message
+                overview_message = await target_channel.send(embed=overview_embed)
+                logger.info(f"Posted AI batch trivia overview to channel {target_channel.id}")
+
+                # Post each question as a top-level channel message
+                from bot.app.commands.trivia.trivia_views import TriviaQuestionView
+
+                question_message_ids = []
+                for idx, question_data in enumerate(all_questions, 1):
+                    question_embed = create_individual_question_embed(
+                        question_data=question_data,
+                        question_num=idx,
+                        total_questions=len(all_questions),
+                        batch_id=batch_id,
+                        stats=None,
                     )
-                    logger.info(f"Created thread '{thread_name}' for trivia game")
-                except discord.HTTPException as exc:
-                    logger.error(f"Failed to create thread: {exc}")
 
-                # Create answer map for multiple choice questions (empty for AI questions)
-                answer_map = {}
-                options = question_data.get("options", [])
-                if options:
-                    labels = ["A", "B", "C", "D", "E", "F"]
-                    for i, option in enumerate(options):
-                        if i < len(labels):
-                            answer_map[labels[i]] = option
+                    # Create button view for multiple choice, or just post embed for open-ended
+                    options = question_data.get("options") or question_data.get("incorrect_answers")
+                    if options:
+                        all_options = options if isinstance(options, list) else []
+                        if question_data.get("correct_answer") and question_data["correct_answer"] not in all_options:
+                            all_options = all_options + [question_data["correct_answer"]]
+                        import random
+                        random.shuffle(all_options)
+                        labels = ["A", "B", "C", "D"][:len(all_options)]
+                        view = TriviaQuestionView(batch_id, str(interaction.guild_id), idx, labels, self.bot)
+                    else:
+                        view = None
 
-                # Store game data
-                game_data = {
-                    "registration_id": None,  # Manual post, not from a registration
+                    q_msg = await target_channel.send(embed=question_embed, view=view)
+                    question_message_ids.append(q_msg.id)
+                    logger.info(f"Posted AI question {idx}/{len(all_questions)}")
+
+                # Build storage data
+                questions_for_storage = []
+                for question_data in all_questions:
+                    answer_map = {}
+                    options = question_data.get("options", [])
+                    if options:
+                        labels = ["A", "B", "C", "D", "E", "F"]
+                        for i, option in enumerate(options):
+                            if i < len(labels):
+                                answer_map[labels[i]] = option
+
+                    q_data = {
+                        "question": question_data["question"],
+                        "correct_answer": question_data["correct_answer"],
+                        "options": options,
+                        "answer_map": answer_map,
+                        "category": question_data.get("category", seed_result.category),
+                        "explanation": question_data.get("explanation", ""),
+                        "difficulty": question_data.get("difficulty"),
+                        "source": "ai",
+                    }
+                    if "seed" in question_data:
+                        q_data["seed"] = question_data["seed"]
+                    questions_for_storage.append(q_data)
+
+                # Store batch game data
+                batch_data = {
+                    "registration_id": None,
                     "channel_id": target_channel.id,
-                    "thread_id": thread.id if thread else None,
-                    "question": question_data["question"],
-                    "correct_answer": question_data["correct_answer"],
-                    "options": options,
-                    "answer_map": answer_map,
-                    "category": question_data["category"],
-                    "explanation": question_data["explanation"],
-                    "seed": seed_result.seed,
-                    "source": "ai",
+                    "thread_id": None,
+                    "category": seed_result.category,
                     "started_at": now_utc.isoformat(),
                     "ends_at": ends_at.isoformat(),
-                    "message_id": message.id,
+                    "overview_message_id": overview_message.id,
+                    "question_message_ids": question_message_ids,
+                    "question_count": len(all_questions),
+                    "questions": questions_for_storage,
+                    "source": "ai",
                 }
 
-                # Store in Redis
-                await store.create_game(str(interaction.guild_id), game_id, game_data)
+                await store.create_game(str(interaction.guild_id), batch_id, batch_data)
 
-                # Mark seed as used in Redis (atomic operation)
+                # Mark seed as used in Redis
                 await store.mark_seed_used(str(interaction.guild_id), seed_result.seed)
 
-                logger.info(f"Saved game state for game_id {game_id[:8]}")
+                logger.info(f"Saved AI batch game state for batch_id {batch_id[:8]}")
 
                 await interaction.followup.send(
-                    f"✅ Trivia question posted!\n"
+                    f"✅ Trivia posted!\n"
                     f"• Channel: {target_channel.mention}\n"
-                    f"• Category: {question_data['category']}\n"
+                    f"• Category: {seed_result.category}\n"
+                    f"• Questions: {len(all_questions)} ({easy_count}E/{medium_count}M/{hard_count}H)\n"
                     f"• Answer window: {answer_window_minutes} minutes\n"
                     f"• Ends: <t:{int(ends_at.timestamp())}:R>",
                     ephemeral=True
@@ -847,17 +923,29 @@ class TriviaCog(commands.Cog):
                 easy = reg_info.get("easy_count", 3)
                 medium = reg_info.get("medium_count", 2)
                 hard = reg_info.get("hard_count", 1)
-                ai_count = reg_info.get("ai_count", 0)
+                ai_easy = reg_info.get("ai_easy_count", 0)
+                ai_medium = reg_info.get("ai_medium_count", 0)
+                ai_hard = reg_info.get("ai_hard_count", 0)
+                # Backward compat: old registrations with ai_count
+                legacy_ai = reg_info.get("ai_count", 0)
+                if legacy_ai > 0 and ai_easy + ai_medium + ai_hard == 0:
+                    ai_medium = legacy_ai
+                ai_total = ai_easy + ai_medium + ai_hard
                 opentdb_total = easy + medium + hard
-                total = opentdb_total + ai_count
+                total = opentdb_total + ai_total
 
-                if opentdb_total > 0 and ai_count > 0:
-                    game_entry += f"  • Questions: {total} ({easy}E/{medium}M/{hard}H + {ai_count}AI)\n"
+                if opentdb_total > 0 and ai_total > 0:
+                    game_entry += f"  • Questions: {total} ({easy}E/{medium}M/{hard}H + {ai_easy}E/{ai_medium}M/{ai_hard}H AI)\n"
                 elif opentdb_total > 0:
                     game_entry += f"  • Questions: {total} ({easy}E/{medium}M/{hard}H)\n"
-                elif ai_count > 0:
-                    game_entry += f"  • Questions: {ai_count} AI\n"
+                elif ai_total > 0:
+                    game_entry += f"  • Questions: {ai_total} AI ({ai_easy}E/{ai_medium}M/{ai_hard}H)\n"
             elif method == "AI":
+                easy = reg_info.get("easy_count", 0)
+                medium = reg_info.get("medium_count", 1)
+                hard = reg_info.get("hard_count", 0)
+                total = easy + medium + hard
+                game_entry += f"  • Questions: {total} ({easy}E/{medium}M/{hard}H)\n"
                 # Show seed configuration if present
                 base_words = reg_info.get("base_words")
                 modifiers = reg_info.get("modifiers")
