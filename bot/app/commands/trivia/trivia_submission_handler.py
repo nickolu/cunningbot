@@ -21,7 +21,7 @@ def calculate_question_points(is_correct: bool, difficulty: str, source: str) ->
     Args:
         is_correct: Whether the answer was correct
         difficulty: Question difficulty ("easy", "medium", "hard")
-        source: Question source ("opentdb", "ai")
+        source: Question source ("opentdb", "ai") — kept for backward compatibility
 
     Returns:
         Points earned (5 for wrong, 10/15/20 for correct based on difficulty)
@@ -29,10 +29,7 @@ def calculate_question_points(is_correct: bool, difficulty: str, source: str) ->
     if not is_correct:
         return 5  # Participation points
 
-    # Correct answer points
-    if source == "ai":
-        return 15  # AI questions are medium difficulty equivalent
-
+    # All sources now use difficulty-based scoring
     difficulty_lower = difficulty.lower() if difficulty else ""
     if difficulty_lower == "easy":
         return 10
@@ -41,8 +38,7 @@ def calculate_question_points(is_correct: bool, difficulty: str, source: str) ->
     elif difficulty_lower == "hard":
         return 20
     else:
-        # Fallback for unknown difficulty
-        return 15
+        return 15  # Fallback for unknown difficulty
 
 
 def parse_batch_answers(answer_text: str) -> dict[str, str]:
