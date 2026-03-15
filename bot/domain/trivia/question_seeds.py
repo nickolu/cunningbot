@@ -1,164 +1,241 @@
 """Seed system for generating unique trivia questions."""
 
 import random
-from typing import List
+from typing import List, NamedTuple, Optional
 
-# Six categories following Trivial Pursuit style
+from bot.app.utils.logger import get_logger
+
+logger = get_logger()
+
+
+# 24 OpenTDB category names
 CATEGORIES = [
-    "History",
-    "Science",
+    "General Knowledge",
+    "Entertainment: Books",
+    "Entertainment: Film",
+    "Entertainment: Music",
+    "Entertainment: Musicals & Theatres",
+    "Entertainment: Television",
+    "Entertainment: Video Games",
+    "Entertainment: Board Games",
+    "Science & Nature",
+    "Science: Computers",
+    "Science: Mathematics",
+    "Mythology",
     "Sports",
-    "Entertainment",
-    "Arts & Literature",
-    "Geography"
+    "Geography",
+    "History",
+    "Politics",
+    "Art",
+    "Celebrities",
+    "Animals",
+    "Vehicles",
+    "Entertainment: Comics",
+    "Science: Gadgets",
+    "Entertainment: Japanese Anime & Manga",
+    "Entertainment: Cartoon & Animations",
 ]
 
-# Base words covering diverse topics (100+ words)
-# BASE_WORDS = [
-#     # People - Historical Figures
-#     "einstein", "shakespeare", "napoleon", "cleopatra", "davinci", "newton", "gandhi",
-#     "lincoln", "churchill", "beethoven", "mozart", "picasso", "michelangelo",
-#     "columbus", "washington", "jefferson", "roosevelt", "mandela", "kingmlk",
-#     "curie", "darwin", "galileo", "aristotle", "plato", "socrates", "confucius",
-#     "caesar", "alexander", "genghiskhan", "charlemagne", "victoria", "elizabeth",
 
-#     # People - Modern Figures
-#     "jobs", "gates", "bezos", "musk", "zuckerberg", "winfrey", "disney",
-#     "spielberg", "hitchcock", "kubrick", "tarantino", "scorsese",
+class SeedResult(NamedTuple):
+    seed: str
+    category: str
 
-#     # Places - Landmarks
-#     "pyramids", "colosseum", "eiffeltower", "tajmahal", "greatwall", "statueofliberty",
-#     "bigben", "operahouse", "christredeemer", "machupicchu", "petra", "angkorwat",
-#     "stonehenge", "acropolis", "forbiddencity", "kremlin", "whitehouse", "louvre",
 
-#     # Places - Geographic Features
-#     "everest", "amazon", "sahara", "nile", "mississippi", "rockies", "andes",
-#     "himalayas", "alps", "kilimanjaro", "grandcanyon", "niagara", "victoria",
-#     "mariana", "pacific", "atlantic", "mediterranean", "caribbean",
+# Seeds organized by category
+CATEGORIZED_SEEDS = {
+    "General Knowledge": [
+        "fandom", "canon", "lore", "continuity", "multiverse", "timeline",
+        "origin story", "mythos", "worldbuilding", "easter egg", "deep cut",
+        "reference", "homage", "spoiler", "meme", "fan theory", "headcanon",
+        "retcon", "fanfiction", "fanart", "shipping", "OTP", "power scaling",
+        "tier list", "crossover", "expanded universe", "internet culture",
+        "english", "spelling", "language", "grammar", "phonology", "phonetics",
+        "morphology", "syntax", "semantics", "pragmatics",
+    ],
 
-#     # Places - Cities/Regions
-#     "rome", "athens", "paris", "london", "newyork", "tokyo", "beijing",
-#     "moscow", "istanbul", "jerusalem", "mecca", "cairo", "baghdad", "venice",
+    "Entertainment: Books": [
+        "fantasy novels", "science fiction books", "mystery novels",
+        "classic literature", "comic books", "bestselling authors",
+        "book adaptations", "poetry", "horror fiction", "young adult fiction",
+        "non-fiction", "literary awards",
+        "magic system", "wizard", "sorcerer", "spellbook", "artifact",
+        "ancient relic", "prophecy", "chosen one", "dark lord", "portal fantasy",
+        "high fantasy", "dark fantasy", "grimdark",
+        "spaceship", "hyperspace", "alien", "first contact", "android",
+        "singularity", "time travel", "parallel universe", "alternate timeline",
+    ],
 
-#     # Things - Inventions
-#     "wheel", "telephone", "internet", "computer", "airplane", "automobile",
-#     "television", "radio", "lightbulb", "penicillin", "printing", "compass",
-#     "telescope", "microscope", "steam", "electricity", "nuclear", "laser",
-#     "transistor", "vaccine", "antibiotics", "photography", "cinema",
+    "Entertainment: Film": [
+        "blockbuster movies", "film directors", "movie franchises",
+        "animated films", "horror movies", "film noir", "documentary films",
+        "film scores", "movie trivia", "oscar winners", "cult classics",
+        "special effects",
+        "spaceship", "starship", "robot", "cyborg", "AI", "time loop",
+        "terraforming", "mecha", "dragon", "elf", "dwarf",
+        "legendary weapon", "fallen kingdom",
+    ],
 
-#     # Things - Concepts
-#     "democracy", "capitalism", "communism", "renaissance", "enlightenment",
-#     "revolution", "evolution", "relativity", "quantum", "gravity", "dna",
-#     "atom", "molecule", "photosynthesis", "magnetism", "radiation",
+    "Entertainment: Music": [
+        "music", "punk rock", "1990s alternative rock", "1970s rock",
+        "classic rock", "grunge music", "EDM", "hip hop", "emo music",
+        "2000s pop music", "2000s college rock", "indie rock", "indie music",
+        "indie pop", "music news", "music industry", "music recording",
+        "the beatles", "1980s music", "2000s music",
+    ],
 
-#     # Events - Wars & Conflicts
-#     "worldwar1", "worldwar2", "civilwar", "coldwar", "vietnam", "korea",
-#     "napoleonic", "trojan", "crusades", "revolution", "independence",
+    "Entertainment: Musicals & Theatres": [
+        "Broadway", "West End", "musical theatre", "opera",
+        "Shakespeare plays", "Tony Awards", "famous playwrights", "ballet",
+        "stand-up comedy", "improv", "pantomime", "cabaret",
+    ],
 
-#     # Events - Historical Periods
-#     "renaissance", "medieval", "ancient", "industrial", "victorian",
-#     "roaring20s", "great depression", "prohibition", "goldrush",
+    "Entertainment: Television": [
+        "sitcoms", "drama series", "reality TV", "talk shows",
+        "animated series", "streaming services", "TV pilots", "Emmy Awards",
+        "TV reboots", "miniseries",
+        "The Simpsons", "The Simpsons characters", "The Simpsons episodes",
+        "The Simpsons seasons", "Homer Simpson", "Bart Simpson",
+        "Lisa Simpson", "Maggie Simpson", "Marge Simpson", "Moe's Tavern",
+        "Krusty Burger", "Krusty the Clown", "Ned Flanders", "Ralph Wiggum",
+        "Milhouse Van Houten", "Nelson Muntz",
+        "South Park", "Beavis and Butt-Head", "Daria", "Animaniacs",
+        "MTV", "VH1", "Snick",
+    ],
 
-#     # Sports & Games
-#     "olympics", "worldcup", "superbowl", "baseball", "basketball", "football",
-#     "soccer", "tennis", "golf", "boxing", "marathon", "chess",
+    "Entertainment: Video Games": [
+        "video game", "boss fight", "final boss", "NPC", "open world",
+        "sandbox", "level up", "experience points", "skill tree", "perk",
+        "loot", "grind", "side quest", "fast travel", "new game plus",
+        "Nintendo", "PlayStation", "Xbox", "Steam",
+        "minecraft", "fortnite", "league of legends", "valorant", "csgo",
+        "dota 2", "overwatch", "wow", "warcraft", "starcraft", "diablo",
+        "JRPG", "turn-based combat", "party system", "random encounter",
+        "overworld", "summon", "limit break", "status effect",
+        "procedural generation", "permadeath", "run-based", "meta progression",
+        "metroidvania", "soulslike", "battle royale", "auto battler",
+        "idle game", "visual novel", "retro gaming", "arcade",
+        "8-bit", "16-bit", "pixel art", "chiptune", "cartridge", "console war",
+        "emulation", "romhack", "NES", "SNES",
+    ],
 
-#     # Arts & Literature
-#     "hamlet", "odyssey", "illiad", "bible", "quran", "moby", "gatsby",
-#     "pride", "dracula", "sherlock", "1984", "fahrenheit", "hobbit",
-#     "starwars", "startrek", "marvel", "dc", "disney", "pixar",
+    "Entertainment: Board Games": [
+        "board game", "deck building", "worker placement", "resource management",
+        "area control", "cooperative play", "legacy game", "card game",
+        "magic the gathering", "mtg", "pokemon", "yugioh",
+        "tabletop", "roleplaying", "campaign", "quest", "dungeon", "encounter",
+        "dice", "d20", "critical hit", "critical fail", "initiative",
+        "hit points", "character sheet", "character build", "class", "alignment",
+        "game master", "homebrew", "one-shot", "minmaxing", "d&d",
+        "dungeons and dragons",
+    ],
 
-#     # Science & Nature
-#     "blackhole", "bigbang", "galaxy", "planet", "star", "comet", "asteroid",
-#     "volcano", "earthquake", "tsunami", "hurricane", "tornado", "lightning",
-#     "dinosaur", "mammoth", "neanderthal", "fossil", "extinction",
-# ]
+    "Science & Nature": [
+        "photosynthesis", "black holes", "DNA", "periodic table", "evolution",
+        "climate", "earthquakes", "electricity", "atoms", "planets",
+        "ecosystems", "genetics", "human body", "chemistry",
+    ],
 
-BASE_WORDS = [
-  # Meta nerd culture
-  "fandom", "canon", "lore", "continuity", "retcon", "multiverse", "timeline", 
-  "origin story", "mythos", "worldbuilding", "easter egg", "deep cut", 
-  "reference", "homage", "spoiler",
+    "Science: Computers": [
+        "programming", "artificial intelligence", "internet history",
+        "cybersecurity", "operating systems", "databases", "algorithms",
+        "web development", "computer hardware", "software engineering",
+        "computer networking", "machine learning",
+    ],
 
-  # Sci-fi (general)
-  "spaceship", "starship","hyperspace", "alien", "first contact", "robot", "android", 
-  "cyborg", "AI", "singularity", "time travel", "time loop", "parallel universe", 
-  "alternate timeline", "terraforming", "mecha",
+    "Science: Mathematics": [
+        "prime numbers", "geometry", "calculus", "probability", "statistics",
+        "algebra", "fibonacci sequence", "pi", "mathematical proofs",
+        "number theory", "fractals", "game theory",
+    ],
 
-  # Fantasy (general)
-  "magic","magic system", "wizard", "sorcerer", "spellbook", "artifact", 
-  "ancient relic", "prophecy", "chosen one", "dark lord", "dragon", "elf", 
-  "dwarf", "undead", "portal fantasy", "drow", "halfling", "gnome", "half-elf", 
+    "Mythology": [
+        "greek mythology", "norse mythology", "egyptian mythology",
+        "roman mythology", "japanese mythology", "celtic mythology",
+        "hindu mythology", "creation myths", "mythical creatures",
+        "legendary heroes", "underworld myths", "trickster gods",
+    ],
 
-  # Epic / Dark fantasy
-  "high fantasy", "dark fantasy", "grimdark", "blood magic", "forbidden magic", 
-  "ancient evil", "fallen kingdom", "legendary weapon",
+    "Sports": [
+        "sports", "San Diego Padres", "baseball", "MLB", "NBA", "NFL",
+        "MLB All-Star Game", "Olympics",
+    ],
 
-  # Tabletop RPGs
-  "tabletop", "roleplaying", "campaign", "quest", "dungeon", "encounter", 
-  "dice", "d20", "critical hit", "critical fail", "initiative", "hit points", 
-  "character sheet", "character build", "class", "race", "alignment", "game master",
-  "homebrew","one-shot","minmaxing","d&d", "dungeons and dragons",
+    "Geography": [
+        "continents", "capital cities", "mountains", "rivers", "islands",
+        "deserts", "oceans", "national parks", "volcanoes", "rainforests",
+        "San Diego", "San Diego", "San Diego", "Southern California", "California",
+    ],
 
-  # Board games
-  "board game", "deck building", "worker placement", "resource management", 
-  "area control", "cooperative play", "legacy game", "card game", "board game",
-  "deck building", "worker placement", "resource management", "area control", "cooperative play", "legacy game",
-  "magic the gathering", "mtg", "pokemon", "yugioh", "magic: the gathering", "pokemon", "yugioh",
+    "History": [
+        "ancient rome", "world war 2", "renaissance", "cold war",
+        "industrial revolution", "silk road", "french revolution",
+        "ancient egypt", "viking age", "roman empire", "medieval europe",
+        "american civil war", "byzantine empire", "ottoman empire",
+    ],
 
-  # Video games (general)
-  "video game","boss fight", "final boss", "NPC", "open world", "sandbox", "level up", 
-  "experience points", "skill tree", "perk", "loot", "grind", "side quest", "fast travel", "new game plus",
-  "Nintendo", "PlayStation", "Xbox", "Steam", "Epic Games", "GOG", "Origin", "Blizzard Entertainment",
-  "minecraft", "fortnite", "roblox", "league of legends", "valorant", "csgo", "dota 2", "overwatch", "wow", 
-  "warcraft", "starcraft", "diablo",
+    "Politics": [
+        "democracy", "elections", "united nations", "constitution",
+        "political parties", "diplomacy", "civil rights movement",
+        "propaganda", "monarchy", "revolution", "parliament",
+        "political philosophy",
+    ],
 
-  # JRPGs
-  "JRPG", "turn-based combat", "party system", "random encounter", "overworld", "summon", "limit break", 
-  "status effect", "healer", "tank", "mage", "warrior", "rogue", "cleric", "paladin", "bard", 
-  "monk", "ninja", "samurai", "ninja", "samurai", "ninja", "samurai",
+    "Art": [
+        "impressionism", "renaissance art", "modern art", "sculpture",
+        "photography", "architecture", "art movements", "famous paintings",
+        "street art", "digital art", "art history", "ceramics",
+    ],
 
-  # Roguelike / Roguelite
-  "procedural generation", "permadeath", "run-based", "meta progression", "random seed",
+    "Celebrities": [
+        "movie stars", "music legends", "famous athletes",
+        "social media influencers", "celebrity scandals", "Hollywood",
+        "famous couples", "award shows", "talk shows", "celebrity chefs",
+        "fashion icons", "viral moments",
+    ],
 
-  # Indie / modern genres
-  "metroidvania", "soulslike", "battle royale", "auto battler", "idle game", "visual novel", 
-  "retro gaming", "arcade", "8-bit", "16-bit", "pixel art", "chiptune", "cartridge", "console war", "emulation", "romhack", "NES", 
-  "SNES", "PlayStation", "Xbox", "Steam", "Epic Games", "GOG", "Origin", "Blizzard Entertainment",
+    "Animals": [
+        "dogs", "dog breeds", "cat", "cat breeds", "farm animals",
+        "wild animals", "domestic animals", "animals",
+    ],
 
-  # Internet & fandom culture
-  "meme","fan theory", "headcanon", "retcon", "continuity", "multiverse", "timeline", "origin story", "mythos", 
-  "worldbuilding", "easter egg", "deep cut", "reference", "homage", "spoiler", "fanfiction", "fanart", "shipping", 
-  "OTP", "power scaling", "tier list", "remake", "reboot", "adaptation", "crossover", "expanded universe",
+    "Vehicles": [
+        "classic cars", "aviation", "trains", "motorcycles", "ships",
+        "space vehicles", "electric cars", "race cars", "submarines",
+        "military vehicles", "bicycles", "concept cars",
+    ],
 
-  # San Diego
-  "San Diego","San Diego","San Diego","San Diego","San Diego","Southern California","California",
+    "Entertainment: Comics": [
+        "Marvel Comics", "DC Comics", "manga", "graphic novels",
+        "comic book artists", "superhero origins", "comic conventions",
+        "webcomics", "indie comics", "comic book villains",
+        "crossover events", "comic book publishers",
+    ],
 
-  # Sports
-  "sports","San Diego Padres","baseball","MLB","NBA","NFL","MLB All-Star Game","Olympics",
+    "Science: Gadgets": [
+        "smartphones", "wearable technology", "drones", "virtual reality",
+        "3D printing", "smart home", "robotics", "electric vehicles",
+        "space technology", "medical devices", "gaming consoles",
+        "audio technology",
+    ],
 
-  # Linguistics
-  "english","spelling","language","grammar","phonology","phonetics","morphology","syntax","semantics","pragmatics",
+    "Entertainment: Japanese Anime & Manga": [
+        "shonen anime", "studio ghibli", "anime conventions", "manga artists",
+        "mecha anime", "anime music", "light novels", "anime awards",
+        "cosplay", "anime history", "magical girl anime", "slice of life anime",
+    ],
 
-  # music
-  "music", "punk rock", "1990s alternative rock", "1970s rock", "classic rock", "grunge music", "EDM", "hip hop", 
-  "emo music", "2000s pop music", "2000s college rock", "indie rock", "indie music", "indie pop", "music news", 
-  "music industry", "music recording", "the beatles", "1980s music", "2000s music"
+    "Entertainment: Cartoon & Animations": [
+        "1990s", "1990s nostalgia", "Nickelodeon", "Cartoon Network",
+        "Pixar", "Disney animation", "Cartoon Network originals",
+        "adult animation", "stop motion", "anime influence",
+        "animation techniques", "voice acting", "Saturday morning cartoons",
+        "cartoon reboots",
+    ],
+}
 
-  # Animals
-  "dogs", "dog breeds", "cat", "cat breeds", "farm animals", "wild animals", "domestic animals", "animals"
 
-  # 1990s nostalgia
-  "1990s", "1990s nostalgia", "Nickelodeon", "Cartoon Network", "MTV", "VH1", "Nickelodeon", "Cartoon Network", "MTV", "VH1",
-  "Beavis and Butt-Head", "Daria", "South Park", "Snick", "Animaniacs",
-
-  # The Simpsons
-  "The Simpsons", "The Simpsons characters", "The Simpsons episodes", "The Simpsons seasons", "Homer Simpson", "Bart Simpson", 
-  "Lisa Simpson", "Maggie Simpson", "Marge Simpson", "Moe's Tavern", "Krusty Burger", "Krusty the Clown", "Ned Flanders", "Ralph Wiggum",
-  "Milhouse Van Houten", "Nelson Muntz", 
-]
-
-# Modifiers to create context and variation (50+ modifiers)
+# Modifiers to create context and variation
 MODIFIERS = [
     # History & time
     "origin",
@@ -255,7 +332,7 @@ MODIFIERS = [
     "founder",
     "pioneer",
     "vision",
-    "original intent"
+    "original intent",
 
     # Random & unusual
     "random",
@@ -266,91 +343,130 @@ MODIFIERS = [
     "obscure",
     "esoteric",
     "uncommon",
-    "unusual",
-    "odd",
     "@#$&(*!)",
     "crazy",
     "weird",
     "strange",
-    "unusual",
-    "odd",
-    "rare",
-    "unique",
-    "obscure",
-    "esoteric",
-    "ubelievable",
-
+    "unbelievable",
 ]
 
 
-def generate_seed(base_words: List[str] = None, modifiers: List[str] = None) -> str:
+def generate_seed(
+    *,
+    category: Optional[str] = None,
+    base_words: Optional[List[str]] = None,
+    modifiers: Optional[List[str]] = None,
+) -> SeedResult:
     """
     Generate a unique seed by combining a base word with a modifier.
 
     Args:
-        base_words: Optional custom list of base words (defaults to BASE_WORDS)
-        modifiers: Optional custom list of modifiers (defaults to MODIFIERS)
+        category: Optional OpenTDB category name to pull seeds from.
+        base_words: Optional custom list of base words (overrides category lookup).
+        modifiers: Optional custom list of modifiers (defaults to MODIFIERS).
 
     Returns:
-        str: Seed in format "baseword_modifier"
+        SeedResult: Named tuple with (seed, category).
     """
-    words = base_words if base_words is not None else BASE_WORDS
     mods = modifiers if modifiers is not None else MODIFIERS
-
-    base = random.choice(words)
     modifier = random.choice(mods)
-    return f"{base} :: {modifier}"
+
+    if base_words is not None:
+        # Custom seeds provided — use them directly
+        chosen_category = category if category is not None else "General Knowledge"
+        base = random.choice(base_words)
+    elif category is not None and category in CATEGORIZED_SEEDS:
+        # Category specified — pick from that category's seeds
+        chosen_category = category
+        base = random.choice(CATEGORIZED_SEEDS[chosen_category])
+    else:
+        # Neither provided — pick a random category, then a random seed from it
+        chosen_category = random.choice(list(CATEGORIZED_SEEDS.keys()))
+        base = random.choice(CATEGORIZED_SEEDS[chosen_category])
+
+    return SeedResult(seed=f"{base} :: {modifier}", category=chosen_category)
 
 
-def get_unused_seed(used_seeds: set[str], base_words: List[str] = None, modifiers: List[str] = None) -> str:
+def get_unused_seed(
+    used_seeds: set,
+    *,
+    category: Optional[str] = None,
+    base_words: Optional[List[str]] = None,
+    modifiers: Optional[List[str]] = None,
+) -> SeedResult:
     """
     Get a seed that hasn't been used yet.
 
     Tries random selection first (fast path). If most seeds are used,
     enumerates all possibilities to find unused ones. If all seeds exhausted,
-    resets the pool.
+    logs a warning and returns a random seed.
 
     Args:
-        used_seeds: Set of previously used seeds
-        base_words: Optional custom list of base words (defaults to BASE_WORDS)
-        modifiers: Optional custom list of modifiers (defaults to MODIFIERS)
+        used_seeds: Set of previously used seeds.
+        category: Optional OpenTDB category name.
+        base_words: Optional custom list of base words.
+        modifiers: Optional custom list of modifiers (defaults to MODIFIERS).
 
     Returns:
-        str: An unused seed
+        SeedResult: An unused seed.
     """
-    words = base_words if base_words is not None else BASE_WORDS
-    mods = modifiers if modifiers is not None else MODIFIERS
-
-    # Fast path: try random selection
+    # Fast path: try 100 random seeds
     for _ in range(100):
-        seed = generate_seed(words, mods)
-        if seed not in used_seeds:
-            return seed
+        result = generate_seed(category=category, base_words=base_words, modifiers=modifiers)
+        if result.seed not in used_seeds:
+            return result
 
     # Slow path: enumerate all possibilities
-    all_seeds = [f"{base} :: {mod}" for base in words for mod in mods]
-    unused = set(all_seeds) - set(used_seeds)
+    mods = modifiers if modifiers is not None else MODIFIERS
+
+    if base_words is not None:
+        words = base_words
+        chosen_category = category if category is not None else "General Knowledge"
+        all_seeds = [
+            SeedResult(seed=f"{base} :: {mod}", category=chosen_category)
+            for base in words
+            for mod in mods
+        ]
+    elif category is not None and category in CATEGORIZED_SEEDS:
+        words = CATEGORIZED_SEEDS[category]
+        all_seeds = [
+            SeedResult(seed=f"{base} :: {mod}", category=category)
+            for base in words
+            for mod in mods
+        ]
+    else:
+        all_seeds = [
+            SeedResult(seed=f"{base} :: {mod}", category=cat)
+            for cat, words in CATEGORIZED_SEEDS.items()
+            for base in words
+            for mod in mods
+        ]
+
+    unused = [r for r in all_seeds if r.seed not in used_seeds]
 
     if not unused:
-        # All seeds exhausted - reset the pool by returning a random seed
-        # The caller should handle clearing the used_seeds list
-        print("WARNING: All trivia seeds exhausted. Resetting seed pool.")
-        return generate_seed(words, mods)
+        # All seeds exhausted — log warning and return a random seed
+        logger.warning("All trivia seeds exhausted. Resetting seed pool.")
+        return generate_seed(category=category, base_words=base_words, modifiers=modifiers)
 
-    return random.choice(list(unused))
+    return random.choice(unused)
 
 
-def get_total_possible_seeds(base_words: List[str] = None, modifiers: List[str] = None) -> int:
+def get_total_possible_seeds(
+    base_words: Optional[List[str]] = None,
+    modifiers: Optional[List[str]] = None,
+) -> int:
     """
     Get the total number of unique seeds possible.
 
     Args:
-        base_words: Optional custom list of base words (defaults to BASE_WORDS)
-        modifiers: Optional custom list of modifiers (defaults to MODIFIERS)
+        base_words: Optional custom list of base words.
+        modifiers: Optional custom list of modifiers (defaults to MODIFIERS).
 
     Returns:
-        int: Total combinations
+        int: Total combinations.
     """
-    words = base_words if base_words is not None else BASE_WORDS
     mods = modifiers if modifiers is not None else MODIFIERS
-    return len(words) * len(mods)
+    if base_words is not None:
+        return len(base_words) * len(mods)
+    return sum(len(seeds) for seeds in CATEGORIZED_SEEDS.values()) * len(mods)
