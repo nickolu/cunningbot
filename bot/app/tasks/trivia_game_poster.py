@@ -769,7 +769,6 @@ async def post_trivia_questions() -> None:
                     logger.info("Posted AI batch overview to channel %s (batch_id: %s)", channel.id, batch_id[:8])
 
                     # Post each question as a top-level channel message
-                    from bot.app.commands.trivia.trivia_views import TriviaQuestionView
                     question_message_ids = []
                     for idx, question_data in enumerate(all_questions, 1):
                         question_embed = create_individual_question_embed(
