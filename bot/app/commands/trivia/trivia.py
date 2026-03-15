@@ -14,11 +14,12 @@ from bot.app.app_state import get_state_value_from_interaction
 from bot.app.redis.trivia_store import TriviaRedisStore
 from bot.domain.trivia.trivia_stats_service import TriviaStatsService
 from bot.domain.trivia.question_seeds import CATEGORIES, get_unused_seed
-from bot.domain.trivia.question_generator import generate_trivia_question
+from bot.domain.trivia.question_generator import generate_trivia_questions
 from bot.domain.trivia.opentdb_question_generator import (
     generate_trivia_questions_from_opentdb,
     OPENTDB_CATEGORIES
 )
+from bot.app.commands.trivia.trivia_constants import CATEGORY_COLORS, DEFAULT_CATEGORY_COLOR
 from bot.app.utils.logger import get_logger
 from bot.app.commands.trivia.trivia_views import TriviaAnswerModal
 from bot.app.commands.trivia.trivia_submission_handler import submit_trivia_answer
@@ -116,17 +117,7 @@ def create_question_embed(question_data: dict, game_id: str, ends_at: dt.datetim
         ends_at: When the question ends
         stats: Optional dict with 'correct' and 'incorrect' counts
     """
-    # Map categories to colors
-    category_colors = {
-        "History": 0x8B4513,
-        "Science": 0x4169E1,
-        "Sports": 0xFF4500,
-        "Entertainment": 0xFF1493,
-        "Arts & Literature": 0x9370DB,
-        "Geography": 0x228B22
-    }
-
-    color = category_colors.get(question_data["category"], 0x0099FF)
+    color = CATEGORY_COLORS.get(question_data["category"], DEFAULT_CATEGORY_COLOR)
 
     # Build description with question and options (if available)
     description = question_data["question"]
@@ -191,17 +182,7 @@ def create_batch_question_embed(
     Returns:
         Discord embed with all questions
     """
-    # Map categories to colors
-    category_colors = {
-        "History": 0x8B4513,
-        "Science": 0x4169E1,
-        "Sports": 0xFF4500,
-        "Entertainment": 0xFF1493,
-        "Arts & Literature": 0x9370DB,
-        "Geography": 0x228B22
-    }
-
-    color = category_colors.get(category, 0x0099FF)
+    color = CATEGORY_COLORS.get(category, DEFAULT_CATEGORY_COLOR)
 
     # Build description with all questions
     description_parts = []
@@ -564,7 +545,7 @@ class TriviaCog(commands.Cog):
                 )
 
                 # Get category display name
-                opentdb_name, mapped_category = OPENTDB_CATEGORIES[category_id]
+                category_name = OPENTDB_CATEGORIES[category_id]
 
                 # Generate AI questions if ai_count > 0
                 ai_questions = []
@@ -572,18 +553,32 @@ class TriviaCog(commands.Cog):
                 if ai_count > 0:
                     used_seeds = await store.get_used_seeds(str(interaction.guild_id))
 
-                    for _ in range(ai_count):
-                        # Generate new seed with custom words if provided
-                        seed = get_unused_seed(used_seeds, custom_base_words, custom_modifiers)
-                        used_seeds.add(seed)
-                        used_seeds_for_ai.add(seed)
+                    ai_seed_result = get_unused_seed(
+                        used_seeds,
+                        category=category_name,
+                        base_words=custom_base_words,
+                        modifiers=custom_modifiers,
+                    )
+                    used_seeds.add(ai_seed_result.seed)
+                    used_seeds_for_ai.add(ai_seed_result.seed)
 
-                        # Generate AI question with same category as OpenTDB questions
-                        logger.info(f"Generating AI trivia question with seed: {seed} in category: {mapped_category}")
-                        ai_question_data = await generate_trivia_question(seed, category=mapped_category)
-                        ai_question_data["source"] = "ai"
-                        ai_question_data["seed"] = seed
-                        ai_questions.append(ai_question_data)
+                    opentdb_context = [
+                        {"question": q["question"], "correct_answer": q["correct_answer"]}
+                        for q in opentdb_questions
+                    ]
+
+                    logger.info(f"Generating {ai_count} AI questions with seed: {ai_seed_result.seed} in category: {ai_seed_result.category}")
+                    ai_questions_data = await generate_trivia_questions(
+                        seed=ai_seed_result.seed,
+                        category=ai_seed_result.category,
+                        medium_count=ai_count,
+                        context_questions=opentdb_context,
+                    )
+
+                    for q in ai_questions_data:
+                        q["source"] = "ai"
+                        q["seed"] = ai_seed_result.seed
+                    ai_questions = ai_questions_data
 
                 # Combine all questions into a single batch
                 all_questions = opentdb_questions + ai_questions
@@ -609,7 +604,7 @@ class TriviaCog(commands.Cog):
                 from bot.app.tasks.trivia_game_poster import create_batch_overview_embed, create_individual_question_embed
 
                 overview_embed = create_batch_overview_embed(
-                    category=mapped_category,
+                    category=category_name,
                     question_count=len(all_questions),
                     difficulty_counts=difficulty_counts,
                     ends_at=ends_at,
@@ -664,7 +659,7 @@ class TriviaCog(commands.Cog):
                         "correct_answer": question_data["correct_answer"],
                         "options": options,
                         "answer_map": answer_map,
-                        "category": question_data.get("category", mapped_category),
+                        "category": question_data.get("category", category_name),
                         "explanation": question_data.get("explanation", ""),
                         "difficulty": question_data.get("difficulty"),
                         "source": question_data.get("source", "opentdb"),
@@ -681,7 +676,7 @@ class TriviaCog(commands.Cog):
                     "registration_id": None,  # Manual post
                     "channel_id": target_channel.id,
                     "thread_id": None,
-                    "category": mapped_category,
+                    "category": category_name,
                     "started_at": now_utc.isoformat(),
                     "ends_at": ends_at.isoformat(),
                     "overview_message_id": overview_message.id,
@@ -707,7 +702,7 @@ class TriviaCog(commands.Cog):
                 msg_parts = [
                     f"✅ Batch trivia posted with {total_questions} questions!",
                     f"• Channel: {target_channel.mention}",
-                    f"• Category: {mapped_category}"
+                    f"• Category: {category_name}"
                 ]
 
                 if len(opentdb_questions) > 0:
@@ -727,11 +722,18 @@ class TriviaCog(commands.Cog):
                 used_seeds = await store.get_used_seeds(str(interaction.guild_id))
 
                 # Generate new seed with custom words if provided
-                seed = get_unused_seed(used_seeds, custom_base_words, custom_modifiers)
+                seed_result = get_unused_seed(used_seeds, base_words=custom_base_words, modifiers=custom_modifiers)
 
-                # Generate question
-                logger.info(f"Generating trivia question with seed: {seed}")
-                question_data = await generate_trivia_question(seed)
+                # Generate question using two-step pipeline
+                logger.info(f"Generating trivia question with seed: {seed_result.seed}")
+                questions = await generate_trivia_questions(
+                    seed=seed_result.seed,
+                    category=seed_result.category,
+                    medium_count=1,
+                )
+                question_data = questions[0]
+                question_data["source"] = "ai"
+                question_data["seed"] = seed_result.seed
 
                 # Calculate end time
                 now_utc = dt.datetime.now(dt.timezone.utc)
@@ -780,7 +782,7 @@ class TriviaCog(commands.Cog):
                     "answer_map": answer_map,
                     "category": question_data["category"],
                     "explanation": question_data["explanation"],
-                    "seed": seed,
+                    "seed": seed_result.seed,
                     "source": "ai",
                     "started_at": now_utc.isoformat(),
                     "ends_at": ends_at.isoformat(),
@@ -791,7 +793,7 @@ class TriviaCog(commands.Cog):
                 await store.create_game(str(interaction.guild_id), game_id, game_data)
 
                 # Mark seed as used in Redis (atomic operation)
-                await store.mark_seed_used(str(interaction.guild_id), seed)
+                await store.mark_seed_used(str(interaction.guild_id), seed_result.seed)
 
                 logger.info(f"Saved game state for game_id {game_id[:8]}")
 

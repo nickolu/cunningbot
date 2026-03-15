@@ -3,43 +3,43 @@ High-level wrapper for OpenTDB question generation with AI fallback.
 """
 
 import asyncio
-import logging
 import random
 from typing import Dict, List, Optional, Set, Tuple
 
 from bot.api.opentdb.opentdb_client import OpenTDBClient
 from bot.domain.trivia.question_seeds import get_unused_seed
-from bot.domain.trivia.question_generator import generate_trivia_question, generate_trivia_questions_batch
+from bot.domain.trivia.question_generator import generate_trivia_questions
+from bot.app.utils.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger()
 
 # OpenTDB category mapping
-# Format: category_id: (opentdb_display_name, mapped_category)
+# Format: category_id: display_name
 OPENTDB_CATEGORIES = {
-    9: ("General Knowledge", "History"),
-    10: ("Entertainment: Books", "Arts & Literature"),
-    11: ("Entertainment: Film", "Entertainment"),
-    12: ("Entertainment: Music", "Entertainment"),
-    13: ("Entertainment: Musicals & Theatres", "Entertainment"),
-    14: ("Entertainment: Television", "Entertainment"),
-    15: ("Entertainment: Video Games", "Entertainment"),
-    16: ("Entertainment: Board Games", "Entertainment"),
-    17: ("Science & Nature", "Science"),
-    18: ("Science: Computers", "Science"),
-    19: ("Science: Mathematics", "Science"),
-    20: ("Mythology", "Arts & Literature"),
-    21: ("Sports", "Sports"),
-    22: ("Geography", "Geography"),
-    23: ("History", "History"),
-    24: ("Politics", "History"),
-    25: ("Art", "Arts & Literature"),
-    26: ("Celebrities", "Entertainment"),
-    27: ("Animals", "Science"),
-    28: ("Vehicles", "Science"),
-    29: ("Entertainment: Comics", "Entertainment"),
-    30: ("Science: Gadgets", "Science"),
-    31: ("Entertainment: Japanese Anime & Manga", "Entertainment"),
-    32: ("Entertainment: Cartoon & Animations", "Entertainment")
+    9: "General Knowledge",
+    10: "Entertainment: Books",
+    11: "Entertainment: Film",
+    12: "Entertainment: Music",
+    13: "Entertainment: Musicals & Theatres",
+    14: "Entertainment: Television",
+    15: "Entertainment: Video Games",
+    16: "Entertainment: Board Games",
+    17: "Science & Nature",
+    18: "Science: Computers",
+    19: "Science: Mathematics",
+    20: "Mythology",
+    21: "Sports",
+    22: "Geography",
+    23: "History",
+    24: "Politics",
+    25: "Art",
+    26: "Celebrities",
+    27: "Animals",
+    28: "Vehicles",
+    29: "Entertainment: Comics",
+    30: "Science: Gadgets",
+    31: "Entertainment: Japanese Anime & Manga",
+    32: "Entertainment: Cartoon & Animations",
 }
 
 
@@ -76,9 +76,9 @@ async def generate_trivia_questions_from_opentdb(
     """
     # Randomly select ONE category
     category_id = random.choice(list(OPENTDB_CATEGORIES.keys()))
-    opentdb_name, mapped_category = OPENTDB_CATEGORIES[category_id]
+    category_name = OPENTDB_CATEGORIES[category_id]
 
-    logger.info(f"Selected OpenTDB category: {opentdb_name} (ID: {category_id}, mapped to: {mapped_category})")
+    logger.info(f"Selected OpenTDB category: {category_name} (ID: {category_id})")
 
     client = OpenTDBClient()
     questions = []
@@ -103,8 +103,8 @@ async def generate_trivia_questions_from_opentdb(
                     "question": q["question"],
                     "correct_answer": q["correct_answer"],
                     "options": options,
-                    "category": mapped_category,
-                    "explanation": f"This is a {q['difficulty']} question from {opentdb_name}.",
+                    "category": category_name,
+                    "explanation": f"This is a {q['difficulty']} question from {category_name}.",
                     "difficulty": q["difficulty"],
                     "source": "opentdb"
                 })
@@ -130,8 +130,8 @@ async def generate_trivia_questions_from_opentdb(
                     "question": q["question"],
                     "correct_answer": q["correct_answer"],
                     "options": options,
-                    "category": mapped_category,
-                    "explanation": f"This is a {q['difficulty']} question from {opentdb_name}.",
+                    "category": category_name,
+                    "explanation": f"This is a {q['difficulty']} question from {category_name}.",
                     "difficulty": q["difficulty"],
                     "source": "opentdb"
                 })
@@ -157,20 +157,21 @@ async def generate_trivia_questions_from_opentdb(
                     "question": q["question"],
                     "correct_answer": q["correct_answer"],
                     "options": options,
-                    "category": mapped_category,
-                    "explanation": f"This is a {q['difficulty']} question from {opentdb_name}.",
+                    "category": category_name,
+                    "explanation": f"This is a {q['difficulty']} question from {category_name}.",
                     "difficulty": q["difficulty"],
                     "source": "opentdb"
                 })
 
         logger.info(f"✅ Successfully generated {len(questions)} questions from OpenTDB API")
-        logger.info(f"   Category: {opentdb_name} (mapped to {mapped_category})")
+        logger.info(f"   Category: {category_name}")
         return questions, category_id
 
     except Exception as e:
         logger.error(f"❌ OpenTDB API failed: {e}")
         logger.warning(f"⚠️  Falling back to AI generation for {easy_count + medium_count + hard_count} questions")
         return await _fallback_to_ai(
+            category=category_name,
             easy_count=easy_count,
             medium_count=medium_count,
             hard_count=hard_count,
@@ -182,6 +183,7 @@ async def generate_trivia_questions_from_opentdb(
 
 
 async def _fallback_to_ai(
+    category: str,
     easy_count: int,
     medium_count: int,
     hard_count: int,
@@ -197,6 +199,7 @@ async def _fallback_to_ai(
     with a shared theme and specified difficulty distribution.
 
     Args:
+        category: Category name for question generation
         easy_count: Number of easy questions
         medium_count: Number of medium questions
         hard_count: Number of hard questions
@@ -213,22 +216,23 @@ async def _fallback_to_ai(
     logger.info(f"   Distribution: {easy_count} easy, {medium_count} medium, {hard_count} hard")
 
     # Generate a single seed for the entire batch (shared theme)
-    seed = get_unused_seed(used_seeds, base_words, modifiers)
-    used_seeds.add(seed)
-    logger.info(f"   Using seed for batch: {seed}")
+    seed_result = get_unused_seed(used_seeds, category=category, base_words=base_words, modifiers=modifiers)
+    used_seeds.add(seed_result.seed)
+    logger.info(f"   Using seed for batch: {seed_result.seed}")
 
     # Generate all questions in a single LLM call
-    questions = await generate_trivia_questions_batch(
-        seed=seed,
+    questions = await generate_trivia_questions(
+        seed=seed_result.seed,
+        category=seed_result.category,
         easy_count=easy_count,
         medium_count=medium_count,
-        hard_count=hard_count
+        hard_count=hard_count,
     )
 
     # Add metadata to each question
     for q in questions:
         q["source"] = "ai"
-        q["seed"] = seed
+        q["seed"] = seed_result.seed
 
     logger.info(f"✅ Successfully generated {len(questions)} questions using AI batch generation")
     return questions
