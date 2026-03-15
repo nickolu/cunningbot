@@ -32,11 +32,16 @@ class TestPointCalculation:
         assert calculate_question_points(True, "Hard", "opentdb") == 20
         assert calculate_question_points(True, "HARD", "opentdb") == 20
 
-    def test_ai_correct_answer_returns_15_points(self):
-        """AI correct answers should return 15 points (medium equivalent)."""
+    def test_ai_correct_answer_uses_actual_difficulty(self):
+        """AI correct answers should use actual difficulty for scoring."""
+        assert calculate_question_points(True, "easy", "ai") == 10
+        assert calculate_question_points(True, "medium", "ai") == 15
+        assert calculate_question_points(True, "hard", "ai") == 20
+
+    def test_ai_unknown_difficulty_returns_15_points(self):
+        """AI questions with unknown difficulty should default to 15."""
         assert calculate_question_points(True, "", "ai") == 15
-        assert calculate_question_points(True, "easy", "ai") == 15
-        assert calculate_question_points(True, "hard", "ai") == 15
+        assert calculate_question_points(True, None, "ai") == 15
 
     def test_unknown_difficulty_returns_15_points(self):
         """Unknown difficulty should default to 15 points."""

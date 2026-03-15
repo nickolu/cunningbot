@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple, Optional
 import datetime as dt
 
 from bot.domain.trivia.question_seeds import CATEGORIES
+from bot.app.commands.trivia.trivia_constants import LEGACY_CATEGORY_MAP
 
 
 class TriviaStatsService:
@@ -40,8 +41,11 @@ class TriviaStatsService:
 
         for game_id, game in trivia_history.items():
             # Filter by category if specified
-            if category and game.get("category") != category:
-                continue
+            if category:
+                game_category = game.get("category", "")
+                game_category = LEGACY_CATEGORY_MAP.get(game_category, game_category)
+                if game_category != category:
+                    continue
 
             # Filter by date if specified
             ended_at_str = game.get("ended_at")
@@ -207,6 +211,7 @@ class TriviaStatsService:
 
                 # Track by category
                 category = game.get("category", "Unknown")
+                category = LEGACY_CATEGORY_MAP.get(category, category)
                 if category in by_category:
                     by_category[category]["total"] += total
                     by_category[category]["correct"] += correct
@@ -241,6 +246,7 @@ class TriviaStatsService:
 
                 # Track by category
                 category = game.get("category", "Unknown")
+                category = LEGACY_CATEGORY_MAP.get(category, category)
                 if category in by_category:
                     by_category[category]["total"] += 1
                     by_category[category]["points"] += points
