@@ -818,11 +818,10 @@ async def post_trivia_questions() -> None:
                         "overview_message_id": overview_message.id,
                         "question_message_ids": question_message_ids,
                         "question_count": len(all_questions),
-                        "questions": questions_for_storage,
                         "source": "ai",
                     }
 
-                    await store.create_game(guild_id, batch_id, batch_data)
+                    await store.create_batch_game(guild_id, batch_id, batch_data, questions_for_storage)
 
                     # Mark seed as used in Redis
                     await store.mark_seed_used(guild_id, seed_result.seed)
