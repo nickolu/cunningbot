@@ -85,6 +85,7 @@ class ImageCog(commands.Cog):
             self.gemini_generation_clients = {
                 "gemini": GeminiImageGenerationClient.factory(model="gemini-2.5-flash-image"),
                 "gemini-3-pro-image-preview": GeminiImageGenerationClient.factory(model="gemini-3-pro-image-preview"),
+                "gemini-3.1-flash-image-preview": GeminiImageGenerationClient.factory(model="gemini-3.1-flash-image-preview"),
             }
             # Default Gemini client for backward compatibility
             self.gemini_generation_client = self.gemini_generation_clients["gemini"]
@@ -615,6 +616,7 @@ class ImageCog(commands.Cog):
         model=[
             app_commands.Choice(name="Google Gemini 2.5 Flash", value="gemini"),
             app_commands.Choice(name="Google Gemini 3 Pro", value="gemini-3-pro-image-preview"),
+            app_commands.Choice(name="Nano Banana 2 (gemini-3.1-flash-image-preview)", value="gemini-3.1-flash-image-preview"),
             app_commands.Choice(name="ChatGPT Image (Latest)", value="chatgpt-image-latest"),
             app_commands.Choice(name="GPT Image 1.5", value="gpt-image-1.5"),
             app_commands.Choice(name="GPT Image 1", value="gpt-image-1"),

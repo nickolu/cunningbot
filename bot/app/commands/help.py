@@ -37,7 +37,7 @@ HELP_PAGES = [
             "Generate or edit an image.\n"
             "- `prompt` — what to generate\n"
             "- `attachment` — existing image to edit\n"
-            "- `model` — Gemini 2.5 Flash (default), Gemini 3 Pro, ChatGPT-Image-Latest, etc.\n"
+            "- `model` — Gemini 2.5 Flash (default), Gemini 3 Pro, Nano Banana 2, ChatGPT-Image-Latest, etc.\n"
             "- `size` — auto, 1024×1024, 1536×1024, 1024×1536\n"
             "Requests are queued and processed in order."
         ),
