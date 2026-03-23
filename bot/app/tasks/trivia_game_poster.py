@@ -116,6 +116,13 @@ def create_batch_overview_embed(
         parts.append(f"{difficulty_counts['medium']} Medium")
     if difficulty_counts.get("hard", 0) > 0:
         parts.append(f"{difficulty_counts['hard']} Hard")
+    if difficulty_counts.get("ai_easy", 0) > 0:
+        parts.append(f"{difficulty_counts['ai_easy']} AI-Easy")
+    if difficulty_counts.get("ai_medium", 0) > 0:
+        parts.append(f"{difficulty_counts['ai_medium']} AI-Medium")
+    if difficulty_counts.get("ai_hard", 0) > 0:
+        parts.append(f"{difficulty_counts['ai_hard']} AI-Hard")
+    # Backward compat: old "ai" key
     if difficulty_counts.get("ai", 0) > 0:
         parts.append(f"{difficulty_counts['ai']} AI")
 
@@ -164,7 +171,7 @@ def create_individual_question_embed(
     difficulty = difficulty.capitalize() if difficulty else ""
 
     if source == "ai":
-        type_label = "AI"
+        type_label = f"AI-{difficulty}" if difficulty else "AI"
         color = 0x9B59B6  # Purple for AI
     elif difficulty == "Easy":
         type_label = "Easy"
@@ -251,7 +258,7 @@ def create_batch_question_embed(
 
         # Determine question type label
         if source == "ai":
-            type_label = "AI"
+            type_label = f"AI-{difficulty}" if difficulty else "AI"
         else:
             type_label = difficulty if difficulty else "Unknown"
 
@@ -292,12 +299,13 @@ def create_batch_question_embed(
     )
 
     # Count question types
-    difficulty_counts = {"easy": 0, "medium": 0, "hard": 0, "ai": 0}
+    difficulty_counts = {"easy": 0, "medium": 0, "hard": 0, "ai_easy": 0, "ai_medium": 0, "ai_hard": 0}
     for q in questions:
+        diff = q.get("difficulty", "").lower()
         if q.get("source") == "ai":
-            difficulty_counts["ai"] += 1
+            key = f"ai_{diff}" if diff in ("easy", "medium", "hard") else "ai_medium"
+            difficulty_counts[key] += 1
         else:
-            diff = q.get("difficulty", "").lower()
             if diff in difficulty_counts:
                 difficulty_counts[diff] += 1
 
@@ -309,8 +317,12 @@ def create_batch_question_embed(
         parts.append(f"{difficulty_counts['medium']} Medium")
     if difficulty_counts["hard"] > 0:
         parts.append(f"{difficulty_counts['hard']} Hard")
-    if difficulty_counts["ai"] > 0:
-        parts.append(f"{difficulty_counts['ai']} AI")
+    if difficulty_counts["ai_easy"] > 0:
+        parts.append(f"{difficulty_counts['ai_easy']} AI-Easy")
+    if difficulty_counts["ai_medium"] > 0:
+        parts.append(f"{difficulty_counts['ai_medium']} AI-Medium")
+    if difficulty_counts["ai_hard"] > 0:
+        parts.append(f"{difficulty_counts['ai_hard']} AI-Hard")
 
     question_summary = ", ".join(parts) if parts else "Unknown"
 
@@ -608,12 +620,13 @@ async def post_trivia_questions() -> None:
                     batch_id = str(uuid.uuid4())
 
                     # Count question types for overview
-                    difficulty_counts = {"easy": 0, "medium": 0, "hard": 0, "ai": 0}
+                    difficulty_counts = {"easy": 0, "medium": 0, "hard": 0, "ai_easy": 0, "ai_medium": 0, "ai_hard": 0}
                     for q in all_questions:
+                        diff = q.get("difficulty", "").lower()
                         if q.get("source") == "ai":
-                            difficulty_counts["ai"] += 1
+                            key = f"ai_{diff}" if diff in ("easy", "medium", "hard") else "ai_medium"
+                            difficulty_counts[key] += 1
                         else:
-                            diff = q.get("difficulty", "").lower()
                             if diff in difficulty_counts:
                                 difficulty_counts[diff] += 1
 
@@ -750,12 +763,11 @@ async def post_trivia_questions() -> None:
                     batch_id = str(uuid.uuid4())
 
                     # Count question types for overview
-                    difficulty_counts = {"easy": 0, "medium": 0, "hard": 0, "ai": 0}
+                    difficulty_counts = {"easy": 0, "medium": 0, "hard": 0, "ai_easy": 0, "ai_medium": 0, "ai_hard": 0}
                     for q in all_questions:
-                        difficulty_counts["ai"] += 1
                         diff = q.get("difficulty", "").lower()
-                        if diff in difficulty_counts:
-                            difficulty_counts[diff] += 1
+                        key = f"ai_{diff}" if diff in ("easy", "medium", "hard") else "ai_medium"
+                        difficulty_counts[key] += 1
 
                     # Create and post overview embed
                     overview_embed = create_batch_overview_embed(
