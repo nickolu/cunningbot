@@ -75,6 +75,103 @@ Return as a numbered list with difficulty tags."""
     return response
 
 
+ANSWERABILITY_MODEL = "gpt-4o-mini"
+
+
+async def _validate_and_fix_answerability(
+    questions: List[Dict[str, str]],
+) -> List[Dict[str, str]]:
+    """
+    Phase 3: Validate that each question is answerable without extra context,
+    and rewrite any that are too vague.
+
+    A question is "unanswerable" if it uses vague references (e.g., "a major franchise",
+    "a famous scientist") instead of naming the specific subject, making it impossible
+    for even a knowledgeable person to determine the answer.
+
+    Args:
+        questions: List of question dicts from Phase 2
+
+    Returns:
+        List of question dicts with vague questions rewritten
+    """
+    questions_for_review = []
+    for i, q in enumerate(questions):
+        questions_for_review.append(
+            f'{i + 1}. Question: "{q["question"]}"\n   Answer: "{q["correct_answer"]}"'
+        )
+
+    prompt = f"""Review each trivia question below. For each one, determine if a knowledgeable person could answer it WITHOUT needing to guess what topic, franchise, person, or domain is being referenced.
+
+A question is UNANSWERABLE if it:
+- Uses vague references like "a major film franchise", "a famous scientist", "a popular video game" instead of naming the specific subject
+- Omits key context needed to narrow down the answer (e.g., asking about "the alien species in the novels" without saying which novels)
+- Could reasonably apply to multiple different subjects
+
+A question is ANSWERABLE if it provides enough specific context that a knowledgeable person could figure out the answer, even if the question is difficult.
+
+Questions to review:
+{chr(10).join(questions_for_review)}
+
+For each question, respond in this JSON format:
+[
+  {{
+    "index": 1,
+    "answerable": true
+  }},
+  {{
+    "index": 2,
+    "answerable": false,
+    "rewritten_question": "A improved version of the question that includes enough specific context to be answerable, while still not giving away the answer"
+  }}
+]
+
+Only include "rewritten_question" for questions where answerable is false.
+Return ONLY the JSON array, no other text."""
+
+    llm = ChatCompletionsClient.factory(ANSWERABILITY_MODEL)
+    try:
+        response = await llm.chat([
+            {
+                "role": "system",
+                "content": "You are a trivia quality reviewer. Your job is to identify questions that are too vague to answer and rewrite them to include sufficient context. Keep the same answer and difficulty level when rewriting.",
+            },
+            {"role": "user", "content": prompt},
+        ])
+
+        response_clean = response.strip()
+        if response_clean.startswith("```json"):
+            response_clean = response_clean[7:]
+        if response_clean.startswith("```"):
+            response_clean = response_clean[3:]
+        if response_clean.endswith("```"):
+            response_clean = response_clean[:-3]
+        response_clean = response_clean.strip()
+
+        reviews = json.loads(response_clean)
+
+        rewrite_count = 0
+        for review in reviews:
+            idx = review.get("index", 0) - 1
+            if 0 <= idx < len(questions) and not review.get("answerable", True):
+                rewritten = review.get("rewritten_question", "").strip()
+                if rewritten:
+                    logger.info(
+                        f"Rewrote vague question {idx + 1}: "
+                        f'"{questions[idx]["question"]}" -> "{rewritten}"'
+                    )
+                    questions[idx]["question"] = rewritten
+                    rewrite_count += 1
+
+        if rewrite_count > 0:
+            logger.info(f"Rewrote {rewrite_count} vague question(s) for answerability")
+
+    except Exception as e:
+        logger.warning(f"Answerability validation failed, using questions as-is: {e}")
+
+    return questions
+
+
 async def _generate_from_facts(
     facts: str,
     category: str,
@@ -136,6 +233,7 @@ Generate:
 Requirements:
 - Each question must be based on one or more of the facts above
 - CRITICAL: The answer must NOT appear anywhere in the question text
+- EQUALLY CRITICAL: Each question MUST contain enough specific context to be answerable. Do NOT use vague references like "a major franchise" or "a famous scientist" — name the specific franchise, person, era, or domain being asked about. A knowledgeable person should be able to answer without guessing what topic is being referenced.
 - Easy questions: test common knowledge that most people would know
 - Medium questions: require some familiarity with the topic
 - Hard questions: test deep or obscure knowledge
@@ -221,6 +319,9 @@ Return ONLY the JSON array, no other text."""
 
     if len(validated_questions) == 0:
         raise ValueError("No valid questions after validation")
+
+    # Phase 3: Validate answerability and rewrite vague questions
+    validated_questions = await _validate_and_fix_answerability(validated_questions)
 
     return validated_questions
 
