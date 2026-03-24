@@ -35,7 +35,7 @@ class AgentListenerCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
-        self.store = AgentRedisStore()
+        self._store: Optional[AgentRedisStore] = None
 
         # In-memory cooldown / rate tracking (resets on bot restart, which is fine)
         # channel_id -> last response timestamp
@@ -44,6 +44,12 @@ class AgentListenerCog(commands.Cog):
         self._response_timestamps: Dict[int, list] = defaultdict(list)
         # channel_id -> asyncio.Lock to prevent concurrent agent runs per channel
         self._channel_locks: Dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+
+    @property
+    def store(self) -> AgentRedisStore:
+        if self._store is None:
+            self._store = AgentRedisStore()
+        return self._store
 
     def _check_cooldown(self, channel_id: int, cooldown_seconds: int) -> bool:
         """Return True if the channel is still in cooldown."""

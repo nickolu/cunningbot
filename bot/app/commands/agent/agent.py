@@ -32,7 +32,13 @@ class AgentCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
-        self.store = AgentRedisStore()
+        self._store: Optional[AgentRedisStore] = None
+
+    @property
+    def store(self) -> AgentRedisStore:
+        if self._store is None:
+            self._store = AgentRedisStore()
+        return self._store
 
     # ------------------------------------------------------------------
     # /agent register
