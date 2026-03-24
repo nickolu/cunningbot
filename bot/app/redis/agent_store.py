@@ -17,7 +17,7 @@ DEFAULT_AGENT_CONFIG = {
     "enabled": True,
     "persona": None,  # None = use guild default
     "model": "gpt-4o",
-    "tools": ["weather", "image", "dice", "search_gifs"],
+    "tools": ["weather", "image", "dice", "search_gifs", "edit_image"],
     "context_window": 30,
     "cooldown_seconds": 5,
     "max_responses_per_minute": 10,

@@ -127,6 +127,9 @@ class AgentListenerCog(commands.Cog):
                 history = []
                 async for msg in channel.history(limit=context_window, oldest_first=False):
                     content = flatten_discord_message(msg)
+                    for att in msg.attachments:
+                        if att.content_type and att.content_type.startswith("image/"):
+                            content += f"\n[Image: {att.filename} | {att.url}]"
                     author_name = sanitize_name(msg.author.display_name)
                     if msg.author.bot:
                         history.append({

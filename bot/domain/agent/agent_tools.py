@@ -9,11 +9,13 @@ import uuid
 from io import BytesIO
 from typing import Any, Callable, Coroutine, Dict, List, Optional
 
+import aiohttp
 import discord
 
 from bot.api.openmeteo.forecast_client import fetch_forecast
 from bot.api.openai.image_generation_client import ImageGenerationClient
 from bot.api.google.image_generation_client import GeminiImageGenerationClient
+from bot.api.google.image_edit_client import GeminiImageEditClient
 from bot.api.animation_factory.client import AnimationFactoryClient
 from bot.app.commands.dice.roll import DiceRoller
 from bot.app.utils.zip_lookup import lookup_zip
@@ -95,6 +97,40 @@ TOOL_SCHEMAS: Dict[str, dict] = {
                     },
                 },
                 "required": ["expression"],
+            },
+        },
+    },
+    "edit_image": {
+        "type": "function",
+        "function": {
+            "name": "edit_image",
+            "description": (
+                "Edit an existing image from the chat. Use the image URL from "
+                "[Image: filename | URL] annotations in the conversation history. "
+                "The edited image will be sent as an attachment in the Discord channel."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "image_url": {
+                        "type": "string",
+                        "description": (
+                            "URL of the image to edit. Use the URL from "
+                            "[Image: filename | URL] annotations in the conversation history."
+                        ),
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "description": "Description of the edit to make to the image.",
+                    },
+                    "size": {
+                        "type": "string",
+                        "enum": ["1024x1024", "1536x1024", "1024x1536"],
+                        "description": "Output image dimensions. Default square.",
+                        "default": "1024x1024",
+                    },
+                },
+                "required": ["image_url", "prompt"],
             },
         },
     },
@@ -235,6 +271,58 @@ async def execute_roll_dice(arguments: Dict[str, Any]) -> str:
         return f"Dice error: {e}"
 
 
+async def execute_edit_image(
+    arguments: Dict[str, Any],
+    channel: discord.TextChannel,
+) -> str:
+    """Execute the edit_image tool. Downloads the source image, edits it via Gemini, and sends the result."""
+    image_url = arguments.get("image_url", "")
+    prompt = arguments.get("prompt", "")
+    size = arguments.get("size", "1024x1024")
+
+    if not image_url:
+        return "No image URL provided. Look for [Image: ...] annotations in the conversation."
+    if not prompt:
+        return "No edit prompt provided."
+
+    # Download the source image
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(image_url) as resp:
+                if resp.status != 200:
+                    return f"Failed to download image: HTTP {resp.status}"
+                image_bytes = await resp.read()
+    except Exception as e:
+        logger.error(f"Image download failed: {e}")
+        return f"Failed to download image: {e}"
+
+    # Edit via Gemini
+    try:
+        client = GeminiImageEditClient.factory()
+        result_images, error_msg = await client.edit_image(
+            image=image_bytes,
+            prompt=prompt,
+            size=size,
+        )
+    except EnvironmentError:
+        return "Image editing is not available (GOOGLE_API_KEY not configured)."
+    except Exception as e:
+        logger.error(f"Image edit failed: {e}", exc_info=True)
+        return f"Image editing failed: {e}"
+
+    if not result_images:
+        return f"Image editing failed: {error_msg}"
+
+    # Send the edited image to the channel
+    filename = f"agent_edit_{uuid.uuid4().hex[:8]}.png"
+    stream = BytesIO(result_images[0])
+    stream.seek(0)
+    file = discord.File(fp=stream, filename=filename)
+    await channel.send(file=file)
+
+    return f"Image edited and sent to channel. Edit prompt: '{prompt[:80]}'"
+
+
 async def execute_search_gifs(arguments: Dict[str, Any]) -> str:
     """Execute the search_gifs tool."""
     query = arguments.get("query", "")
@@ -269,9 +357,13 @@ async def execute_search_gifs(arguments: Dict[str, Any]) -> str:
 TOOL_EXECUTORS: Dict[str, Callable[..., Coroutine]] = {
     "get_weather": execute_get_weather,
     "generate_image": execute_generate_image,
+    "edit_image": execute_edit_image,
     "roll_dice": execute_roll_dice,
     "search_gifs": execute_search_gifs,
 }
+
+# Tools that need the Discord channel reference passed as a second argument
+CHANNEL_AWARE_TOOLS: set = {"generate_image", "edit_image"}
 
 
 def get_tool_schemas_for_config(enabled_tools: List[str]) -> List[dict]:
