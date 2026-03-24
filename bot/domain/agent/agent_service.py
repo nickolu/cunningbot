@@ -15,8 +15,8 @@ from openai import AsyncOpenAI
 
 from bot.domain.agent.agent_tools import (
     TOOL_EXECUTORS,
+    CHANNEL_AWARE_TOOLS,
     get_tool_schemas_for_config,
-    execute_generate_image,
 )
 from bot.domain.chat.chat_personas import CHAT_PERSONAS
 from bot.app.app_state import get_default_persona
@@ -35,6 +35,7 @@ history and should respond naturally as a participant.
 You have access to tools — use them when the conversation calls for it. For example:
 - If someone mentions the weather, look it up with get_weather.
 - If someone asks for an image, generate one with generate_image.
+- If someone asks to edit an image from the chat, use edit_image with the image URL from the [Image: filename | URL] annotations in the conversation.
 - If someone wants to roll dice, use roll_dice.
 - If someone wants a GIF, use search_gifs.
 
@@ -169,8 +170,7 @@ async def run_agent(
                 result = f"Unknown tool: {fn_name}"
             else:
                 try:
-                    # Special case: generate_image needs the channel reference
-                    if fn_name == "generate_image":
+                    if fn_name in CHANNEL_AWARE_TOOLS:
                         result = await executor(fn_args, channel)
                     else:
                         result = await executor(fn_args)
