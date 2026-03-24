@@ -35,11 +35,12 @@ class GeminiImageEditClient:
     """
     DEFAULT_MODEL = "gemini-2.5-flash-image"
 
-    def __init__(self) -> None:
+    def __init__(self, model: str = DEFAULT_MODEL) -> None:
         """
         Initializes the Gemini client.
         The Google API key is expected to be set in the GOOGLE_API_KEY environment variable.
         """
+        self.model = model
         self.api_key = os.getenv("GOOGLE_API_KEY")
         if not self.api_key:
             raise EnvironmentError("GOOGLE_API_KEY environment variable is not set.")
@@ -159,7 +160,7 @@ class GeminiImageEditClient:
                     contents = image_parts + [prompt]
                     response = await asyncio.to_thread(
                         self.client.models.generate_content,
-                        model=self.DEFAULT_MODEL,
+                        model=self.model,
                         contents=contents,
                         config=config
                     )
@@ -339,6 +340,6 @@ class GeminiImageEditClient:
             return None, f"An unexpected error occurred: {error_str}"
 
     @staticmethod
-    def factory() -> "GeminiImageEditClient":
+    def factory(model: str = DEFAULT_MODEL) -> "GeminiImageEditClient":
         """Factory method to create an instance of GeminiImageEditClient."""
-        return GeminiImageEditClient()
+        return GeminiImageEditClient(model=model)

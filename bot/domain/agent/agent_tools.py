@@ -16,6 +16,7 @@ from bot.api.openmeteo.forecast_client import fetch_forecast
 from bot.api.openai.image_generation_client import ImageGenerationClient
 from bot.api.google.image_generation_client import GeminiImageGenerationClient
 from bot.api.google.image_edit_client import GeminiImageEditClient
+from bot.api.openai.image_edit_client import ImageEditClient
 from bot.api.animation_factory.client import AnimationFactoryClient
 from bot.app.commands.dice.roll import DiceRoller
 from bot.app.utils.zip_lookup import lookup_zip
@@ -122,6 +123,21 @@ TOOL_SCHEMAS: Dict[str, dict] = {
                     "prompt": {
                         "type": "string",
                         "description": "Description of the edit to make to the image.",
+                    },
+                    "model": {
+                        "type": "string",
+                        "enum": [
+                            "gemini-2.5-flash",
+                            "gemini-3-pro",
+                            "gpt-image-1",
+                        ],
+                        "description": (
+                            "Image model to use. "
+                            "gemini-2.5-flash (default, fast and cheap), "
+                            "gemini-3-pro (higher quality), "
+                            "gpt-image-1 (OpenAI)."
+                        ),
+                        "default": "gemini-2.5-flash",
                     },
                     "size": {
                         "type": "string",
@@ -271,14 +287,25 @@ async def execute_roll_dice(arguments: Dict[str, Any]) -> str:
         return f"Dice error: {e}"
 
 
+# Friendly model names → actual model identifiers for image editing
+IMAGE_EDIT_MODELS = {
+    "gemini-2.5-flash": "gemini-2.5-flash-image",
+    "gemini-3-pro": "gemini-3-pro-image-preview",
+    "gpt-image-1": "gpt-image-1",
+}
+
+DEFAULT_IMAGE_EDIT_MODEL = "gemini-2.5-flash"
+
+
 async def execute_edit_image(
     arguments: Dict[str, Any],
     channel: discord.TextChannel,
 ) -> str:
-    """Execute the edit_image tool. Downloads the source image, edits it via Gemini, and sends the result."""
+    """Execute the edit_image tool. Downloads the source image, edits it via the selected model, and sends the result."""
     image_url = arguments.get("image_url", "")
     prompt = arguments.get("prompt", "")
     size = arguments.get("size", "1024x1024")
+    model_key = arguments.get("model", DEFAULT_IMAGE_EDIT_MODEL)
 
     if not image_url:
         return "No image URL provided. Look for [Image: ...] annotations in the conversation."
@@ -296,16 +323,31 @@ async def execute_edit_image(
         logger.error(f"Image download failed: {e}")
         return f"Failed to download image: {e}"
 
-    # Edit via Gemini
+    actual_model = IMAGE_EDIT_MODELS.get(model_key, IMAGE_EDIT_MODELS[DEFAULT_IMAGE_EDIT_MODEL])
+    is_openai = model_key == "gpt-image-1"
+
+    # Edit the image
     try:
-        client = GeminiImageEditClient.factory()
-        result_images, error_msg = await client.edit_image(
-            image=image_bytes,
-            prompt=prompt,
-            size=size,
-        )
+        if is_openai:
+            client = ImageEditClient.factory()
+            # OpenAI edit_image is synchronous — run in thread
+            import asyncio
+            result_images, error_msg = await asyncio.to_thread(
+                client.edit_image,
+                image=image_bytes,
+                prompt=prompt,
+                size=size,
+            )
+        else:
+            client = GeminiImageEditClient.factory(model=actual_model)
+            result_images, error_msg = await client.edit_image(
+                image=image_bytes,
+                prompt=prompt,
+                size=size,
+            )
     except EnvironmentError:
-        return "Image editing is not available (GOOGLE_API_KEY not configured)."
+        key_name = "OPENAI_API_KEY" if is_openai else "GOOGLE_API_KEY"
+        return f"Image editing is not available ({key_name} not configured)."
     except Exception as e:
         logger.error(f"Image edit failed: {e}", exc_info=True)
         return f"Image editing failed: {e}"
@@ -320,7 +362,7 @@ async def execute_edit_image(
     file = discord.File(fp=stream, filename=filename)
     await channel.send(file=file)
 
-    return f"Image edited and sent to channel. Edit prompt: '{prompt[:80]}'"
+    return f"Image edited using {model_key} and sent to channel. Edit prompt: '{prompt[:80]}'"
 
 
 async def execute_search_gifs(arguments: Dict[str, Any]) -> str:
