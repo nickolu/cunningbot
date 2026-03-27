@@ -111,12 +111,25 @@ class AgentListenerCog(commands.Cog):
         if bot_mentioned or reply_to_bot:
             return True
 
+        # Check if message contains a name/keyword that addresses the bot
+        content = flatten_discord_message(message)
+        if content:
+            content_lower = content.lower()
+            bot_keywords = {"bot", "agent", "manbot", "cunningbot"}
+            # Check if any keyword appears as a word boundary match
+            for keyword in bot_keywords:
+                # Look for the keyword as a standalone word (not part of another word)
+                for word in content_lower.split():
+                    # Strip common punctuation from the word
+                    stripped = word.strip(".,!?;:'\"()-")
+                    if stripped == keyword:
+                        return True
+
         # "strict" mode — only mention/reply triggers
         if response_mode == "strict":
             return False
 
         # --- "smart" mode: run LLM intent classifier ---
-        content = flatten_discord_message(message)
         if not content or not content.strip():
             return False
 
