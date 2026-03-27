@@ -36,7 +36,7 @@ Messages from the bot are prefixed with [BOT] in the conversation history.
 Output EXACTLY one of: RESPOND, IGNORE, ASK_CLARIFY
 
 Strong signals to RESPOND:
-- Direct address: "{bot_name}...", "bot...", "can you...", "hey bot"
+- Direct address using the bot's name or aliases: "{bot_name}", "bot", "agent", "manbot", "cunningbot" — but ONLY when used to address the bot (e.g. "bot, what's the weather?" or "hey manbot"), NOT when talking about the bot in third person (e.g. "the bot did a good job", "I think the agent is cool")
 - Imperatives aimed at an assistant: "do X", "give me...", "summarize...", "write...", "make...", "generate...", "show...", "explain..."
 - Follow-up to a bot response: if the bot recently answered and the user sends a follow-up question, correction, or request that continues that thread (e.g. "what about X?", "can you also...", "now do Y", "why?", "and the other one?", "try again", "no I meant...")
 - References to bot output: "that one you made", "redo it but...", "make it more..."
