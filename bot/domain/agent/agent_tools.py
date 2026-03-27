@@ -504,9 +504,9 @@ async def execute_read_channel(
 
     if target is None:
         for ch in text_channels:
-        if ch.name == channel_name:
-            target = ch
-            break
+            if ch.name == channel_name:
+                target = ch
+                break
 
     if target is None:
         lower_name = channel_name.lower()
