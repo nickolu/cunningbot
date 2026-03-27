@@ -1,9 +1,16 @@
 """on_message listener that drives the channel agent.
 
 This cog listens to every message in the guild and checks whether the
-channel has a registered (and enabled) agent.  If so, it fetches recent
+channel has a registered (and enabled) agent.  If so, it applies smart
+triggering logic to decide whether to respond, then fetches recent
 history, runs the agent service's tool-calling loop, and sends the
 response back to the channel.
+
+Response modes:
+- "smart" (default): Uses hard gates + LLM intent classifier to decide
+  when to respond. Only responds when confident the bot is being addressed.
+- "strict": Only responds when the bot is @mentioned or replied to.
+- "always": Responds to every message (original behavior). Cooldown still applies.
 
 Guard rails:
 - Ignores all bot messages (prevents loops).
@@ -22,12 +29,15 @@ from discord.ext import commands
 
 from bot.app.redis.agent_store import AgentRedisStore
 from bot.domain.agent.agent_service import run_agent
+from bot.domain.agent.intent_classifier import Intent, classify_intent
 from bot.api.discord.utils import flatten_discord_message
 from bot.api.openai.utils import sanitize_name
 from bot.utils import split_message
 from bot.app.utils.logger import get_logger
 
 logger = get_logger()
+
+ASK_CLARIFY_RESPONSE = "Did you want me to do something, or just chatting?"
 
 
 class AgentListenerCog(commands.Cog):
@@ -72,6 +82,83 @@ class AgentListenerCog(commands.Cog):
         self._last_response[channel_id] = now
         self._response_timestamps[channel_id].append(now)
 
+    def _is_reply_to_bot(self, message: discord.Message) -> bool:
+        """Check if the message is a direct reply to a bot message."""
+        if message.reference and message.reference.resolved:
+            ref = message.reference.resolved
+            if isinstance(ref, discord.Message) and ref.author.bot:
+                return True
+        return False
+
+    async def _should_respond(
+        self, message: discord.Message, config: Dict
+    ) -> bool:
+        """Apply smart triggering logic based on response_mode.
+
+        Returns True if the bot should respond, False otherwise.
+        For ASK_CLARIFY results, sends a short clarification and returns False.
+        """
+        response_mode = config.get("response_mode", "smart")
+        bot_mentioned = self.bot.user in message.mentions
+        reply_to_bot = self._is_reply_to_bot(message)
+
+        # "always" mode — original behavior, respond to everything
+        if response_mode == "always":
+            return True
+
+        # --- Hard gates (both "strict" and "smart" check these) ---
+        # Always respond if bot is @mentioned or replied to
+        if bot_mentioned or reply_to_bot:
+            return True
+
+        # "strict" mode — only mention/reply triggers
+        if response_mode == "strict":
+            return False
+
+        # --- "smart" mode: run LLM intent classifier ---
+        content = flatten_discord_message(message)
+        if not content or not content.strip():
+            return False
+
+        # Build minimal history for classifier context
+        recent_history = []
+        async for msg in message.channel.history(limit=8, oldest_first=False):
+            if msg.id == message.id:
+                continue
+            author_name = sanitize_name(msg.author.display_name)
+            recent_history.append({
+                "role": "assistant" if msg.author.bot else "user",
+                "content": flatten_discord_message(msg)[:200],
+                "name": author_name,
+            })
+        recent_history.reverse()
+
+        bot_name = self.bot.user.display_name if self.bot.user else "Bot"
+
+        intent = await classify_intent(
+            latest_message=content,
+            recent_history=recent_history,
+            bot_name=bot_name,
+            is_reply_to_bot=reply_to_bot,
+        )
+
+        logger.info({
+            "event": "intent_classification",
+            "channel": message.channel.id,
+            "intent": intent.value,
+            "message_preview": content[:80],
+        })
+
+        if intent == Intent.RESPOND:
+            return True
+
+        if intent == Intent.ASK_CLARIFY:
+            await message.channel.send(ASK_CLARIFY_RESPONSE)
+            self._record_response(message.channel.id)
+            return False
+
+        return False
+
     @commands.Cog.listener("on_message")
     async def on_message(self, message: discord.Message) -> None:
         # 1. Ignore bots (including ourselves)
@@ -93,9 +180,10 @@ class AgentListenerCog(commands.Cog):
         # 4. Check if bot is @mentioned (bypasses cooldown)
         bot_mentioned = self.bot.user in message.mentions
 
-        # 5. Cooldown check (skip if bot was mentioned)
+        # 5. Cooldown check (skip if bot was mentioned or replied to)
+        reply_to_bot = self._is_reply_to_bot(message)
         cooldown = config.get("cooldown_seconds", 5)
-        if not bot_mentioned and self._check_cooldown(message.channel.id, cooldown):
+        if not bot_mentioned and not reply_to_bot and self._check_cooldown(message.channel.id, cooldown):
             return
 
         # 6. Rate limit check
@@ -104,7 +192,12 @@ class AgentListenerCog(commands.Cog):
             logger.warning(f"Agent rate limit hit in channel {channel_id}")
             return
 
-        # 7. Acquire per-channel lock so we don't run multiple agents concurrently
+        # 7. Smart triggering — decide whether we should respond
+        should_respond = await self._should_respond(message, config)
+        if not should_respond:
+            return
+
+        # 8. Acquire per-channel lock so we don't run multiple agents concurrently
         lock = self._channel_locks[message.channel.id]
         if lock.locked():
             # Agent is already processing in this channel; skip

@@ -118,7 +118,8 @@ class AgentCog(commands.Cog):
         embed.add_field(name="Context Window", value=str(config["context_window"]), inline=True)
         embed.add_field(name="Cooldown", value=f"{config['cooldown_seconds']}s", inline=True)
         embed.add_field(name="Tools", value=tools_text, inline=False)
-        embed.set_footer(text="The agent will respond to all messages in this channel. Use /agent unregister to remove.")
+        embed.add_field(name="Response Mode", value="smart", inline=True)
+        embed.set_footer(text="The agent uses smart triggering — it responds when addressed. Use /agent configure to change.")
 
         await interaction.response.send_message(embed=embed)
 
@@ -173,6 +174,7 @@ class AgentCog(commands.Cog):
         embed.add_field(name="Context Window", value=str(config.get("context_window", 30)), inline=True)
         embed.add_field(name="Cooldown", value=f"{config.get('cooldown_seconds', 5)}s", inline=True)
         embed.add_field(name="Rate Limit", value=f"{config.get('max_responses_per_minute', 10)}/min", inline=True)
+        embed.add_field(name="Response Mode", value=config.get("response_mode", "smart"), inline=True)
         embed.add_field(name="Tools", value=", ".join(config.get("tools", [])), inline=False)
         embed.set_footer(text=f"Registered by user {config.get('registered_by', '?')}")
 
@@ -191,6 +193,7 @@ class AgentCog(commands.Cog):
         context_window="Number of previous messages the agent sees",
         cooldown="Seconds between automatic responses",
         max_per_minute="Maximum responses per minute",
+        response_mode="How the agent decides when to respond",
     )
     @app_commands.choices(
         persona=[
@@ -210,6 +213,13 @@ class AgentCog(commands.Cog):
             app_commands.Choice(name="gpt-5.2 (smartest, expensive)", value="gpt-5.2"),
         ]
     )
+    @app_commands.choices(
+        response_mode=[
+            app_commands.Choice(name="Smart (LLM decides, default)", value="smart"),
+            app_commands.Choice(name="Strict (mention/reply only)", value="strict"),
+            app_commands.Choice(name="Always (respond to everything)", value="always"),
+        ]
+    )
     async def configure(
         self,
         interaction: discord.Interaction,
@@ -218,6 +228,7 @@ class AgentCog(commands.Cog):
         context_window: Optional[int] = None,
         cooldown: Optional[int] = None,
         max_per_minute: Optional[int] = None,
+        response_mode: Optional[str] = None,
     ) -> None:
         guild_id = str(interaction.guild_id)
         channel_id = str(interaction.channel_id)
@@ -233,6 +244,8 @@ class AgentCog(commands.Cog):
             updates["cooldown_seconds"] = max(0, min(cooldown, 300))
         if max_per_minute is not None:
             updates["max_responses_per_minute"] = max(1, min(max_per_minute, 60))
+        if response_mode is not None:
+            updates["response_mode"] = response_mode
 
         if not updates:
             await interaction.response.send_message(
