@@ -53,21 +53,27 @@ Guidelines:
 
 
 def _build_system_prompt(
-    persona_key: Optional[str], guild_id: Optional[int]
+    persona: Optional[str], guild_id: Optional[int]
 ) -> str:
-    """Build the system prompt, optionally injecting persona instructions."""
+    """Build the system prompt, optionally injecting persona instructions.
+
+    ``persona`` is free-form text describing the bot's personality.
+    If not provided, falls back to the guild's default persona (looked up
+    by key in CHAT_PERSONAS).
+    """
     persona_block = ""
 
-    # Resolve persona
-    resolved_key = persona_key
-    if not resolved_key and guild_id is not None:
-        resolved_key = get_default_persona(guild_id)
-
-    if resolved_key and resolved_key in CHAT_PERSONAS:
-        persona_data = CHAT_PERSONAS[resolved_key]
-        instructions = persona_data.get("instructions") or persona_data.get("personality", "")
-        if instructions:
-            persona_block = f"\nYour personality: {instructions}\n"
+    if persona:
+        # Free-text persona provided directly
+        persona_block = f"\nYour personality: {persona}\n"
+    elif guild_id is not None:
+        # Fall back to guild default persona (key-based lookup)
+        default_key = get_default_persona(guild_id)
+        if default_key and default_key in CHAT_PERSONAS:
+            persona_data = CHAT_PERSONAS[default_key]
+            instructions = persona_data.get("instructions") or persona_data.get("personality", "")
+            if instructions:
+                persona_block = f"\nYour personality: {instructions}\n"
 
     return AGENT_SYSTEM_PROMPT.format(persona_block=persona_block)
 

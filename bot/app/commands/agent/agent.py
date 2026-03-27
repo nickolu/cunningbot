@@ -48,19 +48,10 @@ class AgentCog(commands.Cog):
         description="Activate an always-on AI agent in this channel",
     )
     @app_commands.describe(
-        persona="Agent personality (optional, uses server default if omitted)",
+        persona="Personality/system prompt for the agent (free text, optional)",
         model="LLM model to use (default: gpt-4o)",
         context_window="Number of previous messages the agent sees (default: 30)",
         cooldown="Seconds between automatic responses (default: 5)",
-    )
-    @app_commands.choices(
-        persona=[
-            app_commands.Choice(name="A discord user", value="discord_user"),
-            app_commands.Choice(name="Cat", value="cat"),
-            app_commands.Choice(name="Helpful Assistant", value="helpful_assistant"),
-            app_commands.Choice(name="Sarcastic Jerk", value="sarcastic_jerk"),
-            app_commands.Choice(name="Homer Simpson", value="homer_simpson"),
-        ]
     )
     @app_commands.choices(
         model=[
@@ -170,7 +161,10 @@ class AgentCog(commands.Cog):
             color=color,
         )
         embed.add_field(name="Model", value=config.get("model", "?"), inline=True)
-        embed.add_field(name="Persona", value=config.get("persona") or "server default", inline=True)
+        persona_display = config.get("persona") or "server default"
+        if len(persona_display) > 100:
+            persona_display = persona_display[:97] + "..."
+        embed.add_field(name="Persona", value=persona_display, inline=True)
         embed.add_field(name="Context Window", value=str(config.get("context_window", 30)), inline=True)
         embed.add_field(name="Cooldown", value=f"{config.get('cooldown_seconds', 5)}s", inline=True)
         embed.add_field(name="Rate Limit", value=f"{config.get('max_responses_per_minute', 10)}/min", inline=True)
@@ -188,21 +182,12 @@ class AgentCog(commands.Cog):
         description="Update agent settings for this channel",
     )
     @app_commands.describe(
-        persona="Change the agent's personality",
+        persona="Change the agent's personality (free text)",
         model="Change the LLM model",
         context_window="Number of previous messages the agent sees",
         cooldown="Seconds between automatic responses",
         max_per_minute="Maximum responses per minute",
         response_mode="How the agent decides when to respond",
-    )
-    @app_commands.choices(
-        persona=[
-            app_commands.Choice(name="A discord user", value="discord_user"),
-            app_commands.Choice(name="Cat", value="cat"),
-            app_commands.Choice(name="Helpful Assistant", value="helpful_assistant"),
-            app_commands.Choice(name="Sarcastic Jerk", value="sarcastic_jerk"),
-            app_commands.Choice(name="Homer Simpson", value="homer_simpson"),
-        ]
     )
     @app_commands.choices(
         model=[
