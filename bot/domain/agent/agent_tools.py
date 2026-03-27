@@ -211,7 +211,7 @@ TOOL_SCHEMAS: Dict[str, dict] = {
                 "properties": {
                     "channel_name": {
                         "type": "string",
-                        "description": "Name of the text channel to read (e.g. 'general', 'announcements')",
+                        "description": "Name or ID of the text channel to read (e.g. 'general', 'announcements', or a numeric channel ID)",
                     },
                     "limit": {
                         "type": "integer",
@@ -492,11 +492,18 @@ async def execute_read_channel(
     if guild is None:
         return "Cannot read channels: not in a server."
 
-    # Find the target channel: exact match → case-insensitive → substring
+    # Find the target channel: ID → exact name → case-insensitive → substring
     target: Optional[discord.TextChannel] = None
     text_channels = guild.text_channels
 
-    for ch in text_channels:
+    # Try as a channel ID first
+    if channel_name.isdigit():
+        target = guild.get_channel(int(channel_name))
+        if target is not None and not isinstance(target, discord.TextChannel):
+            target = None  # Not a text channel
+
+    if target is None:
+        for ch in text_channels:
         if ch.name == channel_name:
             target = ch
             break
