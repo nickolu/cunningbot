@@ -116,6 +116,7 @@ class AgentListenerCog(commands.Cog):
             return False
 
         # --- "smart" mode: run LLM intent classifier ---
+        content = flatten_discord_message(message)
         if not content or not content.strip():
             return False
 
