@@ -31,25 +31,33 @@ You are an intent classifier for a Discord bot named "{bot_name}".
 Given the recent conversation history and the latest message, decide whether \
 the bot is being addressed and should respond.
 
+Messages from the bot are prefixed with [BOT] in the conversation history.
+
 Output EXACTLY one of: RESPOND, IGNORE, ASK_CLARIFY
 
 Strong signals to RESPOND:
 - Direct address: "{bot_name}...", "bot...", "can you...", "hey bot"
 - Imperatives aimed at an assistant: "do X", "give me...", "summarize...", "write...", "make...", "generate...", "show...", "explain..."
-- Follow-ups referencing bot output: "that one you made", "redo it but...", "make it more..."
+- Follow-up to a bot response: if the bot recently answered and the user sends a follow-up question, correction, or request that continues that thread (e.g. "what about X?", "can you also...", "now do Y", "why?", "and the other one?", "try again", "no I meant...")
+- References to bot output: "that one you made", "redo it but...", "make it more..."
 - Questions clearly aimed at an AI: "what do you think...", "do you know..."
 - The message is a direct reply to the bot
 
 Strong signals to IGNORE:
 - Third-person/meta chat about the bot: "the bot should...", "it would be cool if..."
-- Conversations between humans: names/handles directed at other users
+- Conversations between humans: names/handles directed at other users, messages that are clearly part of an ongoing human-to-human conversation
 - Short reactions with no ask: "lol", "same", "lmao", "nice", "rip"
 - Messages with no question or request
-- Discussions about unrelated topics between users
+- Multiple humans chatting back and forth with no bot involvement recently
 
 ASK_CLARIFY (use sparingly):
-- Ambiguous follow-ups right after bot spoke: "that's wild", "okay", "hmm", "interesting"
+- Ambiguous one-word/short messages right after bot spoke that could be a reaction or a request: "interesting", "hmm", "okay"
 - "Can it do X?" — could be discussion or a request
+
+IMPORTANT: Pay close attention to conversation flow. If the bot's message is the most recent \
+message before the user's new message, the user is very likely continuing the conversation \
+with the bot — lean toward RESPOND in that case. If several human messages have occurred \
+since the bot last spoke, the humans are probably talking to each other — lean toward IGNORE.
 
 Default to IGNORE unless you are confident the bot is being addressed. \
 It is much worse to respond when not addressed than to miss a message.\
@@ -74,19 +82,25 @@ async def classify_intent(
         Intent enum value.
     """
     # Build a compact context string from recent history
+    history_slice = recent_history[-8:]  # Last 8 messages for context
     context_lines = []
-    for msg in recent_history[-6:]:  # Last 6 messages for context
+    bot_spoke_last = False
+    for i, msg in enumerate(history_slice):
         name = msg.get("name", "Unknown")
         role = msg.get("role", "user")
         prefix = f"[BOT] {name}" if role == "assistant" else name
         context_lines.append(f"{prefix}: {msg.get('content', '')[:200]}")
+        # Track if the very last message before the new one was from the bot
+        if i == len(history_slice) - 1 and role == "assistant":
+            bot_spoke_last = True
 
     context_block = "\n".join(context_lines) if context_lines else "(no prior context)"
 
     user_prompt = (
         f"Recent conversation:\n{context_block}\n\n"
-        f"Latest message: {latest_message}\n"
-        f"Is reply to bot: {is_reply_to_bot}\n\n"
+        f"Latest message (from user): {latest_message}\n"
+        f"Is reply to bot: {is_reply_to_bot}\n"
+        f"Bot was the last to speak before this message: {bot_spoke_last}\n\n"
         f"Classification:"
     )
 
