@@ -652,6 +652,16 @@ async def close_expired_games() -> None:
                     game_id, exc, exc_info=True
                 )
 
+        # After closing games, check if the weekly winner should be announced.
+        # Saturday's game closes on Sunday; this triggers once no active games remain.
+        closed_guild_ids = set(game_info["guild_id"] for game_info in to_close)
+        for guild_id in closed_guild_ids:
+            try:
+                from bot.app.tasks.trivia_weekly_reset import maybe_announce_weekly_winner
+                await maybe_announce_weekly_winner(client, store, redis_client, guild_id)
+            except Exception as exc:
+                logger.error("Error checking weekly winner for guild %s: %s", guild_id, exc, exc_info=True)
+
         await client.close()
         await close_redis()
 

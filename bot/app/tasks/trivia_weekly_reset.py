@@ -2,8 +2,8 @@
 
 Script intended to be invoked every 10 minutes to perform the weekly trivia reset.
 On Sundays (Pacific time), it saves a snapshot of the prior week's leaderboard
-(Monday through Saturday) and announces the weekly winner in all registered trivia
-channels. Sunday's game is not yet closed when this runs, so it is excluded.
+(Sunday through Saturday) and announces the weekly winner in all registered trivia
+channels.
 
 Uses an idempotency guard (last_reset_time) to ensure the reset fires exactly once
 per week regardless of how many times this script runs.
@@ -55,22 +55,22 @@ def get_current_week_id(now_pt: dt.datetime) -> str:
 
 
 def get_week_start_pt(now_pt: dt.datetime) -> dt.datetime:
-    """Return Monday 00:00 Pacific for the Mon–Sat scoring window that ends this Saturday.
+    """Return Sunday 00:00 Pacific for the Sun–Sat scoring window.
 
-    When called on a Sunday, this returns the most recent Monday (6 days ago).
+    When called on a Sunday, this returns the previous Sunday (7 days ago).
     """
-    # Sunday=6, Monday=0. On Sunday, days_since_monday == 6.
-    days_since_monday = now_pt.weekday()  # Monday=0 … Sunday=6
-    return now_pt.replace(hour=0, minute=0, second=0, microsecond=0) - dt.timedelta(days=days_since_monday)
+    days_since_sunday = (now_pt.weekday() + 1) % 7  # Sun=0, Mon=1, …, Sat=6
+    if days_since_sunday == 0:
+        days_since_sunday = 7  # On Sunday, go back to previous Sunday
+    return now_pt.replace(hour=0, minute=0, second=0, microsecond=0) - dt.timedelta(days=days_since_sunday)
 
 
 def get_week_end_pt(week_start_pt: dt.datetime) -> dt.datetime:
     """Return Saturday 23:59:59 Pacific for the scoring window starting at week_start_pt.
 
-    The window covers Monday through Saturday (6 days). Sunday's game is posted that
-    day but only closes on Monday, so it is excluded from the weekly summary.
+    The window covers Sunday through Saturday (7 days).
     """
-    return week_start_pt + dt.timedelta(days=5, hours=23, minutes=59, seconds=59)
+    return week_start_pt + dt.timedelta(days=6, hours=23, minutes=59, seconds=59)
 
 
 async def run_weekly_reset() -> None:
@@ -90,7 +90,8 @@ async def run_weekly_reset() -> None:
 
     logger.info("Trivia weekly reset check at %s PT (weekday=%d)", now_pt.isoformat(), now_pt.weekday())
 
-    # Only run on Sundays (weekday 6)
+    # Fallback: only run on Sundays (weekday 6).
+    # The primary trigger is in trivia_game_closer (fires on Saturday when last game closes).
     if now_pt.weekday() != 6:
         logger.info("Not Sunday (weekday=%d) – skipping weekly reset.", now_pt.weekday())
         await close_redis()
@@ -100,18 +101,18 @@ async def run_weekly_reset() -> None:
     all_guild_states = get_all_guild_states()
     guilds_to_reset: List[str] = []
 
-    # The reset runs on Sunday to snapshot the current week (Mon–Sat).
+    # The reset runs on Sunday to snapshot the prior week (Sun–Sat).
     # current_week_id is used as the idempotency key so we reset at most once per calendar week.
     current_week_id = get_current_week_id(now_pt)
-    # week_start_pt = this Monday 00:00 PT (6 days ago when called on Sunday)
+    # week_start_pt = previous Sunday 00:00 PT (7 days ago when called on Sunday)
     week_start_pt = get_week_start_pt(now_pt)
     week_start_utc = week_start_pt.astimezone(dt.timezone.utc)
     # week_end_pt = this Saturday 23:59:59 PT
     week_end_pt = get_week_end_pt(week_start_pt)
     week_end_utc = week_end_pt.astimezone(dt.timezone.utc)
 
-    # Scoring window: Monday 00:00 → Saturday 23:59:59 (the week we're summarising)
-    prev_week_start_pt = week_start_pt       # Monday of this week
+    # Scoring window: Sunday 00:00 → Saturday 23:59:59 (the week we're summarising)
+    prev_week_start_pt = week_start_pt       # Sunday of the prior week
     prev_week_start_utc = week_start_utc
     prev_week_id = current_week_id           # snapshot key uses current week
 
@@ -195,7 +196,7 @@ async def process_guild_reset(
 ) -> None:
     """Perform the weekly reset for a single guild.
 
-    Snapshots the current week's Mon–Sat window. Called on Sundays.
+    Snapshots the prior week's Sun–Sat window. Called on Sundays.
 
     Args:
         client: Discord client
@@ -203,7 +204,7 @@ async def process_guild_reset(
         guild_id_str: Guild ID string
         current_week_id: ISO week ID of the current week (used for idempotency)
         prev_week_id: ISO week ID being snapshotted (same as current_week_id when posting on Sunday)
-        prev_week_start_pt: Monday 00:00 Pacific datetime (start of scoring window)
+        prev_week_start_pt: Sunday 00:00 Pacific datetime (start of scoring window)
         prev_week_start_utc: prev_week_start_pt converted to UTC
         week_end_utc: Saturday 23:59:59 UTC (inclusive upper bound for game filter)
         now_utc: Current UTC datetime
@@ -223,7 +224,7 @@ async def process_guild_reset(
     # Get all history and filter to the previous week window
     trivia_history = await store.get_all_history_as_dict(guild_id_str)
 
-    # Calculate leaderboard for Mon–Sat of the current week
+    # Calculate leaderboard for Sun–Sat of the prior week
     stats_service = TriviaStatsService()
     leaderboard = stats_service.calculate_leaderboard(
         trivia_history,
@@ -329,6 +330,82 @@ async def process_guild_reset(
     # Mark reset as done
     await store.set_last_reset_time(guild_id_str, now_utc.isoformat())
     logger.info("Completed weekly reset for guild %s, week %s", guild_id_str, current_week_id)
+
+
+async def maybe_announce_weekly_winner(
+    client: discord.Client,
+    store: TriviaRedisStore,
+    redis_client: Any,
+    guild_id_str: str,
+) -> None:
+    """Announce the weekly winner when the last game of the week closes.
+
+    Called by the trivia closer after a game finishes.  Saturday's game closes
+    on Sunday, so this fires on Sunday once no active games remain.  Only acts
+    when all three conditions are true:
+      1. It is Sunday in Pacific time.
+      2. The guild has no remaining active games.
+      3. The weekly reset has not already been recorded for this ISO week.
+    """
+    now_utc = dt.datetime.now(dt.timezone.utc)
+    now_pt = now_utc.astimezone(PACIFIC_TZ)
+
+    # Only trigger on Sunday (weekday 6) — Saturday's game closes on Sunday
+    if now_pt.weekday() != 6:
+        return
+
+    # Check if there are remaining active games
+    active_games = await store.get_active_games(guild_id_str)
+    if active_games:
+        logger.info(
+            "Guild %s still has %d active game(s) — deferring weekly winner.",
+            guild_id_str, len(active_games),
+        )
+        return
+
+    current_week_id = get_current_week_id(now_pt)
+
+    # Idempotency: skip if already reset this week
+    last_reset_str = await store.get_last_reset_time(guild_id_str)
+    if last_reset_str:
+        try:
+            last_reset_dt = dt.datetime.fromisoformat(last_reset_str)
+            last_reset_week_id = get_current_week_id(last_reset_dt.astimezone(PACIFIC_TZ))
+            if last_reset_week_id == current_week_id:
+                logger.info(
+                    "Guild %s already reset for week %s — skipping.",
+                    guild_id_str, current_week_id,
+                )
+                return
+        except (ValueError, TypeError):
+            pass
+
+    week_start_pt = get_week_start_pt(now_pt)
+    week_start_utc = week_start_pt.astimezone(dt.timezone.utc)
+    week_end_utc = get_week_end_pt(week_start_pt).astimezone(dt.timezone.utc)
+
+    logger.info(
+        "Last game of the week closed for guild %s — announcing weekly winner for week %s.",
+        guild_id_str, current_week_id,
+    )
+
+    lock_resource = f"trivia:{guild_id_str}:weekly_reset"
+    try:
+        async with redis_lock(redis_client, lock_resource, timeout=120):
+            await process_guild_reset(
+                client, store, guild_id_str,
+                current_week_id,
+                current_week_id, week_start_pt, week_start_utc,
+                week_end_utc,
+                now_utc,
+            )
+    except LockAcquisitionError:
+        logger.info("Could not acquire weekly reset lock for guild %s", guild_id_str)
+    except Exception as exc:
+        logger.error(
+            "Error running weekly reset for guild %s: %s",
+            guild_id_str, exc, exc_info=True,
+        )
 
 
 if __name__ == "__main__":
