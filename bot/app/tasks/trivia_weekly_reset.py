@@ -341,10 +341,11 @@ async def maybe_announce_weekly_winner(
     """Announce the weekly winner when the last game of the week closes.
 
     Called by the trivia closer after a game finishes.  Saturday's game closes
-    on Sunday, so this fires on Sunday once no active games remain.  Only acts
-    when all three conditions are true:
+    on Sunday, so this fires on Sunday once no active games from the scoring
+    window remain.  Sunday's new games are ignored (they belong to next week).
+    Only acts when all three conditions are true:
       1. It is Sunday in Pacific time.
-      2. The guild has no remaining active games.
+      2. No active games started within the scoring window (Sun–Sat) remain.
       3. The weekly reset has not already been recorded for this ISO week.
     """
     now_utc = dt.datetime.now(dt.timezone.utc)
@@ -354,12 +355,30 @@ async def maybe_announce_weekly_winner(
     if now_pt.weekday() != 6:
         return
 
-    # Check if there are remaining active games
+    # Determine the scoring window so we can ignore next-week games
+    week_start_pt = get_week_start_pt(now_pt)
+    week_end_pt = get_week_end_pt(week_start_pt)
+    week_end_utc = week_end_pt.astimezone(dt.timezone.utc)
+
+    # Check if any active games were started within the scoring window (Sun–Sat).
+    # Games posted on Sunday (today) belong to next week and should be ignored.
     active_games = await store.get_active_games(guild_id_str)
-    if active_games:
+    games_in_window = 0
+    for game_id, game_data in active_games.items():
+        started_at_str = game_data.get("started_at", "")
+        if not started_at_str:
+            continue
+        try:
+            started_at = dt.datetime.fromisoformat(started_at_str)
+            if started_at <= week_end_utc:
+                games_in_window += 1
+        except (ValueError, TypeError):
+            continue
+
+    if games_in_window > 0:
         logger.info(
-            "Guild %s still has %d active game(s) — deferring weekly winner.",
-            guild_id_str, len(active_games),
+            "Guild %s still has %d active game(s) from this week — deferring weekly winner.",
+            guild_id_str, games_in_window,
         )
         return
 
@@ -380,9 +399,7 @@ async def maybe_announce_weekly_winner(
         except (ValueError, TypeError):
             pass
 
-    week_start_pt = get_week_start_pt(now_pt)
     week_start_utc = week_start_pt.astimezone(dt.timezone.utc)
-    week_end_utc = get_week_end_pt(week_start_pt).astimezone(dt.timezone.utc)
 
     logger.info(
         "Last game of the week closed for guild %s — announcing weekly winner for week %s.",
