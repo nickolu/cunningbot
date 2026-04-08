@@ -175,7 +175,7 @@ def format_batch_feedback(
     - Score at top
     - Each question with correct answer
     - Checkmark/X for user's answer
-    - NO explanations in immediate feedback
+    - Explanation under each question when available (AI questions)
     """
     # Calculate score
     total = len(questions)
@@ -232,6 +232,9 @@ def format_batch_feedback(
                 user_display = f"'{user_answer}'" if not correct_letter else user_answer.upper()
 
         lines.append(f"{q_num}. {correct_display} {status} (you answered {user_display})")
+        explanation = question_data.get("explanation", "")
+        if explanation:
+            lines.append(f"   📖 {explanation}")
 
     return "\n".join(lines)
 
@@ -493,19 +496,21 @@ async def submit_trivia_answer(
         return
 
     # Success! Send feedback based on validation
+    explanation = game_data.get("explanation", "")
     if submission_data.get("is_correct"):
         feedback_message = (
             "✅ **Correct!** Your answer has been recorded.\n\n"
             "You'll see the official results when the answer window closes."
         )
+        if explanation:
+            feedback_message += f"\n\n📖 {explanation}"
     elif submission_data.get("is_correct") is False:
-        explanation = game_data.get("explanation", "")
         feedback_message = (
             f"❌ **Sorry, that's not correct.**\n\n"
             f"The correct answer is: **{correct_answer}**"
         )
         if explanation:
-            feedback_message += f"\n\n{explanation}"
+            feedback_message += f"\n\n📖 {explanation}"
     else:
         # Validation failed, generic message
         feedback_message = (
@@ -934,6 +939,10 @@ async def submit_batch_question_button(
         feedback_msg = "✅ **Correct!** Your answer has been recorded."
     else:
         feedback_msg = f"❌ **Incorrect.** The correct answer is: **{correct_answer}**"
+
+    explanation = q_data.get("explanation", "")
+    if explanation:
+        feedback_msg += f"\n\n📖 {explanation}"
 
     await respond(feedback_msg)
 
