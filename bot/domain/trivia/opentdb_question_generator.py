@@ -50,7 +50,8 @@ async def generate_trivia_questions_from_opentdb(
     guild_id: Optional[str] = None,
     used_seeds: Optional[Set] = None,
     base_words: Optional[List[str]] = None,
-    modifiers: Optional[List[str]] = None
+    modifiers: Optional[List[str]] = None,
+    category_id: Optional[int] = None,
 ) -> Tuple[List[Dict[str, str]], int]:
     """
     Generate trivia questions from OpenTDB API.
@@ -74,8 +75,9 @@ async def generate_trivia_questions_from_opentdb(
     Raises:
         Exception: If both OpenTDB and AI fallback fail
     """
-    # Randomly select ONE category
-    category_id = random.choice(list(OPENTDB_CATEGORIES.keys()))
+    # Use provided category (from round-robin rotation) or fall back to random
+    if category_id is None:
+        category_id = random.choice(list(OPENTDB_CATEGORIES.keys()))
     category_name = OPENTDB_CATEGORIES[category_id]
 
     logger.info(f"Selected OpenTDB category: {category_name} (ID: {category_id})")

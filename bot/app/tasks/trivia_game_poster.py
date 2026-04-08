@@ -15,6 +15,7 @@ import asyncio
 import datetime as dt
 import os
 import logging
+import random
 import uuid
 from typing import Any, Dict, List
 
@@ -540,6 +541,17 @@ async def post_trivia_questions() -> None:
                     medium_count = registration.get("medium_count", 2)
                     hard_count = registration.get("hard_count", 1)
 
+                    # Round-robin category selection.  Each registration stores a
+                    # cursor into the sorted category-id list and advances it after
+                    # a successful post so all 24 categories cycle before repeating.
+                    # Missing cursor (existing registrations) starts at a random
+                    # offset to stagger guilds/registrations.
+                    sorted_category_ids = sorted(OPENTDB_CATEGORIES.keys())
+                    category_cursor = registration.get("category_cursor")
+                    if category_cursor is None:
+                        category_cursor = random.randrange(len(sorted_category_ids))
+                    selected_category_id = sorted_category_ids[category_cursor % len(sorted_category_ids)]
+
                     # Generate questions from OpenTDB (all from same category)
                     opentdb_questions, category_id = await generate_trivia_questions_from_opentdb(
                         easy_count=easy_count,
@@ -548,7 +560,8 @@ async def post_trivia_questions() -> None:
                         guild_id=guild_id,
                         used_seeds=used_seeds,
                         base_words=registration.get("base_words"),
-                        modifiers=registration.get("modifiers")
+                        modifiers=registration.get("modifiers"),
+                        category_id=selected_category_id,
                     )
 
                     # Get category display name
@@ -724,6 +737,11 @@ async def post_trivia_questions() -> None:
                     # Mark AI seeds as used
                     for seed in used_seeds_for_ai:
                         await store.mark_seed_used(guild_id, seed)
+
+                    # Advance category cursor and persist to registration so the
+                    # next scheduled post picks the next category in rotation.
+                    registration["category_cursor"] = (category_cursor + 1) % len(sorted_category_ids)
+                    await store.save_registration(guild_id, reg_id, registration)
 
                     logger.info("Saved batch game state for batch_id %s", batch_id[:8])
 
