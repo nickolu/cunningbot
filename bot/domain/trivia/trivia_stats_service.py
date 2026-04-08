@@ -47,12 +47,15 @@ class TriviaStatsService:
                 if game_category != category:
                     continue
 
-            # Filter by date if specified
-            ended_at_str = game.get("ended_at")
+            # Filter by date if specified.
+            # Prefer started_at (when the game was posted) so a game posted on
+            # Saturday but closed on Sunday still counts toward Saturday's week.
+            # Fall back to ended_at for backward compatibility with older records.
+            date_str = game.get("started_at") or game.get("ended_at")
             if cutoff_date or until:
-                if ended_at_str:
+                if date_str:
                     try:
-                        game_date = dt.datetime.fromisoformat(ended_at_str)
+                        game_date = dt.datetime.fromisoformat(date_str)
                         if cutoff_date and game_date < cutoff_date:
                             continue
                         if until and game_date >= until:
