@@ -4,7 +4,6 @@ from discord import app_commands
 from discord.ext import commands
 from typing import Any, Optional
 from urllib.parse import urlparse
-import feedparser
 from datetime import datetime
 from html.parser import HTMLParser
 import logging
@@ -22,9 +21,9 @@ from bot.app.story_history import (
     DEFAULT_DEDUP_WINDOW_HOURS
 )
 
-logger = logging.getLogger("NewsCommands")
+from bot.app.utils.feed_fetch import fetch_and_parse_feed
 
-FEED_USER_AGENT = "Mozilla/5.0 (compatible; CunningBot/1.0; +https://github.com/cunningjams/cunningbot)"
+logger = logging.getLogger("NewsCommands")
 
 
 def _is_valid_url(url: str) -> bool:
@@ -208,7 +207,7 @@ class NewsCog(commands.Cog):
             # Fetch feed with timeout protection
             try:
                 feed = await asyncio.wait_for(
-                    asyncio.to_thread(feedparser.parse, feed_url, agent=FEED_USER_AGENT),
+                    fetch_and_parse_feed(feed_url),
                     timeout=30.0
                 )
             except asyncio.TimeoutError:
@@ -1126,7 +1125,7 @@ class NewsCog(commands.Cog):
             # Fetch the feed with timeout protection
             try:
                 feed = await asyncio.wait_for(
-                    asyncio.to_thread(feedparser.parse, feed_url, agent=FEED_USER_AGENT),
+                    fetch_and_parse_feed(feed_url),
                     timeout=30.0
                 )
             except asyncio.TimeoutError:
