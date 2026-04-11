@@ -23,10 +23,9 @@ from html.parser import HTMLParser
 
 import aiohttp
 import discord
-import feedparser
 from dotenv import load_dotenv
 
-FEED_USER_AGENT = "Mozilla/5.0 (compatible; CunningBot/1.0; +https://github.com/cunningjams/cunningbot)"
+from bot.app.utils.feed_fetch import fetch_and_parse_feed
 
 # Load environment variables from .env
 load_dotenv()
@@ -424,10 +423,9 @@ async def collect_rss_updates() -> None:
                     logger.info("Fetching feed '%s' from %s", feed_name, feed_url)
 
                     # Fetch and parse the feed with timeout protection
-                    # feedparser.parse() is synchronous and can hang, so run in thread with timeout
                     try:
                         feed = await asyncio.wait_for(
-                            asyncio.to_thread(feedparser.parse, feed_url, agent=FEED_USER_AGENT),
+                            fetch_and_parse_feed(feed_url),
                             timeout=30.0  # 30 second timeout per feed
                         )
                     except asyncio.TimeoutError:
