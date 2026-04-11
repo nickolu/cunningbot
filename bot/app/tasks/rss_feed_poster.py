@@ -26,6 +26,8 @@ import discord
 import feedparser
 from dotenv import load_dotenv
 
+FEED_USER_AGENT = "Mozilla/5.0 (compatible; CunningBot/1.0; +https://github.com/cunningjams/cunningbot)"
+
 # Load environment variables from .env
 load_dotenv()
 from bot.app.redis.rss_store import RSSRedisStore
@@ -425,7 +427,7 @@ async def collect_rss_updates() -> None:
                     # feedparser.parse() is synchronous and can hang, so run in thread with timeout
                     try:
                         feed = await asyncio.wait_for(
-                            asyncio.to_thread(feedparser.parse, feed_url),
+                            asyncio.to_thread(feedparser.parse, feed_url, agent=FEED_USER_AGENT),
                             timeout=30.0  # 30 second timeout per feed
                         )
                     except asyncio.TimeoutError:
