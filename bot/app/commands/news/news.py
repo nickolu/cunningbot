@@ -24,6 +24,8 @@ from bot.app.story_history import (
 
 logger = logging.getLogger("NewsCommands")
 
+FEED_USER_AGENT = "Mozilla/5.0 (compatible; CunningBot/1.0; +https://github.com/cunningjams/cunningbot)"
+
 
 def _is_valid_url(url: str) -> bool:
     """Simple URL validation."""
@@ -206,7 +208,7 @@ class NewsCog(commands.Cog):
             # Fetch feed with timeout protection
             try:
                 feed = await asyncio.wait_for(
-                    asyncio.to_thread(feedparser.parse, feed_url),
+                    asyncio.to_thread(feedparser.parse, feed_url, agent=FEED_USER_AGENT),
                     timeout=30.0
                 )
             except asyncio.TimeoutError:
@@ -1124,7 +1126,7 @@ class NewsCog(commands.Cog):
             # Fetch the feed with timeout protection
             try:
                 feed = await asyncio.wait_for(
-                    asyncio.to_thread(feedparser.parse, feed_url),
+                    asyncio.to_thread(feedparser.parse, feed_url, agent=FEED_USER_AGENT),
                     timeout=30.0
                 )
             except asyncio.TimeoutError:
