@@ -139,6 +139,16 @@ def create_batch_overview_embed(
     )
 
     embed.add_field(
+        name="⚠️ Heads up — /trivia is moving!",
+        value=(
+            "This Discord trivia bot will be **shutting down soon**.\n"
+            "Play the new daily trivia at **https://cometcave.com/trivia** "
+            "— shareable scores, global leaderboard, same daily cadence."
+        ),
+        inline=False
+    )
+
+    embed.add_field(
         name="📝 How to Answer",
         value=(
             "Click the **A / B / C / D** buttons on each question below.\n\n"
