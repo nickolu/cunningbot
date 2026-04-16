@@ -70,6 +70,8 @@ async def process_guild(
     today = today_in_tz(timezone)
     current_idx = state.get("current_index", 0) % len(rotation)
     current_user_id = rotation[current_idx]
+    substitute = state.get("substitute") or {}
+    reminder_user_id = substitute.get("user_id", current_user_id)
     reminders_sent = state.get("reminders_sent", [])
 
     event = state.get("event")
@@ -139,6 +141,7 @@ async def process_guild(
                 fresh_state["last_advanced"] = fresh_today.isoformat()
                 fresh_state["event"] = None
                 fresh_state["reminders_sent"] = []
+                fresh_state["substitute"] = None
                 await store.save_state(guild_id, fresh_state)
 
                 embed = discord.Embed(
@@ -174,12 +177,12 @@ async def process_guild(
         if days_until <= 7 and "7d" not in reminders_sent:
             if event:
                 msg = (
-                    f"📣 <@{current_user_id}>, Lunch Boyz is in {days_until} day(s)!\n"
+                    f"📣 <@{reminder_user_id}>, Lunch Boyz is in {days_until} day(s)!\n"
                     f"{event_details_str()}"
                 )
             else:
                 msg = (
-                    f"📣 <@{current_user_id}>, you're up for Lunch Boyz in {days_until} day(s)! "
+                    f"📣 <@{reminder_user_id}>, you're up for Lunch Boyz in {days_until} day(s)! "
                     f"You have until {target_date.strftime('%m/%d/%Y')}. "
                     "Don't forget to use `/lunchboyz plan` to let the crew know where we're going."
                 )
@@ -187,7 +190,7 @@ async def process_guild(
                 await channel.send(msg)
                 reminders_sent.append("7d")
                 needs_save = True
-                logger.info(f"Guild {guild_id}: sent 7d reminder to user {current_user_id}")
+                logger.info(f"Guild {guild_id}: sent 7d reminder to user {reminder_user_id}")
             except Exception as exc:
                 logger.error(f"Guild {guild_id}: failed to send 7d reminder: {exc}")
 
@@ -195,18 +198,18 @@ async def process_guild(
             urgency = "TODAY" if days_until <= 0 else "TOMORROW"
             if event:
                 msg = (
-                    f"🚨 <@{current_user_id}> — Lunch Boyz is {urgency}!\n"
+                    f"🚨 <@{reminder_user_id}> — Lunch Boyz is {urgency}!\n"
                     f"{event_details_str()}"
                 )
             else:
                 msg = (
-                    f"🚨 <@{current_user_id}> — Lunch Boyz is {urgency}! Have you set your event yet?"
+                    f"🚨 <@{reminder_user_id}> — Lunch Boyz is {urgency}! Have you set your event yet?"
                 )
             try:
                 await channel.send(msg)
                 reminders_sent.append("1d")
                 needs_save = True
-                logger.info(f"Guild {guild_id}: sent 1d reminder to user {current_user_id}")
+                logger.info(f"Guild {guild_id}: sent 1d reminder to user {reminder_user_id}")
             except Exception as exc:
                 logger.error(f"Guild {guild_id}: failed to send 1d reminder: {exc}")
 

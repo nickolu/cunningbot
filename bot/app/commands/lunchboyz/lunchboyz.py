@@ -1,7 +1,8 @@
 """Lunch Boyz rotation command cog for CunningBot.
 
-Provides /lunchboyz setup, status, skip, plan, and advance commands
-for managing a bi-weekly rotating lunch/happy-hour responsibility.
+Provides /lunchboyz setup, status, skip, plan, advance, delay, previous,
+and sub commands for managing a bi-weekly rotating lunch/happy-hour
+responsibility.
 """
 
 import datetime
@@ -192,9 +193,19 @@ class LunchboyzCog(commands.Cog):
         deadline = make_deadline(last_advanced, frequency_days)
 
         embed = discord.Embed(title="🍽️ Lunch Boyz Status", color=0xF4A460)
+
+        substitute = state.get("substitute")
+        if substitute:
+            sub_id = substitute["user_id"]
+            sub_name = get_member_name(interaction.guild, sub_id)
+            orig_name = get_member_name(interaction.guild, substitute["original_user_id"])
+            currently_up_value = f"<@{sub_id}> ({sub_name}) (subbing for {orig_name})"
+        else:
+            currently_up_value = f"<@{current_id}> ({current_name})"
+
         embed.add_field(
             name="Currently Up",
-            value=f"<@{current_id}> ({current_name})",
+            value=currently_up_value,
             inline=False,
         )
 
@@ -261,6 +272,7 @@ class LunchboyzCog(commands.Cog):
         state["last_advanced"] = datetime.date.today().isoformat()
         state["event"] = None
         state["reminders_sent"] = []
+        state["substitute"] = None
         await store.save_state(guild_id_str, state)
 
         next_id = rotation[new_idx]
@@ -386,6 +398,7 @@ class LunchboyzCog(commands.Cog):
         state["last_advanced"] = datetime.date.today().isoformat()
         state["event"] = None
         state["reminders_sent"] = []
+        state["substitute"] = None
         await store.save_state(guild_id_str, state)
 
         next_id = rotation[new_idx]
@@ -405,6 +418,161 @@ class LunchboyzCog(commands.Cog):
             await channel.send(embed=embed)
 
         await interaction.followup.send("Rotation advanced.", ephemeral=True)
+
+    # ------------------------------------------------------------------
+    # /lunchboyz delay
+    # ------------------------------------------------------------------
+
+    @lunchboyz.command(
+        name="delay",
+        description="Delay the current rotation by 1 week.",
+    )
+    async def delay(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+
+        guild_id_str = guild_id_to_str(interaction.guild_id)
+        store = LunchboyzRedisStore()
+        config = await store.get_config(guild_id_str)
+        rotation = await store.get_rotation(guild_id_str)
+        state = await store.get_state(guild_id_str)
+
+        if not config or not rotation or not state:
+            await interaction.followup.send(
+                "Lunch Boyz hasn't been set up yet. Use `/lunchboyz setup` first.",
+                ephemeral=True,
+            )
+            return
+
+        new_last_advanced = (
+            datetime.date.fromisoformat(state["last_advanced"]) + datetime.timedelta(days=7)
+        ).isoformat()
+        state["last_advanced"] = new_last_advanced
+        state["event"] = None
+        state["reminders_sent"] = []
+        # substitute is intentionally preserved
+        await store.save_state(guild_id_str, state)
+
+        frequency_days = config.get("frequency_days", 14)
+        new_deadline = make_deadline(new_last_advanced, frequency_days)
+
+        current_idx = state.get("current_index", 0) % len(rotation)
+        current_id = rotation[current_idx]
+
+        substitute = state.get("substitute")
+        if substitute:
+            display_id = substitute["user_id"]
+        else:
+            display_id = current_id
+        display_name = get_member_name(interaction.guild, display_id)
+
+        channel_id = int(config["channel_id"])
+        channel = self.bot.get_channel(channel_id)
+        if channel and isinstance(channel, discord.TextChannel):
+            await channel.send(
+                f"⏳ Event delayed by 1 week. <@{display_id}> ({display_name}) is still up — "
+                f"new deadline: {new_deadline.strftime('%m/%d/%Y')}."
+            )
+
+        await interaction.followup.send("Rotation delayed by 1 week.", ephemeral=True)
+
+    # ------------------------------------------------------------------
+    # /lunchboyz previous
+    # ------------------------------------------------------------------
+
+    @lunchboyz.command(
+        name="previous",
+        description="Rotate back to the previous person.",
+    )
+    async def previous(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+
+        guild_id_str = guild_id_to_str(interaction.guild_id)
+        store = LunchboyzRedisStore()
+        config = await store.get_config(guild_id_str)
+        rotation = await store.get_rotation(guild_id_str)
+        state = await store.get_state(guild_id_str)
+
+        if not config or not rotation or not state:
+            await interaction.followup.send(
+                "Lunch Boyz hasn't been set up yet. Use `/lunchboyz setup` first.",
+                ephemeral=True,
+            )
+            return
+
+        current_idx = state.get("current_index", 0)
+        new_idx = (current_idx - 1) % len(rotation)
+        state["current_index"] = new_idx
+        state["last_advanced"] = datetime.date.today().isoformat()
+        state["event"] = None
+        state["reminders_sent"] = []
+        state["substitute"] = None
+        await store.save_state(guild_id_str, state)
+
+        frequency_days = config.get("frequency_days", 14)
+        new_deadline = make_deadline(state["last_advanced"], frequency_days)
+
+        prev_id = rotation[new_idx]
+        prev_name = get_member_name(interaction.guild, prev_id)
+
+        channel_id = int(config["channel_id"])
+        channel = self.bot.get_channel(channel_id)
+        if channel and isinstance(channel, discord.TextChannel):
+            await channel.send(
+                f"⏮️ Rotated back. <@{prev_id}> ({prev_name}) is now up! "
+                f"Deadline: {new_deadline.strftime('%m/%d/%Y')}."
+            )
+
+        await interaction.followup.send("Rotated back to previous person.", ephemeral=True)
+
+    # ------------------------------------------------------------------
+    # /lunchboyz sub
+    # ------------------------------------------------------------------
+
+    @lunchboyz.command(
+        name="sub",
+        description="Set a substitute for the current rotation slot.",
+    )
+    @app_commands.describe(user="The member who will sub in this round.")
+    async def sub(self, interaction: discord.Interaction, user: discord.Member) -> None:
+        await interaction.response.defer(ephemeral=True)
+
+        guild_id_str = guild_id_to_str(interaction.guild_id)
+        store = LunchboyzRedisStore()
+        config = await store.get_config(guild_id_str)
+        rotation = await store.get_rotation(guild_id_str)
+        state = await store.get_state(guild_id_str)
+
+        if not config or not rotation or not state:
+            await interaction.followup.send(
+                "Lunch Boyz hasn't been set up yet. Use `/lunchboyz setup` first.",
+                ephemeral=True,
+            )
+            return
+
+        current_idx = state.get("current_index", 0) % len(rotation)
+        current_id = rotation[current_idx]
+
+        if str(user.id) == current_id:
+            await interaction.followup.send("They're already up!", ephemeral=True)
+            return
+
+        state["substitute"] = {
+            "user_id": str(user.id),
+            "original_user_id": current_id,
+        }
+        await store.save_state(guild_id_str, state)
+
+        original_name = get_member_name(interaction.guild, current_id)
+
+        channel_id = int(config["channel_id"])
+        channel = self.bot.get_channel(channel_id)
+        if channel and isinstance(channel, discord.TextChannel):
+            await channel.send(
+                f"🔁 <@{user.id}> ({user.display_name}) is subbing in for "
+                f"{original_name} this round!"
+            )
+
+        await interaction.followup.send("Substitute set.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:
