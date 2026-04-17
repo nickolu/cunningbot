@@ -692,3 +692,108 @@ class RSSRedisStore:
                 break
 
         return guilds
+
+    # --- Roundup ---
+
+    async def get_roundup_config(self, guild_id: str, channel_id: str, name_normalized: str) -> Optional[Dict[str, Any]]:
+        """Get a roundup config."""
+        key = f"news:{guild_id}:{channel_id}:roundup:{name_normalized}:config"
+        data = await self.redis.get(key)
+        if data:
+            return json.loads(data)
+        return None
+
+    async def save_roundup_config(self, guild_id: str, channel_id: str, name_normalized: str, config: Dict[str, Any]) -> None:
+        """Save roundup config and add to channel index."""
+        config_key = f"news:{guild_id}:{channel_id}:roundup:{name_normalized}:config"
+        index_key = f"news:{guild_id}:{channel_id}:roundup:_index"
+        await self.redis.set(config_key, json.dumps(config))
+        await self.redis.sadd(index_key, name_normalized)
+
+    async def delete_roundup(self, guild_id: str, channel_id: str, name_normalized: str) -> int:
+        """Delete a roundup entirely. Returns number of articles that were stored."""
+        articles_key = f"news:{guild_id}:{channel_id}:roundup:{name_normalized}:articles"
+        config_key = f"news:{guild_id}:{channel_id}:roundup:{name_normalized}:config"
+        index_key = f"news:{guild_id}:{channel_id}:roundup:_index"
+        count = await self.redis.llen(articles_key)
+        await self.redis.delete(config_key, articles_key)
+        await self.redis.srem(index_key, name_normalized)
+        return count
+
+    async def list_roundups(self, guild_id: str, channel_id: str) -> List[Dict[str, Any]]:
+        """List all roundups for a channel."""
+        index_key = f"news:{guild_id}:{channel_id}:roundup:_index"
+        slugs = await self.redis.smembers(index_key)
+        results = []
+        for slug in sorted(slugs):
+            config = await self.get_roundup_config(guild_id, channel_id, slug)
+            if config:
+                articles_key = f"news:{guild_id}:{channel_id}:roundup:{slug}:articles"
+                config["article_count"] = await self.redis.llen(articles_key)
+                results.append(config)
+        return results
+
+    async def add_roundup_article(self, guild_id: str, channel_id: str, name_normalized: str, article: Dict[str, Any]) -> int:
+        """Add an article to a roundup. Returns new length. Deduplicates by URL and caps at 100."""
+        articles_key = f"news:{guild_id}:{channel_id}:roundup:{name_normalized}:articles"
+        url = article.get("url") or article.get("link", "")
+        if url:
+            existing = await self.redis.lrange(articles_key, 0, -1)
+            for item in existing:
+                try:
+                    stored = json.loads(item)
+                    if stored.get("url") == url:
+                        return await self.redis.llen(articles_key)
+                except json.JSONDecodeError:
+                    pass
+        entry = json.dumps({
+            "title": article.get("title", ""),
+            "url": url,
+            "collected_at": datetime.utcnow().isoformat() + "Z",
+        })
+        await self.redis.lpush(articles_key, entry)
+        await self.redis.ltrim(articles_key, 0, 99)
+        return await self.redis.llen(articles_key)
+
+    async def get_roundup_articles(self, guild_id: str, channel_id: str, name_normalized: str, page: int = 1, page_size: int = 20):
+        """Get paginated articles for a roundup. Returns (articles, total)."""
+        articles_key = f"news:{guild_id}:{channel_id}:roundup:{name_normalized}:articles"
+        total = await self.redis.llen(articles_key)
+        start = (page - 1) * page_size
+        end = start + page_size - 1
+        raw = await self.redis.lrange(articles_key, start, end)
+        articles = []
+        for item in raw:
+            try:
+                articles.append(json.loads(item))
+            except json.JSONDecodeError:
+                pass
+        return articles, total
+
+    async def clear_roundup_articles(self, guild_id: str, channel_id: str, name_normalized: str) -> int:
+        """Clear all articles from a roundup. Returns count cleared."""
+        articles_key = f"news:{guild_id}:{channel_id}:roundup:{name_normalized}:articles"
+        count = await self.redis.llen(articles_key)
+        await self.redis.delete(articles_key)
+        return count
+
+    async def get_all_roundups_for_guild(self, guild_id: str) -> List[Dict[str, Any]]:
+        """Get all roundup configs across all channels for a guild. Used by the feed collector."""
+        pattern = f"news:{guild_id}:*:roundup:_index"
+        roundups = []
+        cursor = 0
+        while True:
+            cursor, keys = await self.redis.scan(cursor, match=pattern, count=100)
+            for key in keys:
+                parts = key.split(":")
+                # key format: news:{guild_id}:{channel_id}:roundup:_index
+                if len(parts) >= 5:
+                    channel_id = parts[2]
+                    slugs = await self.redis.smembers(key)
+                    for slug in slugs:
+                        config = await self.get_roundup_config(guild_id, channel_id, slug)
+                        if config:
+                            roundups.append(config)
+            if cursor == 0:
+                break
+        return roundups
