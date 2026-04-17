@@ -1,4 +1,5 @@
 import asyncio
+import re as _re
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -24,6 +25,15 @@ from bot.app.story_history import (
 from bot.app.utils.feed_fetch import fetch_and_parse_feed
 
 logger = logging.getLogger("NewsCommands")
+
+
+def _normalize_roundup_name(name: str) -> str:
+    """Normalize a roundup name for use as a Redis key component."""
+    slug = name.lower().strip()
+    slug = slug.replace(" ", "-")
+    slug = _re.sub(r"[^a-z0-9\-]", "", slug)
+    slug = _re.sub(r"-+", "-", slug).strip("-")
+    return slug[:50]
 
 
 def _is_valid_url(url: str) -> bool:
@@ -169,6 +179,12 @@ class NewsCog(commands.Cog):
 
     news = app_commands.Group(
         name="news", description="Manage RSS news feed subscriptions."
+    )
+
+    roundup = app_commands.Group(
+        name="roundup",
+        description="Manage news roundups that collect matching articles.",
+        parent=news,
     )
 
     @news.command(name="add", description="Add a new RSS feed to monitor in this channel.")
@@ -1580,6 +1596,183 @@ class NewsCog(commands.Cog):
         embed.set_footer(text="To disable: /news breaking topics:disable")
 
         await interaction.response.send_message(embed=embed)
+
+    # --- Roundup commands ---
+
+    @roundup.command(name="add", description="Create a new roundup that collects articles matching a query.")
+    @app_commands.describe(
+        name="Human-readable name for the roundup (e.g., 'New Releases')",
+        match_query="Search phrase to match articles against (e.g., 'new music releases')",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def roundup_add(self, interaction: discord.Interaction, name: str, match_query: str) -> None:
+        channel = interaction.channel
+        if not isinstance(channel, discord.TextChannel):
+            await interaction.response.send_message("This command can only be used in a text channel.", ephemeral=True)
+            return
+
+        slug = _normalize_roundup_name(name)
+        if not slug:
+            await interaction.response.send_message("Invalid roundup name. Use letters, numbers, and spaces.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        store = RSSRedisStore()
+        guild_id = guild_id_to_str(interaction.guild_id)
+        channel_id = str(channel.id)
+
+        existing = await store.get_roundup_config(guild_id, channel_id, slug)
+        if existing:
+            await interaction.followup.send(f"A roundup named **{name}** already exists in this channel.", ephemeral=True)
+            return
+
+        config = {
+            "name": name,
+            "name_normalized": slug,
+            "match_query": match_query,
+            "channel_id": channel_id,
+            "guild_id": guild_id,
+            "created_at": datetime.utcnow().isoformat() + "Z",
+        }
+        await store.save_roundup_config(guild_id, channel_id, slug, config)
+        await interaction.followup.send(f"Roundup **{name}** created! Matching articles for: `{match_query}`", ephemeral=True)
+
+    @roundup.command(name="list", description="Show all roundups configured for this channel.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def roundup_list(self, interaction: discord.Interaction) -> None:
+        channel = interaction.channel
+        if not isinstance(channel, discord.TextChannel):
+            await interaction.response.send_message("This command can only be used in a text channel.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        store = RSSRedisStore()
+        guild_id = guild_id_to_str(interaction.guild_id)
+        channel_id = str(channel.id)
+
+        roundups = await store.list_roundups(guild_id, channel_id)
+        if not roundups:
+            await interaction.followup.send("No roundups configured for this channel.", ephemeral=True)
+            return
+
+        lines = []
+        for r in roundups:
+            count = r.get("article_count", 0)
+            lines.append(f"**{r['name']}** — query: `{r['match_query']}` — {count} article{'s' if count != 1 else ''}")
+
+        embed = discord.Embed(
+            title="News Roundups",
+            description="\n".join(lines),
+            color=discord.Color.blue(),
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @roundup.command(name="show", description="Show collected articles for a roundup.")
+    @app_commands.describe(
+        name="Roundup name (defaults to first roundup if omitted)",
+        page="Page number (default: 1)",
+    )
+    async def roundup_show(self, interaction: discord.Interaction, name: Optional[str] = None, page: int = 1) -> None:
+        channel = interaction.channel
+        if not isinstance(channel, discord.TextChannel):
+            await interaction.response.send_message("This command can only be used in a text channel.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        store = RSSRedisStore()
+        guild_id = guild_id_to_str(interaction.guild_id)
+        channel_id = str(channel.id)
+
+        if name:
+            slug = _normalize_roundup_name(name)
+            config = await store.get_roundup_config(guild_id, channel_id, slug)
+            if not config:
+                await interaction.followup.send(f"No roundup named **{name}** found in this channel.", ephemeral=True)
+                return
+        else:
+            roundups = await store.list_roundups(guild_id, channel_id)
+            if not roundups:
+                await interaction.followup.send("No roundups configured for this channel.", ephemeral=True)
+                return
+            config = roundups[0]
+            slug = config["name_normalized"]
+
+        if page < 1:
+            page = 1
+
+        articles, total = await store.get_roundup_articles(guild_id, channel_id, slug, page=page)
+
+        if total == 0:
+            await interaction.followup.send(f"No articles collected yet for **{config['name']}**.", ephemeral=True)
+            return
+
+        total_pages = (total + 19) // 20  # ceil division
+        if page > total_pages:
+            await interaction.followup.send(f"Page {page} doesn't exist. There {'is' if total_pages == 1 else 'are'} only {total_pages} page{'s' if total_pages != 1 else ''}.", ephemeral=True)
+            return
+
+        lines = []
+        for article in articles:
+            title = article.get("title", "Untitled")
+            url = article.get("url", "")
+            if url:
+                lines.append(f"\u2022 [{title}]({url})")
+            else:
+                lines.append(f"\u2022 {title}")
+
+        embed = discord.Embed(
+            title=f"Roundup: {config['name']}",
+            description="\n".join(lines),
+            color=discord.Color.green(),
+        )
+        embed.set_footer(text=f"Page {page}/{total_pages} \u2022 {total} articles")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @roundup.command(name="clear", description="Clear all collected articles from a roundup.")
+    @app_commands.describe(name="Name of the roundup to clear")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def roundup_clear(self, interaction: discord.Interaction, name: str) -> None:
+        channel = interaction.channel
+        if not isinstance(channel, discord.TextChannel):
+            await interaction.response.send_message("This command can only be used in a text channel.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        store = RSSRedisStore()
+        guild_id = guild_id_to_str(interaction.guild_id)
+        channel_id = str(channel.id)
+        slug = _normalize_roundup_name(name)
+
+        config = await store.get_roundup_config(guild_id, channel_id, slug)
+        if not config:
+            await interaction.followup.send(f"No roundup named **{name}** found in this channel.", ephemeral=True)
+            return
+
+        count = await store.clear_roundup_articles(guild_id, channel_id, slug)
+        await interaction.followup.send(f"Cleared {count} article{'s' if count != 1 else ''} from **{config['name']}**.", ephemeral=True)
+
+    @roundup.command(name="delete", description="Delete a roundup and all its collected articles.")
+    @app_commands.describe(name="Name of the roundup to delete")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def roundup_delete(self, interaction: discord.Interaction, name: str) -> None:
+        channel = interaction.channel
+        if not isinstance(channel, discord.TextChannel):
+            await interaction.response.send_message("This command can only be used in a text channel.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        store = RSSRedisStore()
+        guild_id = guild_id_to_str(interaction.guild_id)
+        channel_id = str(channel.id)
+        slug = _normalize_roundup_name(name)
+
+        config = await store.get_roundup_config(guild_id, channel_id, slug)
+        if not config:
+            await interaction.followup.send(f"No roundup named **{name}** found in this channel.", ephemeral=True)
+            return
+
+        count = await store.delete_roundup(guild_id, channel_id, slug)
+        await interaction.followup.send(f"Deleted roundup **{config['name']}** and {count} collected article{'s' if count != 1 else ''}.", ephemeral=True)
 
 
 def _format_article_list(articles: list[dict[str, Any]], start_number: int = 1) -> str:

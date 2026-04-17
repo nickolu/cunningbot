@@ -1,6 +1,7 @@
 .venv
 .venv310
 .env
+.claude-scratch/
 logs
 bot/core/app_state.json
 bot/app/app_state.json

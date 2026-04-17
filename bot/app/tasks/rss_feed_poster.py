@@ -184,6 +184,36 @@ def extract_article_data(entry, feed, feed_name: str) -> Dict[str, Any]:
     }
 
 
+def _roundup_keyword_match(article_data: Dict[str, Any], match_query: str) -> bool:
+    """Check if any keyword from match_query appears in article title or description."""
+    title = (article_data.get("title") or "").lower()
+    description = (article_data.get("description") or "").lower()
+    text = f"{title} {description}"
+    terms = [t.strip().lower() for t in match_query.replace(",", " ").split() if t.strip()]
+    return any(term in text for term in terms)
+
+
+async def _roundup_llm_confirm(article_data: Dict[str, Any], match_query: str) -> bool:
+    """Use LLM to confirm if an article matches the roundup query."""
+    try:
+        from bot.api.openai.chat_completions_client import ChatCompletionsClient
+        client = ChatCompletionsClient.factory("gpt-4o-mini")
+        messages = [
+            {"role": "system", "content": "You are a classifier. Answer only 'yes' or 'no'."},
+            {"role": "user", "content": (
+                f'Does this article match the topic "{match_query}"?\n'
+                f'Article title: "{article_data.get("title", "")}"\n'
+                f'Article description: "{article_data.get("description", "")}"\n'
+                f'Answer only "yes" or "no".'
+            )},
+        ]
+        response = await client.chat(messages)
+        return response.strip().lower().startswith("yes")
+    except Exception as e:
+        logger.error("Roundup LLM confirmation failed: %s", e)
+        return False
+
+
 async def post_direct_items(
     to_post: Dict[int, List[Dict[str, Any]]],
     token: str
@@ -480,6 +510,32 @@ async def collect_rss_updates() -> None:
                                                 feed_name
                                             )
                                             logger.info(f"Breaking news match: '{matched_topic}' in {feed_name}")
+
+                        # Check for roundup matches
+                        try:
+                            roundups = await store.get_all_roundups_for_guild(guild_id_str)
+                            channel_roundups = [r for r in roundups if str(r.get("channel_id")) == str(channel_id)]
+                            if channel_roundups:
+                                for entry_item in new_entries:
+                                    art = extract_article_data(entry_item, feed, feed_name)
+                                    if not art.get("title"):
+                                        continue
+                                    for roundup_cfg in channel_roundups:
+                                        if _roundup_keyword_match(art, roundup_cfg["match_query"]):
+                                            if await _roundup_llm_confirm(art, roundup_cfg["match_query"]):
+                                                await store.add_roundup_article(
+                                                    guild_id_str,
+                                                    str(channel_id),
+                                                    roundup_cfg["name_normalized"],
+                                                    art,
+                                                )
+                                                logger.info(
+                                                    "Roundup '%s': collected article '%s'",
+                                                    roundup_cfg["name"],
+                                                    art.get("title", "")[:60],
+                                                )
+                        except Exception as e:
+                            logger.error("Roundup matching failed for guild %s: %s", guild_id_str, e)
 
                         # Route based on post_mode
                         if post_mode == "direct":
