@@ -69,6 +69,7 @@ class ImageCog(commands.Cog):
         self.bot = bot
         # Initialize multiple OpenAI clients for different models
         self.openai_clients = {
+            "gpt-image-2": ImageGenerationClient.factory(model="gpt-image-2-2026-04-21"),
             "chatgpt-image-latest": ImageGenerationClient.factory(model="chatgpt-image-latest"),
             "gpt-image-1.5": ImageGenerationClient.factory(model="gpt-image-1.5"),
             "gpt-image-1": ImageGenerationClient.factory(model="gpt-image-1"),
@@ -614,6 +615,7 @@ class ImageCog(commands.Cog):
     )
     @app_commands.choices(
         model=[
+            app_commands.Choice(name="GPT Image 2 (Latest)", value="gpt-image-2"),
             app_commands.Choice(name="Google Gemini 2.5 Flash", value="gemini"),
             app_commands.Choice(name="Google Gemini 3 Pro", value="gemini-3-pro-image-preview"),
             app_commands.Choice(name="Nano Banana 2 (gemini-3.1-flash-image-preview)", value="gemini-3.1-flash-image-preview"),
