@@ -138,7 +138,7 @@ class AFPickerView(discord.ui.View):
             return
 
         try:
-            await interaction.channel.send(selected_url)
+            await interaction.channel.send(f"{selected_url}\n-# Shared by {interaction.user.mention}")
         except Exception:
             await interaction.response.send_message(
                 "I could not post that GIF in this channel.",
