@@ -27,7 +27,11 @@ logger = get_logger()
 class ImageJsonCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
-        self.openai_generation_client = ImageGenerationClient.factory()
+        self.openai_clients = {
+            "openai": ImageGenerationClient.factory(),
+            "gpt-image-2": ImageGenerationClient.factory(model="gpt-image-2-2026-04-21"),
+        }
+        self.openai_generation_client = self.openai_clients["openai"]
         self.openai_edit_client = ImageEditClient.factory()
 
         # Initialize Gemini clients (will only work if GOOGLE_API_KEY is set)
@@ -76,6 +80,9 @@ class ImageJsonCog(commands.Cog):
         if model == "gemini":
             generation_client = self.gemini_generation_client
             edit_client = self.gemini_edit_client
+        elif model in self.openai_clients:
+            generation_client = self.openai_clients[model]
+            edit_client = self.openai_edit_client
         else:
             generation_client = self.openai_generation_client
             edit_client = self.openai_edit_client
@@ -252,7 +259,8 @@ class ImageJsonCog(commands.Cog):
     )
     @app_commands.choices(
         model=[
-            app_commands.Choice(name="OpenAI (GPT Image)", value="openai"),
+            app_commands.Choice(name="GPT Image 2 (Latest)", value="gpt-image-2"),
+            app_commands.Choice(name="OpenAI (GPT Image 1)", value="openai"),
             app_commands.Choice(name="Google Gemini 2.5 Flash", value="gemini"),
         ]
     )

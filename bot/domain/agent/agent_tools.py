@@ -76,6 +76,12 @@ TOOL_SCHEMAS: Dict[str, dict] = {
                         "description": "Image dimensions. Default square.",
                         "default": "1024x1024",
                     },
+                    "model": {
+                        "type": "string",
+                        "enum": ["gemini", "gpt-image-2", "gpt-image-1"],
+                        "description": "Model to use for generation. Default gemini.",
+                        "default": "gemini",
+                    },
                 },
                 "required": ["prompt"],
             },
@@ -129,12 +135,14 @@ TOOL_SCHEMAS: Dict[str, dict] = {
                         "enum": [
                             "gemini-2.5-flash",
                             "gemini-3-pro",
+                            "gpt-image-2",
                             "gpt-image-1",
                         ],
                         "description": (
                             "Image model to use. "
                             "gemini-2.5-flash (default, fast and cheap), "
                             "gemini-3-pro (higher quality), "
+                            "gpt-image-2 (OpenAI latest), "
                             "gpt-image-1 (OpenAI)."
                         ),
                         "default": "gemini-2.5-flash",
@@ -287,29 +295,46 @@ async def execute_generate_image(
     """Execute the generate_image tool. Returns status message; image is sent to channel."""
     prompt = arguments.get("prompt", "")
     size = arguments.get("size", "1024x1024")
+    model_pref = arguments.get("model", "gemini")
 
     if not prompt:
         return "No prompt provided for image generation."
 
-    # Try Gemini first, fall back to OpenAI
     image_bytes: Optional[bytes] = None
     error_msg = ""
     model_used = ""
 
-    try:
-        client = GeminiImageGenerationClient.factory()
-        image_bytes, error_msg = await client.generate_image(prompt, size=size)
-        model_used = "Gemini"
-    except EnvironmentError:
-        pass  # GOOGLE_API_KEY not set
-
-    if image_bytes is None:
+    # Route to the requested model
+    if model_pref == "gpt-image-2":
+        try:
+            client = ImageGenerationClient.factory(model="gpt-image-2-2026-04-21")
+            image_bytes, error_msg = await client.generate_image(prompt, size=size)
+            model_used = "GPT Image 2"
+        except EnvironmentError:
+            return "OpenAI image generation is not available (no API key configured)."
+    elif model_pref == "gpt-image-1":
         try:
             client = ImageGenerationClient.factory()
             image_bytes, error_msg = await client.generate_image(prompt, size=size)
-            model_used = "OpenAI"
+            model_used = "GPT Image 1"
         except EnvironmentError:
-            return "Image generation is not available (no API keys configured)."
+            return "OpenAI image generation is not available (no API key configured)."
+    else:
+        # Default: try Gemini first, fall back to OpenAI
+        try:
+            client = GeminiImageGenerationClient.factory()
+            image_bytes, error_msg = await client.generate_image(prompt, size=size)
+            model_used = "Gemini"
+        except EnvironmentError:
+            pass  # GOOGLE_API_KEY not set
+
+        if image_bytes is None:
+            try:
+                client = ImageGenerationClient.factory()
+                image_bytes, error_msg = await client.generate_image(prompt, size=size)
+                model_used = "OpenAI"
+            except EnvironmentError:
+                return "Image generation is not available (no API keys configured)."
 
     if image_bytes is None:
         return f"Image generation failed: {error_msg}"
@@ -339,6 +364,7 @@ async def execute_roll_dice(arguments: Dict[str, Any]) -> str:
 IMAGE_EDIT_MODELS = {
     "gemini-2.5-flash": "gemini-2.5-flash-image",
     "gemini-3-pro": "gemini-3-pro-image-preview",
+    "gpt-image-2": "gpt-image-2-2026-04-21",
     "gpt-image-1": "gpt-image-1",
 }
 
