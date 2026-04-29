@@ -1,0 +1,10 @@
+[Unit]
+Description=Run cunningbot auto-deploy check every 2 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+Unit=cunningbot-autodeploy.service
+
+[Install]
+WantedBy=timers.target
