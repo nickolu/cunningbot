@@ -1,0 +1,10 @@
+[Unit]
+Description=Pull and rebuild cunningbot when origin/main updates
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=dad
+WorkingDirectory=/home/dad/cunningbot
+ExecStart=/home/dad/cunningbot/scripts/auto_deploy.sh
