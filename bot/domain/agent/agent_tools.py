@@ -72,8 +72,13 @@ TOOL_SCHEMAS: Dict[str, dict] = {
                     },
                     "size": {
                         "type": "string",
-                        "enum": ["1024x1024", "1536x1024", "1024x1536"],
-                        "description": "Image dimensions. Default square.",
+                        "description": (
+                            "Image dimensions. Use preset sizes like '1024x1024', '1536x1024', '1024x1536' for most models. "
+                            "When using gpt-image-2, you can specify custom dimensions as 'WIDTHxHEIGHT' (e.g. '1920x1080', '2048x1152'). "
+                            "Custom size constraints for gpt-image-2: both edges must be multiples of 16, "
+                            "max 4000px per edge, min 655360 total pixels, max 8294400 total pixels, "
+                            "aspect ratio between 1:3 and 3:1."
+                        ),
                         "default": "1024x1024",
                     },
                     "model": {
@@ -288,6 +293,46 @@ async def execute_get_weather(arguments: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _validate_gpt_image_2_size(size: str) -> str:
+    """Validate and normalize a custom size string for GPT Image 2.
+
+    Constraints:
+    - Both edges must be multiples of 16
+    - Max 4000px per edge
+    - Min 655,360 total pixels
+    - Max 8,294,400 total pixels
+    - Aspect ratio between 1:3 and 3:1
+
+    Returns the validated size string, or an error message starting with 'Error'.
+    """
+    import re
+    match = re.match(r"^(\d+)x(\d+)$", size.strip())
+    if not match:
+        return size  # Let the API handle preset sizes like "auto"
+
+    w, h = int(match.group(1)), int(match.group(2))
+
+    if w % 16 != 0 or h % 16 != 0:
+        # Round to nearest multiple of 16
+        w = max(16, round(w / 16) * 16)
+        h = max(16, round(h / 16) * 16)
+
+    if w > 4000 or h > 4000:
+        return f"Error: each edge must be at most 4000px (got {w}x{h})."
+
+    total = w * h
+    if total < 655_360:
+        return f"Error: total pixels must be at least 655,360 (got {total:,} for {w}x{h})."
+    if total > 8_294_400:
+        return f"Error: total pixels must be at most 8,294,400 (got {total:,} for {w}x{h})."
+
+    ratio = max(w, h) / min(w, h)
+    if ratio > 3.0:
+        return f"Error: aspect ratio must be between 1:3 and 3:1 (got {w}:{h}, ratio {ratio:.1f})."
+
+    return f"{w}x{h}"
+
+
 async def execute_generate_image(
     arguments: Dict[str, Any],
     channel: discord.TextChannel,
@@ -306,9 +351,13 @@ async def execute_generate_image(
 
     # Route to the requested model
     if model_pref == "gpt-image-2":
+        # Validate and normalize custom dimensions for gpt-image-2
+        validated_size = _validate_gpt_image_2_size(size)
+        if isinstance(validated_size, str) and validated_size.startswith("Error"):
+            return validated_size
         try:
             client = ImageGenerationClient.factory(model="gpt-image-2-2026-04-21")
-            image_bytes, error_msg = await client.generate_image(prompt, size=size)
+            image_bytes, error_msg = await client.generate_image(prompt, size=validated_size)
             model_used = "GPT Image 2"
         except EnvironmentError:
             return "OpenAI image generation is not available (no API key configured)."
