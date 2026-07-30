@@ -28,7 +28,7 @@ The pages are currently organized as:
 - **Page 2** — `/trivia` group, `/answer`
 - **Page 3** — `/news` group, `/weather` group
 - **Page 4** — `/poll`, `/roll`, `/af`, `/r`, `/persona`
-- **Page 5** — `/lunchboyz`, `/bot-updates`, `/queue`, `/help`
+- **Page 5** — `/bot-updates`, `/queue`, `/help`
 
 ## Running Tests
 
