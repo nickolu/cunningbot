@@ -178,21 +178,10 @@ HELP_PAGES = [
         inline=False,
     ),
 
-    # Page 5 — Lunch Rotation, Bot Updates, Queue
+    # Page 5 — Bot Updates, Queue
     discord.Embed(
-        title="CunningBot Help (5/5) — Lunch Rotation, Notifications & Queue",
+        title="CunningBot Help (5/5) — Notifications & Queue",
         color=discord.Color.red(),
-    ).add_field(
-        name="/lunchboyz — Bi-weekly lunch rotation",
-        value=(
-            "`/lunchboyz setup` — configure the rotation (participants, frequency, start date, timezone)\n"
-            "`/lunchboyz status` — show who's up, upcoming event, and deadline\n"
-            "`/lunchboyz plan` — announce the upcoming lunch (location, date, time, notes)\n"
-            "`/lunchboyz skip` — skip the current person and advance the rotation\n"
-            "`/lunchboyz advance` — manually advance to the next person\n\n"
-            "An hourly background task sends reminders in the configured channel."
-        ),
-        inline=False,
     ).add_field(
         name="/bot-updates — Restart notifications (Admin)",
         value=(
