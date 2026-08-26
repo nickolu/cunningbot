@@ -5,6 +5,7 @@ executor function that performs the actual work and returns a string result.
 """
 
 import json
+import re
 import uuid
 from io import BytesIO
 from typing import Any, Callable, Coroutine, Dict, List, Optional
@@ -87,6 +88,15 @@ TOOL_SCHEMAS: Dict[str, dict] = {
                         "description": "Model to use for generation. Default gemini.",
                         "default": "gemini",
                     },
+                    "host": {
+                        "type": "boolean",
+                        "description": (
+                            "Set true when the image will go on a web page or needs a "
+                            "lasting link. Returns a permanent URL instead of a Discord "
+                            "one, which expires after about a day."
+                        ),
+                        "default": False,
+                    },
                 },
                 "required": ["prompt"],
             },
@@ -157,6 +167,15 @@ TOOL_SCHEMAS: Dict[str, dict] = {
                         "enum": ["1024x1024", "1536x1024", "1024x1536"],
                         "description": "Output image dimensions. Default square.",
                         "default": "1024x1024",
+                    },
+                    "host": {
+                        "type": "boolean",
+                        "description": (
+                            "Set true when the image will go on a web page or needs a "
+                            "lasting link. Returns a permanent URL instead of a Discord "
+                            "one, which expires after about a day."
+                        ),
+                        "default": False,
                     },
                 },
                 "required": ["image_url", "prompt"],
@@ -457,14 +476,65 @@ async def execute_generate_image(
     if image_bytes is None:
         return f"Image generation failed: {error_msg}"
 
-    # Send the image to the channel
     filename = f"agent_image_{uuid.uuid4().hex[:8]}.png"
+    return await _send_image_and_describe(
+        channel,
+        image_bytes,
+        filename,
+        f"Image generated and sent to channel using {model_used}. Prompt: '{prompt[:80]}'.",
+        host=bool(arguments.get("host")),
+    )
+
+
+async def _send_image_and_describe(
+    channel: discord.TextChannel,
+    image_bytes: bytes,
+    filename: str,
+    summary: str,
+    host: bool = False,
+) -> str:
+    """Post an image to the channel and tell the model how to refer to it.
+
+    The model needs a real URL. Without one it invents things like
+    ``attachment://generated_image`` -- a Discord-internal embed scheme that
+    means nothing on the open web -- and any page built with it is broken from
+    the moment it is published.
+
+    Discord's own attachment URL is returned for conversational use but labelled
+    temporary, since it stops resolving after about a day. When the image is
+    headed for a page, ``host=True`` uploads the bytes already in hand and
+    returns a permanent URL, avoiding a re-download just to re-host it.
+    """
     stream = BytesIO(image_bytes)
     stream.seek(0)
-    file = discord.File(fp=stream, filename=filename)
-    await channel.send(file=file)
+    message = await channel.send(file=discord.File(fp=stream, filename=filename))
 
-    return f"Image generated and sent to channel using {model_used}. Prompt: '{prompt[:80]}'"
+    temp_url = ""
+    if message is not None and getattr(message, "attachments", None):
+        temp_url = message.attachments[0].url
+
+    if host:
+        guild = getattr(channel, "guild", None)
+        if guild is None:
+            return f"{summary} Could not host it (not in a server). Temporary URL: {temp_url}"
+        try:
+            from bot.domain.pages.image_service import host_image_bytes
+
+            hosted = await host_image_bytes(
+                str(guild.id), image_bytes, content_type="image/png", filename=filename
+            )
+            return f"{summary} Permanent URL, safe to put on a page: {hosted}"
+        except EnvironmentError:
+            return f"{summary} Image hosting is not configured; temporary URL: {temp_url}"
+        except RuntimeError as e:
+            return f"{summary} Could not host it ({e}); temporary URL: {temp_url}"
+
+    if not temp_url:
+        return summary
+    return (
+        f"{summary} Temporary URL (expires in about a day -- do NOT put this on a "
+        f"page; call host_image first, or regenerate with host=true): {temp_url}"
+    )
 
 
 async def execute_roll_dice(arguments: Dict[str, Any]) -> str:
@@ -547,14 +617,14 @@ async def execute_edit_image(
     if not result_images:
         return f"Image editing failed: {error_msg}"
 
-    # Send the edited image to the channel
     filename = f"agent_edit_{uuid.uuid4().hex[:8]}.png"
-    stream = BytesIO(result_images[0])
-    stream.seek(0)
-    file = discord.File(fp=stream, filename=filename)
-    await channel.send(file=file)
-
-    return f"Image edited using {model_key} and sent to channel. Edit prompt: '{prompt[:80]}'"
+    return await _send_image_and_describe(
+        channel,
+        result_images[0],
+        filename,
+        f"Image edited using {model_key} and sent to channel. Edit prompt: '{prompt[:80]}'.",
+        host=bool(arguments.get("host")),
+    )
 
 
 async def execute_search_gifs(arguments: Dict[str, Any]) -> str:
@@ -707,6 +777,26 @@ async def execute_read_channel(
     return header + "\n".join(messages)
 
 
+UNPUBLISHABLE_IMAGE_HOSTS = ("cdn.discordapp.com", "media.discordapp.net")
+
+
+def _unpublishable_image_refs(markdown: str) -> List[str]:
+    """Return image references that cannot survive on a public page.
+
+    ``attachment://`` is a Discord-internal embed scheme; Discord CDN links carry
+    an expiring signature. Either one yields a page that is broken on arrival or
+    broken by tomorrow.
+    """
+    found: List[str] = []
+    for match in re.finditer(r"\((attachment://[^)\s]*|https?://[^)\s]+)\)", markdown):
+        url = match.group(1)
+        if url.startswith("attachment://"):
+            found.append("attachment://…")
+        elif any(h in url for h in UNPUBLISHABLE_IMAGE_HOSTS):
+            found.append("a Discord CDN link")
+    return sorted(set(found))
+
+
 async def execute_publish_page(
     arguments: Dict[str, Any], channel: discord.TextChannel
 ) -> str:
@@ -717,6 +807,16 @@ async def execute_publish_page(
 
     if not markdown:
         return "No page content was provided."
+
+    bad = _unpublishable_image_refs(markdown)
+    if bad:
+        return (
+            "That page references images that won't work on the web: "
+            f"{', '.join(bad)}. "
+            "attachment:// links only exist inside Discord, and Discord CDN links "
+            "expire after about a day. Call host_image on each image first (or "
+            "regenerate it with host=true) and use the permanent URLs instead."
+        )
 
     guild = getattr(channel, "guild", None)
     if guild is None:
