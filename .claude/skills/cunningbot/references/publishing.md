@@ -12,7 +12,26 @@ tables, long write-ups, and anything worth reading outside Discord.
 | `bot/domain/pages/page_renderer.py` | Markdown → styled, self-contained HTML |
 | `bot/domain/pages/page_service.py` | `publish_page(...)` — the one entry point |
 | `bot/api/pages/client.py` | HTTP client for the Vercel app |
-| `agent_tools.py` → `publish_page` | The agent-facing tool |
+| `bot/domain/pages/image_service.py` | Hosting images at stable URLs |
+| `agent_tools.py` → `publish_page`, `host_image` | The agent-facing tools |
+
+## Images expire unless you host them
+
+**Never embed a Discord CDN URL in a published page.** Discord links carry an
+expiring signature and die after about a day, so the page renders correctly when
+created and has broken images the next day. The live `edit_image` flow is fine —
+history is re-read each turn and returns freshly signed URLs — but anything
+*stored* must be re-hosted first:
+
+```python
+from bot.domain.pages.image_service import host_image_from_url
+
+url = await host_image_from_url(guild_id, discord_attachment_url, filename="art")
+```
+
+The agent does this via `host_image` before `publish_page`. Uploads are **on
+demand** — normal `/image` use still just posts a Discord attachment, because
+Blob has no TTL and every upload is permanent until deleted.
 
 ## Publishing from code
 
