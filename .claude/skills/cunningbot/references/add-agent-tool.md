@@ -36,8 +36,23 @@ Miss any one and the tool silently doesn't exist. Work down this list:
 
 5. **`DEFAULT_AGENT_CONFIG["tools"]`** in `bot/app/redis/agent_store.py` — add the
    **config key**, or the tool is off for every newly registered channel.
-   Channels registered *before* your change keep their stored list and will not
-   pick it up; they need `/agent configure` or a re-register. Say so in the PR.
+
+   **Then run the backfill, or the tool is invisible in every existing channel.**
+   `DEFAULT_AGENT_CONFIG` is read *only* at registration time; already-registered
+   channels keep the tool list stored in their own Redis record. `/agent configure`
+   has **no `tools` option**, so the only in-Discord remedy is unregister plus
+   re-register, which discards that channel's model, persona, and window.
+
+   ```bash
+   ssh dad@192.168.1.182 'cd /home/dad/cunningbot && \
+     docker compose exec -T -e PYTHONPATH=/app -w /app cunningbot \
+     python -m bot.app.redis.migrations.backfill_agent_tools --dry-run'
+   ```
+   Drop `--dry-run` to apply. It is idempotent and only ever adds the keys named
+   in `DEFAULT_TOOLS_TO_ADD` (extend that list when you ship a tool).
+
+   This is the single easiest way to ship a tool that tests green, registers
+   correctly, and still does nothing in production.
 
 Then: add a one-line bullet to `AGENT_SYSTEM_PROMPT` in
 `bot/domain/agent/agent_service.py` describing when to reach for it. The model
