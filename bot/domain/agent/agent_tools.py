@@ -236,6 +236,46 @@ TOOL_SCHEMAS: Dict[str, dict] = {
             },
         },
     },
+    "publish_page": {
+        "type": "function",
+        "function": {
+            "name": "publish_page",
+            "description": (
+                "Publish content as a web page and get back a shareable link. "
+                "Use this when someone asks to see something 'as a page', wants a "
+                "link they can share or read later, or when the answer is too long "
+                "or too structured for a Discord message (a list, a table, a "
+                "write-up, or an explanation of how you worked something out). "
+                "Pass a slug to keep one stable URL that updates in place; omit it "
+                "for a one-off snapshot."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Page title, shown as the heading (e.g. 'Restaurants to Visit')",
+                    },
+                    "markdown": {
+                        "type": "string",
+                        "description": (
+                            "Page body in Markdown. Headings, lists, tables, links, "
+                            "and code blocks are supported. Raw HTML is escaped, not rendered."
+                        ),
+                    },
+                    "slug": {
+                        "type": "string",
+                        "description": (
+                            "Optional short name for a page that should keep one URL "
+                            "and be updated in place, e.g. 'restaurants' or 'lunch-rotation'. "
+                            "Reuse the same slug to update that page. Omit for a one-off page."
+                        ),
+                    },
+                },
+                "required": ["title", "markdown"],
+            },
+        },
+    },
 }
 
 # WMO weather codes (subset for agent summary)
@@ -638,6 +678,39 @@ async def execute_read_channel(
     return header + "\n".join(messages)
 
 
+async def execute_publish_page(
+    arguments: Dict[str, Any], channel: discord.TextChannel
+) -> str:
+    """Execute the publish_page tool."""
+    title = (arguments.get("title") or "").strip()
+    markdown = (arguments.get("markdown") or "").strip()
+    slug = (arguments.get("slug") or "").strip() or None
+
+    if not markdown:
+        return "No page content was provided."
+
+    guild = getattr(channel, "guild", None)
+    if guild is None:
+        return "Pages can only be published from inside a server."
+
+    try:
+        from bot.domain.pages.page_service import publish_page
+
+        url = await publish_page(
+            guild_id=str(guild.id),
+            title=title or "Untitled",
+            markdown=markdown,
+            slug=slug,
+            guild_name=guild.name,
+        )
+    except EnvironmentError:
+        return "Publishing pages is not available (PAGES_BASE_URL / PAGES_PUBLISH_TOKEN not configured)."
+    except RuntimeError as e:
+        return f"Could not publish the page: {e}"
+
+    return f"Published '{title or 'Untitled'}': {url}"
+
+
 # ---------------------------------------------------------------------------
 # Registry: maps tool name → (schema, executor)
 # ---------------------------------------------------------------------------
@@ -650,10 +723,11 @@ TOOL_EXECUTORS: Dict[str, Callable[..., Coroutine]] = {
     "search_gifs": execute_search_gifs,
     "web_search": execute_web_search,
     "read_channel": execute_read_channel,
+    "publish_page": execute_publish_page,
 }
 
 # Tools that need the Discord channel reference passed as a second argument
-CHANNEL_AWARE_TOOLS: set = {"generate_image", "edit_image", "read_channel"}
+CHANNEL_AWARE_TOOLS: set = {"generate_image", "edit_image", "read_channel", "publish_page"}
 
 
 def get_tool_schemas_for_config(enabled_tools: List[str]) -> List[dict]:

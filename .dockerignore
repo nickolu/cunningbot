@@ -1,0 +1,27 @@
+# The Dockerfile does `COPY . .` — without this, secrets and local junk are
+# baked into the image and shipped to the Pi.
+.env
+.env.*
+!.env.example
+.git
+.github
+.venv
+.venv310
+.mypy_cache
+.pytest_cache
+__pycache__
+**/__pycache__
+*.pyc
+.claude
+.opencode
+.DS_Store
+
+# Runtime output, not source
+logs
+generated_images
+edited_images
+temp_images/*
+!temp_images/__init__.py
+
+# The pages service deploys from Vercel, not from this image
+web
