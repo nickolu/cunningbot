@@ -1,14 +1,31 @@
 # Deploying
 
-## The pipeline
+## Current reality: deploys are MANUAL
+
+`scripts/auto_deploy.sh` and the systemd units exist in the repo (PR #31), but
+**the one-time install on the Pi was never run** — as of 2026-08-25 there is no
+`/etc/systemd/system/cunningbot-autodeploy.*` and `systemctl list-timers` shows
+none. Merging a PR does **not** deploy. Verify before believing otherwise:
+
+```bash
+ssh dad@192.168.1.182 'systemctl list-timers cunningbot-autodeploy.timer --no-pager'
+```
+
+So the working pipeline is:
 
 ```
-feature branch → PR → merge to main → Pi's systemd timer notices within ~2 min
-                                    → git pull --ff-only && docker compose up -d --build
+feature branch → PR → merge to main → ssh to the Pi → pull → docker compose up -d --build
 ```
 
-`main` is **protected** — direct pushes are rejected. It is also live: merging
-is deploying.
+`main` is **protected** — direct pushes are rejected.
+
+### Before the timer can ever work
+
+The Pi's checkout has diverged from `origin/main` (local merge commits from
+manual `git pull`s, which create merge commits rather than fast-forwards).
+`auto_deploy.sh` uses `git pull --ff-only`, so it would fail on every tick until
+the checkout is reset to match `origin/main`. Realign first, then install the
+timer, then confirm a real deploy appears in the journal.
 
 ## Shipping a change
 
@@ -21,12 +38,20 @@ git push -u origin feat/<thing>
 gh pr create --fill
 ```
 
-Then the user merges. Nothing else is required — the Pi picks it up.
+Then the user merges — and **deploy by hand**, since the timer isn't installed:
 
-## The auto-deploy
+```bash
+ssh dad@192.168.1.182 "cd /home/dad/cunningbot && git pull && docker compose up -d --build"
+```
 
-Installed on the Pi as `cunningbot-autodeploy.timer` (every 2 min) running
-`scripts/auto_deploy.sh`:
+Note that a plain `git pull` here creates a merge commit on the Pi, which is how
+the checkout drifted from `origin/main` in the first place.
+
+## The auto-deploy (written, not yet installed)
+
+Intended to run on the Pi as `cunningbot-autodeploy.timer` (every 2 min) via
+`scripts/auto_deploy.sh`. Install steps are in `scripts/README_autodeploy.md`
+and need `sudo`:
 
 ```bash
 git fetch origin main
