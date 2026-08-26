@@ -124,3 +124,81 @@ def test_tool_registered_everywhere():
     assert "host_image" in CHANNEL_AWARE_TOOLS
     assert "host_image" in DEFAULT_AGENT_CONFIG["tools"]
     assert "host_image" in AGENT_SYSTEM_PROMPT
+
+
+# --- Publishing guard: bad image refs never reach a page --------------------
+
+@pytest.mark.parametrize(
+    "markdown,expected",
+    [
+        ("![art](attachment://generated_image)", "attachment"),
+        ("![art](https://cdn.discordapp.com/attachments/1/2/x.png)", "discord"),
+        ("![art](https://media.discordapp.net/attachments/1/2/x.png)", "discord"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_publish_page_refuses_unpublishable_images(markdown, expected):
+    from bot.domain.agent.agent_tools import execute_publish_page
+
+    result = await execute_publish_page(
+        {"title": "T", "markdown": markdown}, _channel()
+    )
+    assert "won't work on the web" in result
+    assert expected in result.lower()
+    assert "host_image" in result
+
+
+@pytest.mark.asyncio
+async def test_publish_page_allows_hosted_urls():
+    from bot.domain.agent.agent_tools import execute_publish_page
+
+    with patch(
+        "bot.domain.pages.page_service.publish_page",
+        new=AsyncMock(return_value="https://cunningbot-pages.vercel.app/p/x"),
+    ):
+        result = await execute_publish_page(
+            {"title": "T", "markdown": "![art](https://abc.public.blob.vercel-storage.com/img/a/b.png)"},
+            _channel(),
+        )
+    assert "cunningbot-pages.vercel.app/p/x" in result
+
+
+@pytest.mark.asyncio
+async def test_generate_image_returns_a_usable_url_not_an_attachment_scheme():
+    """The original bug: no URL in the result, so the model invented one."""
+    from bot.domain.agent.agent_tools import _send_image_and_describe
+
+    class Msg:
+        attachments = [SimpleNamespace(url="https://cdn.discordapp.com/a/b.png")]
+
+    class Chan:
+        guild = SimpleNamespace(id=1, name="g")
+        async def send(self, *a, **kw):
+            return Msg()
+
+    out = await _send_image_and_describe(Chan(), b"png", "f.png", "Image generated.")
+    assert "https://cdn.discordapp.com/a/b.png" in out
+    assert "attachment://" not in out
+    assert "do NOT put this on a page" in out
+
+
+@pytest.mark.asyncio
+async def test_generate_image_with_host_returns_permanent_url():
+    from bot.domain.agent.agent_tools import _send_image_and_describe
+
+    class Msg:
+        attachments = [SimpleNamespace(url="https://cdn.discordapp.com/a/b.png")]
+
+    class Chan:
+        guild = SimpleNamespace(id=1, name="g")
+        async def send(self, *a, **kw):
+            return Msg()
+
+    with patch(
+        "bot.domain.pages.image_service.host_image_bytes",
+        new=AsyncMock(return_value="https://abc.public.blob.vercel-storage.com/img/a/b.png"),
+    ):
+        out = await _send_image_and_describe(Chan(), b"png", "f.png", "Image generated.", host=True)
+
+    assert "blob.vercel-storage.com" in out
+    assert "safe to put on a page" in out
