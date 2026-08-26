@@ -6,15 +6,21 @@ triggering logic to decide whether to respond, then fetches recent
 history, runs the agent service's tool-calling loop, and sends the
 response back to the channel.
 
+An explicit summon — an @mention, a reply to the bot, or the bot's name
+in the message text — always gets a response, whatever the response mode,
+and skips the classifier.  Channels with no registration are not ignored
+outright: a summon wakes the agent there with default settings.  A
+*paused* agent stays silent either way; pausing is a deliberate opt-out.
+
 Response modes:
 - "smart" (default): Uses hard gates + LLM intent classifier to decide
   when to respond. Only responds when confident the bot is being addressed.
-- "strict": Only responds when the bot is @mentioned or replied to.
+- "strict": Only responds when explicitly summoned.
 - "always": Responds to every message (original behavior). Cooldown still applies.
 
 Guard rails:
 - Ignores all bot messages (prevents loops).
-- Per-channel cooldown (configurable, default 5 s) — unless the bot is @mentioned.
+- Per-channel cooldown (configurable, default 5 s) — unless explicitly summoned.
 - Per-channel rate limit (configurable, default 10 responses / minute).
 - Runs through the existing TaskQueue so agent work doesn't starve slash commands.
 """
@@ -22,14 +28,16 @@ Guard rails:
 import asyncio
 import time
 from collections import defaultdict
-from typing import Dict, Optional
+from typing import Dict, Optional, Pattern
 
 import discord
 from discord.ext import commands
 
-from bot.app.redis.agent_store import AgentRedisStore
+from bot.app.redis.agent_store import DEFAULT_AGENT_CONFIG, AgentRedisStore
 from bot.domain.agent.agent_service import run_agent
+from bot.domain.agent.agent_tools import TOOL_SCHEMAS
 from bot.domain.agent.intent_classifier import Intent, classify_intent
+from bot.domain.agent.summon import build_summon_pattern, is_summoned_by_name
 from bot.api.discord.utils import flatten_discord_message
 from bot.api.openai.utils import sanitize_name
 from bot.utils import split_message
@@ -38,6 +46,15 @@ from bot.app.utils.logger import get_logger
 logger = get_logger()
 
 ASK_CLARIFY_RESPONSE = "Did you want me to do something, or just chatting?"
+
+# Config used when the bot is summoned in a channel with no registration.
+# Strict mode: an unregistered channel only ever gets a reply when asked
+# directly, never off the intent classifier's judgement.
+UNREGISTERED_AGENT_CONFIG = {
+    **DEFAULT_AGENT_CONFIG,
+    "tools": list(TOOL_SCHEMAS.keys()),
+    "response_mode": "strict",
+}
 
 
 class AgentListenerCog(commands.Cog):
@@ -54,6 +71,8 @@ class AgentListenerCog(commands.Cog):
         self._response_timestamps: Dict[int, list] = defaultdict(list)
         # channel_id -> asyncio.Lock to prevent concurrent agent runs per channel
         self._channel_locks: Dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+        # guild_id -> compiled pattern of the names the bot answers to there
+        self._summon_patterns: Dict[int, Optional[Pattern]] = {}
 
     @property
     def store(self) -> AgentRedisStore:
@@ -90,8 +109,33 @@ class AgentListenerCog(commands.Cog):
                 return True
         return False
 
+    def _summon_pattern(self, guild: discord.Guild) -> Optional[Pattern]:
+        """Compiled name pattern for a guild, built once per guild."""
+        if guild.id not in self._summon_patterns:
+            names = []
+            if self.bot.user is not None:
+                names.append(self.bot.user.name)
+            if guild.me is not None:
+                names.append(guild.me.display_name)
+            self._summon_patterns[guild.id] = build_summon_pattern(names)
+        return self._summon_patterns[guild.id]
+
+    def _is_summoned(self, message: discord.Message) -> bool:
+        """True if the message addresses the bot directly.
+
+        A mention, a reply to something the bot said, or the bot's name in
+        the text all count.
+        """
+        if self.bot.user in message.mentions:
+            return True
+        if self._is_reply_to_bot(message):
+            return True
+        return is_summoned_by_name(
+            message.content, self._summon_pattern(message.guild)
+        )
+
     async def _should_respond(
-        self, message: discord.Message, config: Dict
+        self, message: discord.Message, config: Dict, summoned: bool
     ) -> bool:
         """Apply smart triggering logic based on response_mode.
 
@@ -99,19 +143,16 @@ class AgentListenerCog(commands.Cog):
         For ASK_CLARIFY results, sends a short clarification and returns False.
         """
         response_mode = config.get("response_mode", "smart")
-        bot_mentioned = self.bot.user in message.mentions
-        reply_to_bot = self._is_reply_to_bot(message)
+
+        # Being addressed directly wins in every mode.
+        if summoned:
+            return True
 
         # "always" mode — original behavior, respond to everything
         if response_mode == "always":
             return True
 
-        # --- Hard gates (both "strict" and "smart" check these) ---
-        # Always respond if bot is @mentioned or replied to
-        if bot_mentioned or reply_to_bot:
-            return True
-
-        # "strict" mode — only mention/reply triggers
+        # "strict" mode — only an explicit summon triggers
         if response_mode == "strict":
             return False
 
@@ -139,7 +180,6 @@ class AgentListenerCog(commands.Cog):
             latest_message=content,
             recent_history=recent_history,
             bot_name=bot_name,
-            is_reply_to_bot=reply_to_bot,
         )
 
         logger.info({
@@ -172,18 +212,28 @@ class AgentListenerCog(commands.Cog):
         guild_id = str(message.guild.id)
         channel_id = str(message.channel.id)
 
-        # 3. Check if this channel has an active agent (fast Redis lookup)
+        # 3. Is the bot being addressed directly? (mention, reply, or by name)
+        summoned = self._is_summoned(message)
+
+        # 4. Look up the channel's agent (fast Redis lookup)
         config = await self.store.get_agent_config(guild_id, channel_id)
-        if config is None or not config.get("enabled", False):
+        if config is None:
+            # Unregistered channel — answer only when summoned by name/mention.
+            if not summoned:
+                return
+            config = UNREGISTERED_AGENT_CONFIG
+            logger.info({
+                "event": "agent_summoned_unregistered",
+                "guild": guild_id,
+                "channel": channel_id,
+            })
+        elif not config.get("enabled", False):
+            # Paused is a deliberate opt-out; stay quiet even when summoned.
             return
 
-        # 4. Check if bot is @mentioned (bypasses cooldown)
-        bot_mentioned = self.bot.user in message.mentions
-
-        # 5. Cooldown check (skip if bot was mentioned or replied to)
-        reply_to_bot = self._is_reply_to_bot(message)
+        # 5. Cooldown check (skipped when the bot is addressed directly)
         cooldown = config.get("cooldown_seconds", 5)
-        if not bot_mentioned and not reply_to_bot and self._check_cooldown(message.channel.id, cooldown):
+        if not summoned and self._check_cooldown(message.channel.id, cooldown):
             return
 
         # 6. Rate limit check
@@ -193,7 +243,7 @@ class AgentListenerCog(commands.Cog):
             return
 
         # 7. Smart triggering — decide whether we should respond
-        should_respond = await self._should_respond(message, config)
+        should_respond = await self._should_respond(message, config, summoned)
         if not should_respond:
             return
 

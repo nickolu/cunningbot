@@ -6,6 +6,10 @@
 /agent configure — update settings
 /agent pause     — temporarily disable
 /agent resume    — re-enable
+
+Registration only governs whether the agent joins in on its own. The bot
+answers in any channel when addressed by name, @mention, or reply — see
+bot/app/commands/agent/agent_listener.py.
 """
 
 import discord
@@ -127,7 +131,10 @@ class AgentCog(commands.Cog):
 
         removed = await self.store.unregister_agent(guild_id, channel_id)
         if removed:
-            await interaction.response.send_message("Agent removed from this channel.")
+            await interaction.response.send_message(
+                "Agent removed from this channel. It still answers when you "
+                "say its name, @mention it, or reply to it."
+            )
         else:
             await interaction.response.send_message(
                 "No agent is registered in this channel.", ephemeral=True
@@ -147,7 +154,9 @@ class AgentCog(commands.Cog):
         config = await self.store.get_agent_config(guild_id, channel_id)
         if config is None:
             await interaction.response.send_message(
-                "No agent registered in this channel. Use `/agent register` to set one up.",
+                "No agent registered in this channel — it answers here only when you "
+                "say its name, @mention it, or reply to it. Use `/agent register` to have "
+                "it join in on its own.",
                 ephemeral=True,
             )
             return
@@ -201,7 +210,7 @@ class AgentCog(commands.Cog):
     @app_commands.choices(
         response_mode=[
             app_commands.Choice(name="Smart (LLM decides, default)", value="smart"),
-            app_commands.Choice(name="Strict (mention/reply only)", value="strict"),
+            app_commands.Choice(name="Strict (only when addressed directly)", value="strict"),
             app_commands.Choice(name="Always (respond to everything)", value="always"),
         ]
     )
@@ -265,7 +274,10 @@ class AgentCog(commands.Cog):
             guild_id, channel_id, {"enabled": False}
         )
         if success:
-            await interaction.response.send_message("Agent paused. Use `/agent resume` to reactivate.")
+            await interaction.response.send_message(
+                "Agent paused — it will not answer here, even if addressed. "
+                "Use `/agent resume` to reactivate."
+            )
         else:
             await interaction.response.send_message(
                 "No agent registered in this channel.", ephemeral=True
