@@ -17,6 +17,20 @@ The Pi only makes outbound HTTPS calls — nothing is exposed on the home networ
 |---|---|
 | `POST /api/publish` | Store a page. Requires `Authorization: Bearer $PUBLISH_TOKEN`. Body: `{id, guild_id, title, html, ttl_days?}`. Returns `{id, url, updated, expires_in_days}`. |
 | `GET /p/<id>` | Serve the page as `text/html`. 404s identically for expired and never-existed ids. |
+| `POST /api/upload` | Store an image in Blob and return a permanent URL. Same bearer token. Raw image bytes as the body; `content-type` plus `X-Guild-Id`, `X-Guild-Prefix`, and optional `X-Filename` headers. PNG/JPEG/WebP/GIF only, 4 MB max. |
+
+## Why images are hosted here
+
+Discord CDN links carry an expiring signature and stop working about a day after
+they are issued. That is fine inside a live conversation -- the bot re-reads
+history and gets freshly signed URLs -- but it breaks anything that *stores* a
+URL. A published page embedding a Discord attachment looks right when created
+and has broken images the next day. Uploading is therefore on demand: it happens
+when a URL needs to outlive the conversation, not for every generated image.
+
+Images go to the `cunningbot-images` public Blob store (Blob serves images with
+`content-disposition: inline`; only HTML is blocked). Blob has **no TTL** -- these
+URLs are permanent until something deletes them, so storage grows monotonically.
 
 ## Multi-tenancy
 
@@ -24,7 +38,11 @@ CunningBot runs in several Discord servers and they share this host, so page
 ids are the isolation boundary:
 
 - The **bot** derives every id as `<slug>-<hmac(guild_id, slug)>` using
-  `PAGES_ID_SECRET`, which lives only on the bot host. Discord guild ids are
+  `PAGES_ID_SECRET`, which lives only on the bot host. Uploaded images use the
+  same secret for their storage prefix (`img/<hmac>/...`), sent as
+  `X-Guild-Prefix` -- this service validates the prefix's shape but never learns
+  the secret. `addRandomSuffix` then makes each individual image URL unguessable
+  on its own. Discord guild ids are
   public, so an id must not be derivable from one — that secret is what makes
   another server's URL unguessable. **Do not set `PAGES_ID_SECRET` here.**
 - This **service** records the owning `guild_id` on each page and rejects a

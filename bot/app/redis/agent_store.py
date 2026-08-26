@@ -19,7 +19,7 @@ DEFAULT_AGENT_CONFIG = {
     "model": "gpt-4o",
     "tools": [
         "weather", "image", "dice", "search_gifs", "edit_image",
-        "web_search", "read_channel", "publish_page",
+        "web_search", "read_channel", "publish_page", "host_image",
     ],
     "context_window": 30,
     "cooldown_seconds": 5,

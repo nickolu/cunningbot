@@ -41,6 +41,25 @@ def slugify(text: str) -> str:
     return slug[:_MAX_SLUG_LEN].strip("-")
 
 
+def derive_guild_prefix(guild_id: str) -> str:
+    """Return the unguessable storage prefix for a guild's uploaded images.
+
+    Hosted images live at ``img/<prefix>/...``. Deriving the prefix the same way
+    page ids are derived means one guild cannot enumerate another's uploads even
+    if it learns the blob store's hostname, and keeps ``PAGES_ID_SECRET`` on the
+    bot host -- the upload service only validates the prefix's shape.
+    """
+    secret = os.getenv("PAGES_ID_SECRET")
+    if not secret:
+        raise PageIdError("PAGES_ID_SECRET is not configured")
+
+    return hmac.new(
+        secret.encode("utf-8"),
+        f"images:{guild_id}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()[:_HMAC_CHARS]
+
+
 def derive_page_id(guild_id: str, slug: Optional[str] = None) -> str:
     """Return the public page id for ``slug`` within ``guild_id``.
 

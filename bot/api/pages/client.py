@@ -23,6 +23,54 @@ class PagesClient:
         self.token = token
         self.timeout_seconds = timeout_seconds
 
+    async def upload_image(
+        self,
+        image_bytes: bytes,
+        content_type: str,
+        guild_id: str,
+        guild_prefix: str,
+        filename: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Upload image bytes to blob storage. Returns the service's JSON response.
+
+        Unlike pages, uploads are never overwritten -- each call stores a new
+        object with a random suffix, so a returned URL is stable forever.
+        """
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": content_type,
+            "X-Guild-Id": guild_id,
+            "X-Guild-Prefix": guild_prefix,
+        }
+        if filename:
+            headers["X-Filename"] = filename
+
+        timeout = aiohttp.ClientTimeout(total=self.timeout_seconds * 2)
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(
+                    f"{self.base_url}/api/upload",
+                    data=image_bytes,
+                    headers=headers,
+                ) as response:
+                    if response.status == 413:
+                        raise RuntimeError("That image is too large to host.")
+                    if response.status == 415:
+                        raise RuntimeError(f"Unsupported image type: {content_type}.")
+                    response.raise_for_status()
+                    data = await response.json()
+        except TimeoutError as exc:
+            raise RuntimeError("Uploading the image timed out.") from exc
+        except aiohttp.ClientResponseError as exc:
+            raise RuntimeError(f"Image service returned HTTP {exc.status}.") from exc
+        except aiohttp.ClientError as exc:
+            raise RuntimeError("Could not reach the image service.") from exc
+
+        if not isinstance(data, dict) or not data.get("url"):
+            raise RuntimeError("Image service returned an unexpected response.")
+
+        return data
+
     async def publish(
         self,
         page_id: str,

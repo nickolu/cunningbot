@@ -276,6 +276,35 @@ TOOL_SCHEMAS: Dict[str, dict] = {
             },
         },
     },
+    "host_image": {
+        "type": "function",
+        "function": {
+            "name": "host_image",
+            "description": (
+                "Give an image from this chat a permanent public URL. Discord's own "
+                "image links expire after about a day, so use this before putting an "
+                "image on a published page, or when someone asks for a lasting link "
+                "to an image. Pass the URL from an [Image: filename | URL] annotation."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "image_url": {
+                        "type": "string",
+                        "description": (
+                            "URL of the image to host, from an "
+                            "[Image: filename | URL] annotation in the conversation."
+                        ),
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": "Optional short descriptive name for the image.",
+                    },
+                },
+                "required": ["image_url"],
+            },
+        },
+    },
 }
 
 # WMO weather codes (subset for agent summary)
@@ -711,6 +740,32 @@ async def execute_publish_page(
     return f"Published '{title or 'Untitled'}': {url}"
 
 
+async def execute_host_image(
+    arguments: Dict[str, Any], channel: discord.TextChannel
+) -> str:
+    """Execute the host_image tool."""
+    image_url = (arguments.get("image_url") or "").strip()
+    filename = (arguments.get("filename") or "").strip() or None
+
+    if not image_url:
+        return "No image URL was provided."
+
+    guild = getattr(channel, "guild", None)
+    if guild is None:
+        return "Images can only be hosted from inside a server."
+
+    try:
+        from bot.domain.pages.image_service import host_image_from_url
+
+        url = await host_image_from_url(str(guild.id), image_url, filename=filename)
+    except EnvironmentError:
+        return "Image hosting is not available (PAGES_BASE_URL / PAGES_PUBLISH_TOKEN not configured)."
+    except RuntimeError as e:
+        return f"Could not host that image: {e}"
+
+    return f"Image hosted at a permanent URL: {url}"
+
+
 # ---------------------------------------------------------------------------
 # Registry: maps tool name → (schema, executor)
 # ---------------------------------------------------------------------------
@@ -724,10 +779,14 @@ TOOL_EXECUTORS: Dict[str, Callable[..., Coroutine]] = {
     "web_search": execute_web_search,
     "read_channel": execute_read_channel,
     "publish_page": execute_publish_page,
+    "host_image": execute_host_image,
 }
 
 # Tools that need the Discord channel reference passed as a second argument
-CHANNEL_AWARE_TOOLS: set = {"generate_image", "edit_image", "read_channel", "publish_page"}
+CHANNEL_AWARE_TOOLS: set = {
+    "generate_image", "edit_image", "read_channel",
+    "publish_page", "host_image",
+}
 
 
 def get_tool_schemas_for_config(enabled_tools: List[str]) -> List[dict]:
