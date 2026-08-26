@@ -12,3 +12,7 @@ generated_images
 edited_images
 **.pyc
 .guild_config.json
+# Claude Code local state (the skill in .claude/skills/ IS tracked)
+.claude/worktrees/
+.claude/settings.local.json
+.DS_Store
