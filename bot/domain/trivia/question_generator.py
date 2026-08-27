@@ -4,13 +4,14 @@ import json
 import re
 from typing import Dict, List, Optional
 
+from bot.domain.llm.models import DEFAULT_CHAT_MODEL, UTILITY_MODEL
 from bot.api.openai.chat_completions_client import ChatCompletionsClient
 from bot.app.utils.logger import get_logger
 
 logger = get_logger()
 
 MAX_RETRIES = 3
-LLM_MODEL = "gpt-5.2"
+LLM_MODEL = DEFAULT_CHAT_MODEL
 
 
 def normalize_text(text: str) -> str:
@@ -75,7 +76,7 @@ Return as a numbered list with difficulty tags."""
     return response
 
 
-ANSWERABILITY_MODEL = "gpt-4o-mini"
+ANSWERABILITY_MODEL = UTILITY_MODEL
 
 
 async def _validate_and_fix_answerability(

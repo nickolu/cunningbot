@@ -24,7 +24,7 @@ HELP_PAGES = [
         name="/chat",
         value=(
             "Chat with an LLM. Options:\n"
-            "- `model` — choose from GPT-4o, GPT-4.1, o4-mini, and more (default: GPT-5.2)\n"
+            "- `model` — choose from GPT-5.5, GPT-5.4, o3, GPT-4o, and more (default: GPT-5.5)\n"
             "- `persona` — override the guild persona for this message\n"
             "- `private` — send response only to you\n"
             "- `context` — number of previous messages to include (default: 20)\n"

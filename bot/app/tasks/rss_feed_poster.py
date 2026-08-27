@@ -196,8 +196,9 @@ def _roundup_keyword_match(article_data: Dict[str, Any], match_query: str) -> bo
 async def _roundup_llm_confirm(article_data: Dict[str, Any], match_query: str) -> bool:
     """Use LLM to confirm if an article matches the roundup query."""
     try:
-        from bot.api.openai.chat_completions_client import ChatCompletionsClient
-        client = ChatCompletionsClient.factory("gpt-4o-mini")
+        from bot.domain.llm.models import UTILITY_MODEL
+from bot.api.openai.chat_completions_client import ChatCompletionsClient
+        client = ChatCompletionsClient.factory(UTILITY_MODEL)
         messages = [
             {"role": "system", "content": "You are a classifier. Answer only 'yes' or 'no'."},
             {"role": "user", "content": (

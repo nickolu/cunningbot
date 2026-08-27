@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch, Mock, call
 from typing import List
 import discord
 
+from bot.domain.llm.models import DEFAULT_CHAT_MODEL
+
 from bot.app.commands.chat.chat import ChatCog
 from bot.domain.chat.chat_personas import CHAT_PERSONAS
 
@@ -523,7 +525,7 @@ class TestChatHandlerModelSelection:
         mock_chat_service.assert_called_once()
         call_args = mock_chat_service.call_args
         model_arg = call_args[0][1]  # 2nd positional arg
-        assert model_arg == "gpt-4o-mini"
+        assert model_arg == DEFAULT_CHAT_MODEL
 
     @pytest.mark.asyncio
     @patch("bot.app.commands.chat.chat.chat_service")

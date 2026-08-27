@@ -9,6 +9,8 @@ from discord.ext import commands
 from typing import Optional
 
 from bot.domain.chat.chat_service import chat_service
+from bot.app.utils.model_choices import model_choices
+from bot.domain.llm.models import DEFAULT_CHAT_MODEL
 from bot.api.openai.chat_completions_client import ChatCompletionsClient, PermittedModelType
 from bot.app.app_state import get_default_persona
 from bot.domain.chat.chat_personas import CHAT_PERSONAS
@@ -36,7 +38,7 @@ class ChatCog(commands.Cog):
             # Set defaults and convert types
             was_default = False
             if model is None:
-                model = "gpt-5.2"
+                model = DEFAULT_CHAT_MODEL
                 was_default = True
             
             private = bool(private)
@@ -146,28 +148,7 @@ class ChatCog(commands.Cog):
             app_commands.Choice(name="False", value=0),
         ]
     )
-    @app_commands.choices(
-        model=[
-            app_commands.Choice(name="gpt-5.2 (default)", value="gpt-5.2"),
-            app_commands.Choice(name="gpt-5.2-pro (smartest)", value="gpt-5.2-pro"),
-            app_commands.Choice(name="gpt-5.2-codex (coding)", value="gpt-5.2-codex"),
-            app_commands.Choice(name="gpt-5.1", value="gpt-5.1"),
-            app_commands.Choice(name="gpt-5", value="gpt-5"),
-            app_commands.Choice(name="gpt-5-mini", value="gpt-5-mini"),
-            app_commands.Choice(name="gpt-4o", value="gpt-4o"),
-            app_commands.Choice(name="gpt-4o-mini", value="gpt-4o-mini"),
-            app_commands.Choice(name="gpt-4.5-preview", value="gpt-4.5-preview"),
-            app_commands.Choice(name="gpt-4.1", value="gpt-4.1"),
-            app_commands.Choice(name="gpt-4.1-mini", value="gpt-4.1-mini"),
-            app_commands.Choice(name="gpt-4.1-nano", value="gpt-4.1-nano"),
-            app_commands.Choice(name="gpt-4-turbo", value="gpt-4-turbo"),
-            app_commands.Choice(name="gpt-4", value="gpt-4"),
-            app_commands.Choice(name="gpt-3.5-turbo (cheapest)", value="gpt-3.5-turbo"),
-            app_commands.Choice(name="o4-mini", value="o4-mini"),
-            app_commands.Choice(name="o4", value="o4"),
-            app_commands.Choice(name="o3", value="o3"),
-        ]
-    )
+    @app_commands.choices(model=model_choices(DEFAULT_CHAT_MODEL))
     @app_commands.choices(
         persona=[
             app_commands.Choice(name="A discord user", value="discord_user"),

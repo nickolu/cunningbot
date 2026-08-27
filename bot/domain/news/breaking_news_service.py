@@ -8,6 +8,7 @@ import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from bot.domain.llm.models import UTILITY_MODEL
 from bot.api.openai.chat_completions_client import ChatCompletionsClient
 from bot.app.utils.logger import get_logger
 from bot.domain.news.news_summary_service import check_story_similarity
@@ -315,7 +316,7 @@ async def validate_breaking_news_relevance(
         messages = build_validation_messages(title, description, matched_topic)
 
         # Call LLM
-        llm = ChatCompletionsClient.factory("gpt-4o-mini")
+        llm = ChatCompletionsClient.factory(UTILITY_MODEL)
         response = await llm.chat(messages)
 
         response_lower = response.strip().lower()

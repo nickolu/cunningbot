@@ -6,6 +6,7 @@ Service for AI-powered news article ranking and summarization.
 from typing import List, Dict, Any
 import re
 
+from bot.domain.llm.models import UTILITY_MODEL
 from bot.api.openai.chat_completions_client import ChatCompletionsClient
 from bot.app.utils.logger import get_logger
 
@@ -105,7 +106,7 @@ Example: [1, 3, 5, 8]
 
 If none match, return: []"""
 
-            llm = ChatCompletionsClient.factory("gpt-4o-mini")
+            llm = ChatCompletionsClient.factory(UTILITY_MODEL)
             response = await llm.chat([
                 {"role": "system", "content": "You are a news filter. Return only the JSON array."},
                 {"role": "user", "content": prompt}
@@ -176,7 +177,7 @@ Return ONLY a comma-separated list of article numbers in order of importance (mo
 For example: "3,1,7,2,5"
 Do not include any other text or explanation."""
 
-        llm = ChatCompletionsClient.factory("gpt-4o-mini")
+        llm = ChatCompletionsClient.factory(UTILITY_MODEL)
         response = await llm.chat([
             {"role": "system", "content": "You are a professional news editor who ranks articles by importance."},
             {"role": "user", "content": prompt}
@@ -287,7 +288,7 @@ Return JSON mapping cluster IDs to article numbers:
 
 Aim for 5-8 total clusters. Single-article clusters are fine."""
 
-        llm = ChatCompletionsClient.factory("gpt-4o-mini")
+        llm = ChatCompletionsClient.factory(UTILITY_MODEL)
         response = await llm.chat([
             {"role": "system", "content": "You are a news editor grouping similar articles."},
             {"role": "user", "content": prompt}
@@ -347,7 +348,7 @@ async def generate_preliminary_title(articles: List[Dict[str, Any]]) -> str:
 
 Return ONLY the title, nothing else."""
 
-        llm = ChatCompletionsClient.factory("gpt-4o-mini")
+        llm = ChatCompletionsClient.factory(UTILITY_MODEL)
         response = await llm.chat([
             {"role": "system", "content": "You are a news editor. Return only the title."},
             {"role": "user", "content": prompt}
@@ -394,7 +395,7 @@ Return JSON: {{"is_similar": true/false, "similar_to_index": 1-based number or n
 
 If similar, return the index of the most similar posted story."""
 
-        llm = ChatCompletionsClient.factory("gpt-4o-mini")
+        llm = ChatCompletionsClient.factory(UTILITY_MODEL)
         response = await llm.chat([
             {"role": "system", "content": "You are a news editor detecting duplicate stories. Return only JSON."},
             {"role": "user", "content": prompt}
@@ -453,7 +454,7 @@ Do the NEW articles contain SIGNIFICANT updates or developments?
 
 Return JSON: {{"has_significant_updates": true/false, "reason": "brief explanation"}}"""
 
-        llm = ChatCompletionsClient.factory("gpt-4o-mini")
+        llm = ChatCompletionsClient.factory(UTILITY_MODEL)
         response = await llm.chat([
             {"role": "system", "content": "You are a news editor evaluating story updates. Return only JSON."},
             {"role": "user", "content": prompt}
@@ -606,7 +607,7 @@ TITLE: [Your title here]
 SUMMARY: [Your summary here]"""
 
     # Generate title and summary
-    llm = ChatCompletionsClient.factory("gpt-4o-mini")
+    llm = ChatCompletionsClient.factory(UTILITY_MODEL)
     response = await llm.chat([
         {"role": "system", "content": "You are a news editor creating concise summaries."},
         {"role": "user", "content": prompt}

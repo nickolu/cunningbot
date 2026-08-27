@@ -18,6 +18,8 @@ from discord.ext import commands
 from typing import Optional
 
 from bot.app.redis.agent_store import AgentRedisStore, DEFAULT_AGENT_CONFIG
+from bot.app.utils.model_choices import model_choices
+from bot.domain.llm.models import DEFAULT_AGENT_MODEL
 from bot.domain.agent.tools.registry import TOOL_SCHEMAS
 from bot.app.utils.logger import get_logger
 
@@ -53,19 +55,11 @@ class AgentCog(commands.Cog):
     )
     @app_commands.describe(
         persona="Personality/system prompt for the agent (free text, optional)",
-        model="LLM model to use (default: gpt-4o)",
+        model="LLM model to use (default: %s)" % DEFAULT_AGENT_MODEL,
         context_window="Number of previous messages the agent sees (default: 30)",
         cooldown="Seconds between automatic responses (default: 5)",
     )
-    @app_commands.choices(
-        model=[
-            app_commands.Choice(name="gpt-4o (default, balanced)", value="gpt-4o"),
-            app_commands.Choice(name="gpt-4o-mini (cheaper)", value="gpt-4o-mini"),
-            app_commands.Choice(name="gpt-4.1 (newer)", value="gpt-4.1"),
-            app_commands.Choice(name="gpt-4.1-mini (newer, cheaper)", value="gpt-4.1-mini"),
-            app_commands.Choice(name="gpt-5.2 (smartest, expensive)", value="gpt-5.2"),
-        ]
-    )
+    @app_commands.choices(model=model_choices(DEFAULT_AGENT_MODEL))
     async def register(
         self,
         interaction: discord.Interaction,
@@ -198,15 +192,7 @@ class AgentCog(commands.Cog):
         max_per_minute="Maximum responses per minute",
         response_mode="How the agent decides when to respond",
     )
-    @app_commands.choices(
-        model=[
-            app_commands.Choice(name="gpt-4o (default, balanced)", value="gpt-4o"),
-            app_commands.Choice(name="gpt-4o-mini (cheaper)", value="gpt-4o-mini"),
-            app_commands.Choice(name="gpt-4.1 (newer)", value="gpt-4.1"),
-            app_commands.Choice(name="gpt-4.1-mini (newer, cheaper)", value="gpt-4.1-mini"),
-            app_commands.Choice(name="gpt-5.2 (smartest, expensive)", value="gpt-5.2"),
-        ]
-    )
+    @app_commands.choices(model=model_choices(DEFAULT_AGENT_MODEL))
     @app_commands.choices(
         response_mode=[
             app_commands.Choice(name="Smart (LLM decides, default)", value="smart"),
