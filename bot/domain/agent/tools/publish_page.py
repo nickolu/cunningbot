@@ -21,8 +21,9 @@ SCHEMA: dict = {
             "link they can share or read later, or when the answer is too long "
             "or too structured for a Discord message (a list, a table, a "
             "write-up, or an explanation of how you worked something out). "
-            "Pass a slug to keep one stable URL that updates in place; omit it "
-            "for a one-off snapshot."
+            "If this updates something already published, call list_pages and "
+            "read_page first and republish with the SAME slug -- otherwise you "
+            "create a second page instead of updating the first."
         ),
         "parameters": {
             "type": "object",
@@ -41,9 +42,17 @@ SCHEMA: dict = {
                 "slug": {
                     "type": "string",
                     "description": (
-                        "Optional short name for a page that should keep one URL "
-                        "and be updated in place, e.g. 'restaurants' or 'lunch-rotation'. "
-                        "Reuse the same slug to update that page. Omit for a one-off page."
+                        "Short name giving the page a stable URL, e.g. 'restaurants' "
+                        "or 'lunch-rotation'. Reuse the same slug to update that page "
+                        "in place. Defaults to one derived from the title."
+                    ),
+                },
+                "one_off": {
+                    "type": "boolean",
+                    "description": (
+                        "True only for a snapshot that should never be updated -- a "
+                        "reasoning trace, a weekly summary. Gives the page a random "
+                        "URL that cannot be found or updated again. Default false."
                     ),
                 },
             },
@@ -80,6 +89,7 @@ async def execute_publish_page(
     title = (arguments.get("title") or "").strip()
     markdown = (arguments.get("markdown") or "").strip()
     slug = (arguments.get("slug") or "").strip() or None
+    one_off = bool(arguments.get("one_off"))
 
     if not markdown:
         return "No page content was provided."
@@ -107,6 +117,7 @@ async def execute_publish_page(
             markdown=markdown,
             slug=slug,
             guild_name=guild.name,
+            one_off=one_off,
         )
     except EnvironmentError:
         return "Publishing pages is not available (PAGES_BASE_URL / PAGES_PUBLISH_TOKEN not configured)."

@@ -169,3 +169,154 @@ def test_tool_is_registered_everywhere():
     assert "publish_page" in CHANNEL_AWARE_TOOLS
     assert "publish_page" in DEFAULT_AGENT_CONFIG["tools"]
     assert "publish_page" in AGENT_SYSTEM_PROMPT
+
+
+# --------------------------------------------------------------------------
+# Page memory: finding a page again, and reading it back before replacing it
+# --------------------------------------------------------------------------
+
+from bot.domain.pages.page_ids import looks_like_page_id, slug_from_page_id  # noqa: E402
+
+
+def test_page_id_and_slug_round_trip():
+    page_id = derive_page_id("111111111111111111", "Bot Fails Wishlist")
+    assert looks_like_page_id(page_id)
+    assert slug_from_page_id(page_id) == "bot-fails-wishlist"
+
+
+def test_a_bare_slug_is_not_mistaken_for_a_page_id():
+    """Deriving an id from something already an id yields a different page."""
+    assert not looks_like_page_id("restaurants")
+    assert not looks_like_page_id("restaurants-notahexdigest")
+
+
+@pytest.mark.asyncio
+async def test_publish_defaults_to_a_slug_from_the_title():
+    """The orphaning bug: no slug used to mean a random, unfindable URL."""
+    from bot.domain.pages import page_service
+
+    with patch.object(page_service, "PagesClient") as client_cls:
+        client_cls.return_value.publish = AsyncMock(return_value={"url": "https://x/p/y"})
+        await page_service.publish_page(
+            guild_id="111", title="Bot Fails Wishlist", markdown="- one"
+        )
+        first = client_cls.return_value.publish.await_args.kwargs["page_id"]
+
+        client_cls.return_value.publish = AsyncMock(return_value={"url": "https://x/p/y"})
+        await page_service.publish_page(
+            guild_id="111", title="Bot Fails Wishlist", markdown="- one\n- two"
+        )
+        second = client_cls.return_value.publish.await_args.kwargs["page_id"]
+
+    assert first == second, "same title must republish in place, not fork a page"
+    assert slug_from_page_id(first) == "bot-fails-wishlist"
+
+
+@pytest.mark.asyncio
+async def test_one_off_still_gets_a_unique_url():
+    from bot.domain.pages import page_service
+
+    ids = []
+    for _ in range(2):
+        with patch.object(page_service, "PagesClient") as client_cls:
+            client_cls.return_value.publish = AsyncMock(return_value={"url": "https://x/p/y"})
+            await page_service.publish_page(
+                guild_id="111", title="Reasoning trace", markdown="...", one_off=True
+            )
+            ids.append(client_cls.return_value.publish.await_args.kwargs["page_id"])
+
+    assert ids[0] != ids[1]
+
+
+@pytest.mark.asyncio
+async def test_slugged_pages_outlive_snapshots():
+    from bot.domain.pages import page_service
+
+    with patch.object(page_service, "PagesClient") as client_cls:
+        client_cls.return_value.publish = AsyncMock(return_value={"url": "https://x/p/y"})
+        await page_service.publish_page(guild_id="111", title="A List", markdown="-")
+        stable = client_cls.return_value.publish.await_args.kwargs["ttl_days"]
+
+        await page_service.publish_page(
+            guild_id="111", title="A Trace", markdown="-", one_off=True
+        )
+        snapshot = client_cls.return_value.publish.await_args.kwargs["ttl_days"]
+
+    assert stable == page_service.STABLE_TTL_DAYS
+    assert snapshot == page_service.SNAPSHOT_TTL_DAYS
+    assert stable > snapshot
+
+
+@pytest.mark.asyncio
+async def test_markdown_is_stored_so_it_can_be_read_back():
+    from bot.domain.pages import page_service
+
+    with patch.object(page_service, "PagesClient") as client_cls:
+        client_cls.return_value.publish = AsyncMock(return_value={"url": "https://x/p/y"})
+        await page_service.publish_page(guild_id="111", title="A List", markdown="- one")
+        assert client_cls.return_value.publish.await_args.kwargs["markdown"] == "- one"
+
+
+@pytest.mark.asyncio
+async def test_read_page_accepts_a_url_as_well_as_a_slug():
+    from bot.domain.pages import page_service
+
+    page_id = derive_page_id("111", "wishlist")
+    with patch.object(page_service, "PagesClient") as client_cls:
+        client_cls.return_value.fetch_source = AsyncMock(
+            return_value={"title": "Wishlist", "markdown": "- one", "updated_at": "2026-08-27"}
+        )
+        client_cls.return_value.page_url = lambda pid: f"https://x/p/{pid}"
+
+        by_slug = await page_service.read_page("111", "wishlist")
+        by_url = await page_service.read_page("111", f"https://x/p/{page_id}")
+
+    assert by_slug["markdown"] == "- one"
+    assert by_url["slug"] == by_slug["slug"] == "wishlist"
+
+
+@pytest.mark.asyncio
+async def test_read_page_warns_rather_than_pretending_a_page_is_empty():
+    """A page from before source storage must not read as blank."""
+    from bot.domain.agent.tools.read_page import execute_read_page
+
+    channel = SimpleNamespace(guild=SimpleNamespace(id=111, name="g"))
+    with patch("bot.domain.pages.page_service.read_page",
+               new=AsyncMock(return_value={
+                   "slug": "old", "title": "Old Page", "markdown": None,
+                   "url": "https://x/p/old-aaaaaaaaaaaaaaaa", "updated_at": None,
+               })):
+        result = await execute_read_page({"page": "old"}, channel)
+
+    assert "before pages kept their source" in result
+    assert "replace" in result
+
+
+@pytest.mark.asyncio
+async def test_tools_degrade_when_the_service_predates_them():
+    """web/ deploys separately, so the bot can be ahead of it."""
+    from bot.api.pages.client import PagesNotDeployed
+    from bot.domain.agent.tools.list_pages import execute_list_pages
+
+    channel = SimpleNamespace(guild=SimpleNamespace(id=111, name="g"))
+    with patch("bot.domain.pages.page_service.list_pages",
+               new=AsyncMock(side_effect=PagesNotDeployed("no route"))):
+        result = await execute_list_pages({}, channel)
+
+    assert "older version" in result
+    assert "Could not" not in result
+
+
+def test_new_page_tools_are_registered_and_on_by_default():
+    from bot.domain.agent.tools.registry import CHANNEL_AWARE_TOOLS, DEFAULT_ENABLED_TOOLS
+
+    for key in ("list_pages", "read_page"):
+        assert key in DEFAULT_ENABLED_TOOLS
+        assert key in CHANNEL_AWARE_TOOLS
+
+
+def test_backfill_ships_the_new_tools_to_existing_channels():
+    """Default-on tools do not reach already-registered channels on their own."""
+    from bot.app.redis.migrations.backfill_agent_tools import DEFAULT_TOOLS_TO_ADD
+
+    assert set(DEFAULT_TOOLS_TO_ADD) == {"list_pages", "read_page"}

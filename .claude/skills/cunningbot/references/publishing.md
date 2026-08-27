@@ -13,7 +13,7 @@ tables, long write-ups, and anything worth reading outside Discord.
 | `bot/domain/pages/page_service.py` | `publish_page(...)` — the one entry point |
 | `bot/api/pages/client.py` | HTTP client for the Vercel app |
 | `bot/domain/pages/image_service.py` | Hosting images at stable URLs |
-| `bot/domain/agent/tools/publish_page.py`, `host_image.py` | The agent-facing tools |
+| `bot/domain/agent/tools/publish_page.py`, `list_pages.py`, `read_page.py`, `host_image.py` | The agent-facing tools |
 
 ## Images expire unless you host them
 
@@ -53,13 +53,33 @@ tool returns the message as a string; a cog sends it as an ephemeral reply.
 
 ## Stable vs one-off pages
 
-The `slug` decides:
+Pages are stable **by default**: with no `slug`, one is derived from the title.
+Pass `one_off=True` for a snapshot that should never be updated -- a reasoning
+trace, a weekly summary -- and it gets a random id instead.
 
-- **With a slug** — `restaurants` always resolves to the same URL for that
-  guild. Republish whenever the underlying data changes and the previously
-  shared link shows the new content. This is what a "living" list wants.
-- **Without a slug** — a random id, so every publish is a new page. Right for
-  snapshots: a reasoning trace, a weekly summary, a one-time report.
+That default is deliberate. A random id is derived from `secrets.token_hex(4)`
+and can never be recomputed, by the bot or anyone else, so an unslugged page was
+unfindable the moment its URL scrolled out of the channel. Asked to add to one,
+the agent could only publish a second page holding the new item alone.
+
+Slugged pages live 365 days (`STABLE_TTL_DAYS`); one-offs get 30
+(`SNAPSHOT_TTL_DAYS`). A living list that expires a month after its last edit is
+the opposite of what it is for.
+
+## Reading a page back
+
+`list_pages(guild_id)` returns what a server has published, newest first;
+`read_page(guild_id, reference)` takes a slug, a page id, or a URL and returns
+the stored Markdown.
+
+**`markdown` is `None` for a page published before source storage existed.** That
+is not an empty page -- republishing over it destroys content nobody has seen.
+The tool says so instead, and the system prompt tells the agent to surface it.
+
+`web/` deploys separately from the bot, so the bot can be ahead of it. When it
+is, `/api/pages` does not exist and Vercel answers with an HTML 404 rather than
+the API's JSON one; the client raises `PagesNotDeployed` on that distinction and
+the tools report the feature as unavailable instead of erroring.
 
 ## Multi-tenancy — read before touching page ids
 

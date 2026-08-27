@@ -32,7 +32,7 @@ logger = logging.getLogger("AgentToolsBackfill")
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 
 # Tools added since the earliest registrations. Extend when shipping a new one.
-DEFAULT_TOOLS_TO_ADD = ["publish_page"]
+DEFAULT_TOOLS_TO_ADD = ["list_pages", "read_page"]
 
 KEY_PATTERN = "agent:*"
 

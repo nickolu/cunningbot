@@ -8,6 +8,15 @@ from typing import Any, Optional
 import aiohttp
 
 
+class PagesNotDeployed(RuntimeError):
+    """The pages service is reachable but predates the discovery endpoints.
+
+    `web/` deploys separately from the bot, so the bot can ship first. When it
+    does, /api/pages does not exist and Vercel answers with its own HTML 404
+    rather than the API's JSON one -- which is how the two are told apart.
+    """
+
+
 class PagesClient:
     """Async client that publishes rendered HTML and returns its public URL."""
 
@@ -77,6 +86,7 @@ class PagesClient:
         guild_id: str,
         title: str,
         html: str,
+        markdown: Optional[str] = None,
         ttl_days: Optional[int] = None,
     ) -> dict[str, Any]:
         """Publish ``html`` at ``page_id``. Returns the service's JSON response.
@@ -90,6 +100,8 @@ class PagesClient:
             "title": title,
             "html": html,
         }
+        if markdown is not None:
+            payload["markdown"] = markdown
         if ttl_days is not None:
             payload["ttl_days"] = ttl_days
 
@@ -123,3 +135,54 @@ class PagesClient:
             raise RuntimeError("Page service returned an unexpected response.")
 
         return data
+
+    def page_url(self, page_id: str) -> str:
+        """The public URL a page id resolves to."""
+        return f"{self.base_url}/p/{page_id}"
+
+    async def _get_json(self, params: dict[str, str]) -> Optional[dict[str, Any]]:
+        """GET /api/pages. Returns None when the service reports no such page."""
+        headers = {"Authorization": f"Bearer {self.token}"}
+        timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(
+                    f"{self.base_url}/api/pages",
+                    params=params,
+                    headers=headers,
+                ) as response:
+                    if response.status == 404:
+                        # The API answers 404 as JSON; Vercel answers for a route
+                        # it does not have with HTML. Only the former means the
+                        # page is missing -- the latter means the feature is.
+                        if response.content_type == "application/json":
+                            return None
+                        raise PagesNotDeployed(
+                            "The pages service has no /api/pages route yet."
+                        )
+                    response.raise_for_status()
+                    data = await response.json()
+        except TimeoutError as exc:
+            raise RuntimeError("The page service timed out.") from exc
+        except aiohttp.ClientResponseError as exc:
+            raise RuntimeError(f"Page service returned HTTP {exc.status}.") from exc
+        except aiohttp.ClientError as exc:
+            raise RuntimeError("Could not reach the page service.") from exc
+
+        if not isinstance(data, dict):
+            raise RuntimeError("Page service returned an unexpected response.")
+        return data
+
+    async def list_pages(self, guild_id: str) -> list[dict[str, Any]]:
+        """Every page this guild has published, newest first."""
+        data = await self._get_json({"guild_id": guild_id})
+        if data is None:
+            return []
+        pages = data.get("pages")
+        return pages if isinstance(pages, list) else []
+
+    async def fetch_source(
+        self, page_id: str, guild_id: str
+    ) -> Optional[dict[str, Any]]:
+        """One page's stored Markdown, or None if there is no such page."""
+        return await self._get_json({"guild_id": guild_id, "id": page_id})

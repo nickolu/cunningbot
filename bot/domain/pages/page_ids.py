@@ -27,6 +27,8 @@ import secrets
 from typing import Optional
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
+#: A page id is "<slug>-<hmac>"; the hmac is _HMAC_CHARS hex characters.
+_PAGE_ID_RE = re.compile(r"^(?P<slug>.+)-(?P<digest>[0-9a-f]{16})$")
 _HMAC_CHARS = 16
 _MAX_SLUG_LEN = 48
 
@@ -82,3 +84,19 @@ def derive_page_id(guild_id: str, slug: Optional[str] = None) -> str:
     ).hexdigest()[:_HMAC_CHARS]
 
     return f"{clean}-{digest}"
+
+
+def looks_like_page_id(value: str) -> bool:
+    """True if ``value`` is already a page id rather than a bare slug.
+
+    The agent is as likely to have a URL it published earlier as it is to have
+    a slug, and the two must not be confused: deriving an id from a slug that
+    is *already* an id produces a different, empty page.
+    """
+    return bool(_PAGE_ID_RE.match(value.strip().lower()))
+
+
+def slug_from_page_id(page_id: str) -> str:
+    """Recover the readable slug from a page id, for display."""
+    match = _PAGE_ID_RE.match(page_id.strip().lower())
+    return match.group("slug") if match else page_id
