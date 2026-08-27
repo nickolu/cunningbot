@@ -1,63 +1,71 @@
 # Adding an agent tool
 
 An agent tool is what lets someone write `@CunningBot can you ...` and have it
-happen. Everything lives in `bot/domain/agent/agent_tools.py` except two
-registration points outside it.
+happen. Each tool is one module in `bot/domain/agent/tools/`, and adding one is
+adding a file plus a line in `registry.py`.
 
-## The five places to touch
+## The recipe
 
-Miss any one and the tool silently doesn't exist. Work down this list:
+1. **Create `bot/domain/agent/tools/<config_key>.py`** holding three things: a
+   module-level `SCHEMA`, an `async def execute_<function_name>(...)`, and a
+   `TOOL = AgentTool(...)` at the bottom. Copy the nearest existing tool.
 
-1. **`TOOL_SCHEMAS`** in `agent_tools.py` — keyed by **config key**, value is an
-   OpenAI function-calling schema whose `function.name` is the **function name**.
-   These two names are deliberately different for some tools:
+2. **Add the module to `_MODULES` in `bot/domain/agent/tools/registry.py`.** That
+   list is ordered and user-visible — it drives the `/agent` tool picker — so
+   append at the end.
 
-   | config key | function name |
-   |---|---|
-   | `weather` | `get_weather` |
-   | `image` | `generate_image` |
-   | `dice` | `roll_dice` |
-   | `edit_image` | `edit_image` |
-   | `search_gifs` | `search_gifs` |
-   | `web_search` | `web_search` |
-   | `read_channel` | `read_channel` |
+Everything else is derived: `TOOL_SCHEMAS`, `TOOL_EXECUTORS`,
+`CHANNEL_AWARE_TOOLS`, and the default tool list for new channels.
+`tests/test_agent_tool_registry.py` fails if a tool's `channel_aware` flag and
+its executor signature disagree, which used to be a `TypeError` discovered in
+production.
 
-   Pick one and use it consistently; matching the two is simplest for new tools.
+### The two names
 
-2. **`async def execute_<function_name>(arguments: Dict[str, Any]) -> str`** —
-   the executor. Add `channel: discord.TextChannel` as a second parameter if it
-   needs to post to the channel.
+`config_key` is what a channel's stored config lists and what `/agent` shows;
+the schema's `function.name` is what the model emits. They differ for historical
+reasons on some tools:
 
-3. **`TOOL_EXECUTORS`** — maps **function name** → executor. (Not the config key.)
+| config key | function name |
+|---|---|
+| `weather` | `get_weather` |
+| `image` | `generate_image` |
+| `dice` | `roll_dice` |
+| `edit_image` | `edit_image` |
 
-4. **`CHANNEL_AWARE_TOOLS`** — add the function name here if and only if the
-   executor takes the channel argument. Getting this wrong is a `TypeError` at
-   call time, surfaced to the model as `Tool error:`.
+Match the two for anything new.
 
-5. **`DEFAULT_AGENT_CONFIG["tools"]`** in `bot/app/redis/agent_store.py` — add the
-   **config key**, or the tool is off for every newly registered channel.
+### Reaching existing channels
 
-   **Then run the backfill, or the tool is invisible in every existing channel.**
-   `DEFAULT_AGENT_CONFIG` is read *only* at registration time; already-registered
-   channels keep the tool list stored in their own Redis record. `/agent configure`
-   has **no `tools` option**, so the only in-Discord remedy is unregister plus
-   re-register, which discards that channel's model, persona, and window.
+`default_enabled=True` (the default) puts a tool in `DEFAULT_ENABLED_TOOLS`,
+which covers newly registered channels and channels with no registration at all.
+Set `default_enabled=False` for anything that should be opt-in — a tool that
+writes somewhere public, for instance.
 
-   ```bash
-   ssh dad@192.168.1.182 'cd /home/dad/cunningbot && \
-     docker compose exec -T -e PYTHONPATH=/app -w /app cunningbot \
-     python -m bot.app.redis.migrations.backfill_agent_tools --dry-run'
-   ```
-   Drop `--dry-run` to apply. It is idempotent and only ever adds the keys named
-   in `DEFAULT_TOOLS_TO_ADD` (extend that list when you ship a tool).
+**Already-registered channels still need the backfill.** They keep the tool list
+stored in their own Redis record, and `/agent configure` has no `tools` option,
+so the only in-Discord remedy is unregister plus re-register, which discards that
+channel's model, persona, and window.
 
-   This is the single easiest way to ship a tool that tests green, registers
-   correctly, and still does nothing in production.
+```bash
+ssh dad@192.168.1.182 'cd /home/dad/cunningbot && \
+  docker compose exec -T -e PYTHONPATH=/app -w /app cunningbot \
+  python -m bot.app.redis.migrations.backfill_agent_tools --dry-run'
+```
+
+Drop `--dry-run` to apply. It is idempotent and only ever adds the keys named in
+`DEFAULT_TOOLS_TO_ADD` (extend that list when you ship a tool). This is the
+single easiest way to ship a tool that tests green, registers correctly, and
+still does nothing in production.
 
 Then: add a one-line bullet to `AGENT_SYSTEM_PROMPT` in
 `bot/domain/agent/agent_service.py` describing when to reach for it. The model
 follows those bullets closely; without one, a correctly registered tool goes
 unused. And update `/help` if the capability is user-visible.
+
+`bot/domain/agent/agent_tools.py` is now a thin re-export façade kept for the
+existing imports in the test suite. Import from
+`bot.domain.agent.tools.registry` in new code.
 
 ## Executor contract
 
@@ -78,31 +86,39 @@ unused. And update `/help` if the capability is user-visible.
 ## Skeleton
 
 ```python
-# 1. schema
-TOOL_SCHEMAS: Dict[str, dict] = {
-    ...,
-    "restaurant_list": {
-        "type": "function",
-        "function": {
-            "name": "restaurant_list",
-            "description": (
-                "Read or modify this server's list of restaurants to visit. "
-                "Use action='add' when someone mentions a place worth trying."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string", "enum": ["list", "add", "remove"]},
-                    "name": {"type": "string", "description": "Restaurant name"},
-                    "note": {"type": "string", "description": "Neighborhood or why it came up"},
-                },
-                "required": ["action"],
+"""The `restaurant_list` agent tool."""
+
+from typing import Any, Dict
+
+import discord
+
+from bot.app.utils.logger import get_logger
+from bot.domain.agent.tools.base import AgentTool
+
+logger = get_logger()
+
+
+SCHEMA: dict = {
+    "type": "function",
+    "function": {
+        "name": "restaurant_list",
+        "description": (
+            "Read or modify this server's list of restaurants to visit. "
+            "Use action='add' when someone mentions a place worth trying."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["list", "add", "remove"]},
+                "name": {"type": "string", "description": "Restaurant name"},
+                "note": {"type": "string", "description": "Neighborhood or why it came up"},
             },
+            "required": ["action"],
         },
     },
 }
 
-# 2. executor — channel-aware because it needs guild_id
+
 async def execute_restaurant_list(
     arguments: Dict[str, Any], channel: discord.TextChannel
 ) -> str:
@@ -122,10 +138,17 @@ async def execute_restaurant_list(
         return "The restaurant list is empty."
     return "Restaurants to visit:\n" + "\n".join(f"- {i['name']}" for i in items)
 
-# 3. + 4. registration
-TOOL_EXECUTORS["restaurant_list"] = execute_restaurant_list
-CHANNEL_AWARE_TOOLS.add("restaurant_list")   # written inline in the literals
+
+TOOL = AgentTool(
+    config_key="restaurant_list",
+    schema=SCHEMA,
+    executor=execute_restaurant_list,
+    channel_aware=True,
+)
 ```
+
+Then add `restaurant_list` to `_MODULES` in `registry.py`. That is the whole
+registration.
 
 ## Getting the guild
 
@@ -135,7 +158,8 @@ to a guild at all — if a tool touches per-server state, it must be channel-awa
 
 ## Testing
 
-There is no test file for `agent_tools.py` yet. Test the executor directly with
+`tests/test_agent_tool_registry.py` already covers registration for every
+tool, so a new tool needs no wiring test. Test the executor directly with
 a stub channel — it is a plain async function returning a string, so it needs no
 Discord fixtures:
 

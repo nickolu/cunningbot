@@ -74,7 +74,7 @@ unregister`, stored by `bot/app/redis/agent_store.py`.
   the bot's features. One client class per capability.
 - `bot/domain/<feature>/` — the actual logic. Must not import `discord`. If you
   find yourself needing a `discord.Message` here, pass plain data instead.
-  (`agent_tools.py` is the deliberate exception: channel-aware tools take a
+  (`bot/domain/agent/tools/` is the deliberate exception: channel-aware tools take a
   `discord.TextChannel` so they can upload attachments.)
 - `bot/app/` — everything that knows about Discord or persistence.
 

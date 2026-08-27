@@ -17,7 +17,8 @@ Every feature is exposed through one or both of these. Decide which before you w
    parameter-validated by Discord. Cogs in `bot/app/commands/<feature>/`.
 2. **Channel agent** — plain English at the bot (`@CunningBot can you...`). An
    `on_message` listener decides whether the bot is being addressed, then runs an
-   OpenAI tool-calling loop. Tools in `bot/domain/agent/agent_tools.py`.
+   OpenAI tool-calling loop. One module per tool in `bot/domain/agent/tools/`,
+   collected by `registry.py`.
 
 A capability that should work both ways needs a cog *and* an agent tool, both
 delegating to one service in `bot/domain/<feature>/`. Do not duplicate logic
@@ -33,7 +34,7 @@ between them.
 | `bot/app/tasks/` | Standalone worker scripts run on a loop | Each is a `python -m` entry point, not a cog |
 | `bot/app/redis/*_store.py` | One store class per feature; owns its key schema | All persistence goes through a store |
 | `bot/app/utils/` | logger, zip lookup, feed fetch | |
-| `tests/` | pytest suite | 8 failures are pre-existing on `main` (af, chat, image) |
+| `tests/` | pytest suite | 8 failures are pre-existing on `main` (af, chat, image, google) |
 | `web/` | Vercel app that hosts published pages — deploys separately | |
 
 ## Non-negotiables
@@ -67,7 +68,7 @@ between them.
 ## Verify before shipping
 
 ```bash
-python3 -m pytest tests/          # 119 tests, ~2s, no network or keys needed
+python3 -m pytest tests/          # 183 tests, ~45s, no network or keys needed
 python3 -m pytest tests/test_trivia_points.py -q   # single file
 ```
 

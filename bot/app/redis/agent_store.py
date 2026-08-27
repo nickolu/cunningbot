@@ -9,6 +9,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from bot.app.redis.client import get_redis_client
+from bot.domain.agent.tools.registry import DEFAULT_ENABLED_TOOLS
 
 logger = logging.getLogger("AgentRedisStore")
 
@@ -17,10 +18,10 @@ DEFAULT_AGENT_CONFIG = {
     "enabled": True,
     "persona": None,  # None = use guild default
     "model": "gpt-4o",
-    "tools": [
-        "weather", "image", "dice", "search_gifs", "edit_image",
-        "web_search", "read_channel", "publish_page", "host_image",
-    ],
+    # Derived from the tool registry, so a new tool is enabled for new channels
+    # by declaring default_enabled on it -- not by editing this list, which used
+    # to drift from what the listener handed unregistered channels.
+    "tools": list(DEFAULT_ENABLED_TOOLS),
     "context_window": 30,
     "cooldown_seconds": 5,
     "max_responses_per_minute": 10,

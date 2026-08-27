@@ -35,7 +35,7 @@ from discord.ext import commands
 
 from bot.app.redis.agent_store import DEFAULT_AGENT_CONFIG, AgentRedisStore
 from bot.domain.agent.agent_service import run_agent
-from bot.domain.agent.agent_tools import TOOL_SCHEMAS
+from bot.domain.agent.tools.registry import DEFAULT_ENABLED_TOOLS
 from bot.domain.agent.intent_classifier import Intent, classify_intent
 from bot.domain.agent.summon import build_summon_pattern, is_summoned_by_name
 from bot.api.discord.utils import flatten_discord_message
@@ -52,7 +52,7 @@ ASK_CLARIFY_RESPONSE = "Did you want me to do something, or just chatting?"
 # directly, never off the intent classifier's judgement.
 UNREGISTERED_AGENT_CONFIG = {
     **DEFAULT_AGENT_CONFIG,
-    "tools": list(TOOL_SCHEMAS.keys()),
+    "tools": list(DEFAULT_ENABLED_TOOLS),
     "response_mode": "strict",
 }
 

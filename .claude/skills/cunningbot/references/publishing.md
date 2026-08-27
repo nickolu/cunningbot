@@ -13,7 +13,7 @@ tables, long write-ups, and anything worth reading outside Discord.
 | `bot/domain/pages/page_service.py` | `publish_page(...)` — the one entry point |
 | `bot/api/pages/client.py` | HTTP client for the Vercel app |
 | `bot/domain/pages/image_service.py` | Hosting images at stable URLs |
-| `agent_tools.py` → `publish_page`, `host_image` | The agent-facing tools |
+| `bot/domain/agent/tools/publish_page.py`, `host_image.py` | The agent-facing tools |
 
 ## Images expire unless you host them
 
