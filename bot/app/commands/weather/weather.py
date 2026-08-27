@@ -17,6 +17,7 @@ from discord.ext import commands
 
 from bot.api.openmeteo.forecast_client import fetch_forecast
 from bot.api.openmeteo.history_client import fetch_history
+from bot.domain.llm.models import UTILITY_MODEL
 from bot.api.openai.chat_completions_client import ChatCompletionsClient
 from bot.app.redis.weather_store import WeatherRedisStore
 from bot.app.redis.serialization import guild_id_to_str
@@ -323,7 +324,7 @@ async def generate_llm_summary(
     )
 
     try:
-        client = ChatCompletionsClient(model="gpt-4o-mini")
+        client = ChatCompletionsClient(model=UTILITY_MODEL)
         result = await client.chat([{"role": "user", "content": prompt}])
         return result.strip()
     except Exception as e:

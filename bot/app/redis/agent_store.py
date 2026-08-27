@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from bot.app.redis.client import get_redis_client
 from bot.domain.agent.tools.registry import DEFAULT_ENABLED_TOOLS
+from bot.domain.llm.models import DEFAULT_AGENT_MODEL
 
 logger = logging.getLogger("AgentRedisStore")
 
@@ -17,7 +18,7 @@ logger = logging.getLogger("AgentRedisStore")
 DEFAULT_AGENT_CONFIG = {
     "enabled": True,
     "persona": None,  # None = use guild default
-    "model": "gpt-4o",
+    "model": DEFAULT_AGENT_MODEL,
     # Derived from the tool registry, so a new tool is enabled for new channels
     # by declaring default_enabled on it -- not by editing this list, which used
     # to drift from what the listener handed unregistered channels.

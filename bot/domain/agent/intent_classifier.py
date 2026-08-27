@@ -10,13 +10,14 @@ from typing import Dict, List, Optional
 
 from openai import AsyncOpenAI
 
+from bot.domain.llm.models import UTILITY_MODEL
 from bot.app.utils.logger import get_logger
 
 logger = get_logger()
 
 openai_client = AsyncOpenAI()
 
-CLASSIFIER_MODEL = "gpt-4o-mini"
+CLASSIFIER_MODEL = UTILITY_MODEL
 
 
 class Intent(str, Enum):

@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 import discord
 from openai import AsyncOpenAI
 
+from bot.domain.llm.models import DEFAULT_AGENT_MODEL
 from bot.domain.agent.tools.registry import (
     TOOL_EXECUTORS,
     CHANNEL_AWARE_TOOLS,
@@ -107,7 +108,7 @@ async def run_agent(
     Images and other rich content are sent directly to the channel by tool
     executors, so the returned string is just the conversational text part.
     """
-    model: str = agent_config.get("model", "gpt-4o")
+    model: str = agent_config.get("model", DEFAULT_AGENT_MODEL)
     enabled_tools: List[str] = agent_config.get("tools", [])
     persona: Optional[str] = agent_config.get("persona")
 

@@ -3,74 +3,27 @@ chat_completions_client.py
 Core LLM client logic for the bot.
 """
 
-from typing import List, Literal, Dict, Any, Iterable
+from typing import List, Dict, Any, Iterable
 from openai import AsyncOpenAI
 import os
 
 from openai.types.chat import ChatCompletionUserMessageParam, ChatCompletionAssistantMessageParam, ChatCompletionSystemMessageParam, ChatCompletionDeveloperMessageParam, ChatCompletionFunctionMessageParam, ChatCompletionToolMessageParam, ChatCompletionMessageParam, ChatCompletionFunctionMessageParam
+from bot.domain.llm.models import (
+    DEFAULT_CHAT_MODEL,
+    PERMITTED_MODELS as _PERMITTED_MODELS,
+    PermittedModelType as _PermittedModelType,
+    request_arguments as _request_arguments,
+)
 from bot.app.utils.logger import get_logger
 logger = get_logger()
 
 openai = AsyncOpenAI()
 
-PermittedModelType = Literal[
-    "gpt-3.5-turbo",
-    "gpt-4",
-    "gpt-4-turbo",
-    "gpt-4.1-mini",
-    "gpt-4.1-nano",
-    "gpt-4.1",
-    "gpt-4.5-preview",
-    "gpt-4o-mini",
-    "gpt-4o",
-    "gpt-5-mini",
-    "gpt-5",
-    "gpt-5.1",
-    "gpt-5.2",
-    "gpt-5.2-pro",
-    "gpt-5.2-codex",
-    "o3",
-    "o4-mini",
-    "o4",
-]
+# The catalog lives in bot/domain/llm/models.py. Re-exported here because
+# callers have imported these names from this module since before it existed.
+PermittedModelType = _PermittedModelType
+transform_arguments_for_model = _request_arguments
 
-def transform_arguments_for_model(model: PermittedModelType) -> Dict[str, Any]:
-    if model == "gpt-3.5-turbo":
-        return {"model": "gpt-3.5-turbo", "max_tokens": 4096}
-    elif model == "gpt-4":
-        return {"model": "gpt-4", "max_tokens": 8192}
-    elif model == "gpt-4-turbo":
-        return {"model": "gpt-4-turbo", "max_tokens": 4096}
-    elif model == "gpt-4.1-mini":
-        return {"model": "gpt-4.1-mini", "max_tokens": 10000}
-    elif model == "gpt-4.1-nano":
-        return {"model": "gpt-4.1-nano", "max_tokens": 10000}
-    elif model == "gpt-4.1":
-        return {"model": "gpt-4.1", "max_tokens": 10000}
-    elif model == "gpt-4.5-preview":
-        return {"model": "gpt-4.5-preview", "max_tokens": 10000}
-    elif model == "gpt-4o-mini":
-        return {"model": "gpt-4o-mini", "max_completion_tokens": 10000}
-    elif model == "gpt-4o":
-        return {"model": "gpt-4o", "max_completion_tokens": 10000}
-    elif model == "gpt-5-mini":
-        return {"model": "gpt-5-mini", "max_completion_tokens": 10000}
-    elif model == "gpt-5":
-        return {"model": "gpt-5", "max_completion_tokens": 10000}
-    elif model == "gpt-5.1":
-        return {"model": "gpt-5.1", "max_completion_tokens": 10000}
-    elif model == "gpt-5.2":
-        return {"model": "gpt-5.2", "max_completion_tokens": 64000}
-    elif model == "gpt-5.2-pro":
-        return {"model": "gpt-5.2-pro", "max_completion_tokens": 10000}
-    elif model == "gpt-5.2-codex":
-        return {"model": "gpt-5.2-codex", "max_completion_tokens": 10000}
-    elif model == "o3":
-        return {"model": "o3", "max_completion_tokens": 10000}
-    elif model == "o4-mini":
-        return {"model": "o4-mini", "max_completion_tokens": 10000}
-    elif model == "o4":
-        return {"model": "o4", "max_completion_tokens": 10000}
 
 def transform_history_to_openai(history: List[Dict[str, Any]]) -> Iterable[ChatCompletionMessageParam]:
     for message in history:
@@ -91,28 +44,10 @@ def transform_history_to_openai(history: List[Dict[str, Any]]) -> Iterable[ChatC
     
 
 class ChatCompletionsClient:
-    PERMITTED_MODELS = {
-        "gpt-3.5-turbo": "openai",
-        "gpt-4": "openai",
-        "gpt-4-turbo": "openai",
-        "gpt-4.1-mini": "openai",
-        "gpt-4.1-nano": "openai",
-        "gpt-4.1": "openai",
-        "gpt-4.5-preview": "openai",
-        "gpt-4o-mini": "openai",
-        "gpt-4o": "openai",
-        "gpt-5-mini": "openai",
-        "gpt-5": "openai",
-        "gpt-5.1": "openai",
-        "gpt-5.2": "openai",
-        "gpt-5.2-pro": "openai",
-        "gpt-5.2-codex": "openai",
-        "o3": "openai",
-        "o4-mini": "openai",
-        "o4": "openai",
-    }
+    #: Model id -> vendor. Derived; see bot/domain/llm/models.py.
+    PERMITTED_MODELS = _PERMITTED_MODELS
 
-    def __init__(self, model: PermittedModelType = "gpt-5.2"):
+    def __init__(self, model: PermittedModelType = DEFAULT_CHAT_MODEL):
         self.model = model
         self.provider = self.PERMITTED_MODELS.get(model)
         if not self.provider:
@@ -155,6 +90,6 @@ class ChatCompletionsClient:
         return response.choices[0].message.content or ""
 
     @staticmethod
-    def factory(model: PermittedModelType = "gpt-5.2") -> "ChatCompletionsClient":
+    def factory(model: PermittedModelType = DEFAULT_CHAT_MODEL) -> "ChatCompletionsClient":
         return ChatCompletionsClient(model=model)
 

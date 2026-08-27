@@ -4,6 +4,7 @@ import json
 import re
 from typing import Dict
 
+from bot.domain.llm.models import UTILITY_MODEL
 from bot.api.openai.chat_completions_client import ChatCompletionsClient
 from bot.app.utils.logger import get_logger
 
@@ -78,7 +79,7 @@ Reject:
 
 Return JSON: {{"is_correct": true/false, "feedback": "brief explanation"}}"""
 
-        llm = ChatCompletionsClient.factory("gpt-4o-mini")
+        llm = ChatCompletionsClient.factory(UTILITY_MODEL)
         response = await llm.chat([
             {
                 "role": "system",

@@ -6,6 +6,7 @@ Service for chat functionality.
 
 from typing import Dict, List, Optional
 
+from bot.domain.llm.models import DEFAULT_CHAT_MODEL
 from bot.api.openai.utils import sanitize_name
 from bot.api.openai.chat_completions_client import ChatCompletionsClient, PermittedModelType
 from bot.app.utils.logger import get_logger
@@ -22,7 +23,7 @@ async def chat_service(
 ) -> str:   
     
     if model is None:
-        model = "gpt-5.2"
+        model = DEFAULT_CHAT_MODEL
 
     if name is None:
         name = "User"

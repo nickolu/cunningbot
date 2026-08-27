@@ -83,6 +83,15 @@ python3 -m pytest tests/test_trivia_points.py -q   # single file
 
 ## Gotchas
 
+- **Chat models live in one table.** `bot/domain/llm/models.py` feeds the
+  `/chat` and `/agent` pickers, the API client's request kwargs, and the role
+  defaults (`DEFAULT_CHAT_MODEL`, `DEFAULT_AGENT_MODEL`, `UTILITY_MODEL`).
+  Add a row, add the id to `PermittedModelType`, then run
+  `python3 scripts/check_models.py` -- appearing in the account's
+  `/v1/models` listing does **not** mean a model works. `-pro` and `-codex`
+  variants are listed but only serve `/v1/responses`, which this bot does not
+  use; two of them shipped in the `/chat` picker as guaranteed errors.
+
 - **Cogs autoload by directory scan** (`bot/main.py`). Any `.py` in a
   `bot/app/commands/*/` subdirectory is loaded and must expose
   `async def setup(bot)`. A file without it fails to load — the bot still starts
