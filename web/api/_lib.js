@@ -7,8 +7,30 @@ export const redis = Redis.fromEnv();
 
 export const KEY_PREFIX = "page:";
 export const MAX_HTML_BYTES = 512 * 1024;
+// The Markdown a page was rendered from, stored so the bot can read a page back
+// and append to it instead of replacing it. Capped separately rather than
+// sharing the html budget: source is always smaller than the html it produces,
+// and a combined cap would shrink the largest page that can be published.
+export const MAX_SOURCE_BYTES = 512 * 1024;
 export const DEFAULT_TTL_DAYS = 30;
 export const MAX_TTL_DAYS = 365;
+// Newest-first index of a guild's page ids, so the bot can answer "what pages
+// do we have?". Members are not removed when their page expires -- reads prune
+// what has gone, which costs one round trip and needs no scheduled job.
+export const INDEX_PREFIX = "guild-pages:";
+// A listing reads this many ids before pruning. Comfortably more than any
+// server will accumulate inside one TTL window.
+export const INDEX_MAX_ENTRIES = 200;
+
+export function indexKey(guildId) {
+  return INDEX_PREFIX + guildId;
+}
+
+/** Guild ids are Discord snowflakes; anything else is a client bug. */
+export function normalizeGuildId(raw) {
+  const id = typeof raw === "string" ? raw.trim() : "";
+  return /^[0-9]{1,25}$/.test(id) ? id : null;
+}
 
 /**
  * Page ids arrive already scoped to a guild by the bot: "<slug>-<hmac>", where

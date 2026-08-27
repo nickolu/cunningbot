@@ -17,6 +17,9 @@ The Pi only makes outbound HTTPS calls — nothing is exposed on the home networ
 |---|---|
 | `POST /api/publish` | Store a page. Requires `Authorization: Bearer $PUBLISH_TOKEN`. Body: `{id, guild_id, title, html, ttl_days?}`. Returns `{id, url, updated, expires_in_days}`. |
 | `GET /p/<id>` | Serve the page as `text/html`. 404s identically for expired and never-existed ids. |
+| `GET /api/pages?guild_id=<id>` | List that guild's pages, newest first. Same bearer token. Returns `{pages: [{id, title, has_source, created_at, updated_at}]}`. |
+| `GET /api/pages?guild_id=<id>&id=<page_id>` | Return one page's Markdown source, so the bot can append to a page instead of replacing it. `{id, title, markdown, created_at, updated_at}`; `markdown` is `null` for pages published before source was stored. |
+| `POST /api/pages` | Rebuild every guild's page index by scanning stored pages. Run once after deploying; idempotent. |
 | `POST /api/upload` | Store an image in Blob and return a permanent URL. Same bearer token. Raw image bytes as the body; `content-type` plus `X-Guild-Id`, `X-Guild-Prefix`, and optional `X-Filename` headers. PNG/JPEG/WebP/GIF only, 4 MB max. |
 
 ## Why images are hosted here
@@ -31,6 +34,24 @@ when a URL needs to outlive the conversation, not for every generated image.
 Images go to the `cunningbot-images` public Blob store (Blob serves images with
 `content-disposition: inline`; only HTML is blocked). Blob has **no TTL** -- these
 URLs are permanent until something deletes them, so storage grows monotonically.
+
+## Pages remember their source
+
+A page record holds the Markdown it was rendered from as well as the html. The
+bot could otherwise only ever replace a page: asked to "add this to the list",
+it had no way to read back what the list already said, so it published a new
+page containing only the new item.
+
+Source lives under the same key as the html rather than somewhere on the bot,
+so it expires exactly when the page does and there is no second store to keep
+in sync. Pages published before this have `markdown: null`, which the bot
+reports rather than treating as an empty page.
+
+Discovery works off a per-guild sorted set (`guild-pages:<guild_id>`), scored by
+update time. A set member has no TTL of its own, so listings prune ids whose
+page has expired instead of a scheduled job doing it. Indexing happens on
+publish, which means pages that predate it are invisible until `POST /api/pages`
+rebuilds the indexes.
 
 ## Multi-tenancy
 
