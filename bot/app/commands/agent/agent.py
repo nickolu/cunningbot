@@ -246,6 +246,74 @@ class AgentCog(commands.Cog):
         await interaction.response.send_message(f"Agent updated: {changes}")
 
     # ------------------------------------------------------------------
+    # /agent tool
+    # ------------------------------------------------------------------
+    @agent_group.command(
+        name="tool",
+        description="Turn one of the agent's tools on or off in this channel",
+    )
+    @app_commands.describe(
+        tool="Which tool to change",
+        state="Whether the agent may use it here",
+    )
+    @app_commands.choices(
+        tool=[
+            app_commands.Choice(name=key, value=key) for key in AVAILABLE_TOOLS
+        ],
+        state=[
+            app_commands.Choice(name="Enable", value="enable"),
+            app_commands.Choice(name="Disable", value="disable"),
+        ],
+    )
+    async def tool(
+        self,
+        interaction: discord.Interaction,
+        tool: str,
+        state: str,
+    ) -> None:
+        """Per-channel tool toggle.
+
+        `/agent configure` has no tools option, so before this the only way to
+        change a channel's tool list was to unregister and re-register, which
+        discards its model, persona, and window. Opt-in tools were unreachable
+        that way entirely.
+        """
+        guild_id = str(interaction.guild_id)
+        channel_id = str(interaction.channel_id)
+
+        config = await self.store.get_agent_config(guild_id, channel_id)
+        if config is None:
+            await interaction.response.send_message(
+                "No agent registered in this channel. Use `/agent register` first.",
+                ephemeral=True,
+            )
+            return
+
+        tools = list(config.get("tools", []))
+        enabling = state == "enable"
+
+        if enabling and tool in tools:
+            await interaction.response.send_message(
+                f"`{tool}` is already enabled here.", ephemeral=True
+            )
+            return
+        if not enabling and tool not in tools:
+            await interaction.response.send_message(
+                f"`{tool}` is already disabled here.", ephemeral=True
+            )
+            return
+
+        if enabling:
+            tools.append(tool)
+        else:
+            tools.remove(tool)
+
+        await self.store.update_agent_config(guild_id, channel_id, {"tools": tools})
+        await interaction.response.send_message(
+            f"{'Enabled' if enabling else 'Disabled'} `{tool}` in this channel."
+        )
+
+    # ------------------------------------------------------------------
     # /agent pause & /agent resume
     # ------------------------------------------------------------------
     @agent_group.command(

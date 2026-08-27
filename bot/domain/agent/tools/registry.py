@@ -9,6 +9,7 @@ from typing import Dict, List, Callable, Coroutine, Tuple
 
 from bot.domain.agent.tools.base import AgentTool
 from bot.domain.agent.tools import (
+    create_github_issue,
     dice,
     edit_image,
     host_image,
@@ -32,6 +33,7 @@ _MODULES = (
     read_channel,
     publish_page,
     host_image,
+    create_github_issue,
 )
 
 TOOLS: Tuple[AgentTool, ...] = tuple(m.TOOL for m in _MODULES)
