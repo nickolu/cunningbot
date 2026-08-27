@@ -43,9 +43,10 @@ Set `default_enabled=False` for anything that should be opt-in — a tool that
 writes somewhere public, for instance.
 
 **Already-registered channels still need the backfill.** They keep the tool list
-stored in their own Redis record, and `/agent configure` has no `tools` option,
-so the only in-Discord remedy is unregister plus re-register, which discards that
-channel's model, persona, and window.
+stored in their own Redis record, so a default-on tool does not reach them on
+merge. `/agent tool <name> enable` turns one on in one channel; the backfill
+below adds one to every channel in bulk. Do not backfill a `default_enabled=False`
+tool -- that hands it to everyone, which is the thing opting in was for.
 
 ```bash
 ssh dad@192.168.1.182 'cd /home/dad/cunningbot && \

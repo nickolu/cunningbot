@@ -195,9 +195,11 @@ HELP_PAGES = [
         name="/agent — Channel AI agent",
         value=(
             "Say the bot's name, @mention it, or reply to it in **any** channel and it "
-            "answers, using its tools (weather, images, GIFs, web search, dice, page publishing).\n"
+            "answers, using its tools (weather, images, GIFs, web search, dice, page publishing,\n"
+            "and filing GitHub issues where enabled).\n"
             "`/agent register` — let it also join in on its own when a conversation calls for it\n"
             "`/agent configure` — model, persona, response mode, cooldown, context window\n"
+            "`/agent tool <name> <enable|disable>` — turn one tool on or off here\n"
             "`/agent status` — show this channel's settings\n"
             "`/agent pause` / `/agent resume` — silence it here (paused channels ignore summons too)\n"
             "`/agent unregister` — remove the registration"
