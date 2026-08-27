@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 import discord
 from openai import AsyncOpenAI
 
-from bot.domain.agent.agent_tools import (
+from bot.domain.agent.tools.registry import (
     TOOL_EXECUTORS,
     CHANNEL_AWARE_TOOLS,
     get_tool_schemas_for_config,

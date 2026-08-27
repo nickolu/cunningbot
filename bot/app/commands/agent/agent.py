@@ -18,7 +18,7 @@ from discord.ext import commands
 from typing import Optional
 
 from bot.app.redis.agent_store import AgentRedisStore, DEFAULT_AGENT_CONFIG
-from bot.domain.agent.agent_tools import TOOL_SCHEMAS
+from bot.domain.agent.tools.registry import TOOL_SCHEMAS
 from bot.app.utils.logger import get_logger
 
 logger = get_logger()
