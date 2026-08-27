@@ -195,7 +195,8 @@ HELP_PAGES = [
         name="/agent — Channel AI agent",
         value=(
             "Say the bot's name, @mention it, or reply to it in **any** channel and it "
-            "answers, using its tools (weather, images, GIFs, web search, dice, page publishing,\n"
+            "answers, using its tools (weather, images, GIFs, web search, dice, publishing and\n"
+            "updating web pages,\n"
             "and filing GitHub issues where enabled).\n"
             "`/agent register` — let it also join in on its own when a conversation calls for it\n"
             "`/agent configure` — model, persona, response mode, cooldown, context window\n"
