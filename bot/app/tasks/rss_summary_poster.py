@@ -550,9 +550,9 @@ async def post_summaries() -> None:
         logger.info("=== RSS Summary Poster Finished ===")
 
         # Close OpenAI client to prevent connection leaks
-        from bot.api.openai.chat_completions_client import openai
+        from bot.api.openai.chat_completions_client import close_client
         try:
-            await openai.close()
+            await close_client()
             logger.info("Closed OpenAI client connections")
             # Give extra time for HTTP connections to fully close
             await asyncio.sleep(1.0)

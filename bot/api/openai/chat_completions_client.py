@@ -3,7 +3,7 @@ chat_completions_client.py
 Core LLM client logic for the bot.
 """
 
-from typing import List, Dict, Any, Iterable
+from typing import List, Dict, Any, Iterable, Optional
 from openai import AsyncOpenAI
 import os
 
@@ -17,7 +17,38 @@ from bot.domain.llm.models import (
 from bot.app.utils.logger import get_logger
 logger = get_logger()
 
-openai = AsyncOpenAI()
+_client: Optional[AsyncOpenAI] = None
+
+
+def get_client() -> AsyncOpenAI:
+    """Return the shared AsyncOpenAI client, constructing it on first use.
+
+    Constructed lazily because AsyncOpenAI() raises when OPENAI_API_KEY is
+    unset, and this module is imported transitively by callers that never make
+    an API call (e.g. the RSS collector importing breaking_news_service only
+    for its keyword matcher). A missing key should fail at the call site, not
+    at import time.
+    """
+    global _client
+    if _client is None:
+        _client = AsyncOpenAI()
+    return _client
+
+
+async def close_client() -> None:
+    """Close the shared client if one was ever constructed."""
+    global _client
+    if _client is not None:
+        await _client.close()
+        _client = None
+
+
+def __getattr__(name: str) -> Any:
+    # Back-compat for `from ... import openai`; constructs on access.
+    if name == "openai":
+        return get_client()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 # The catalog lives in bot/domain/llm/models.py. Re-exported here because
 # callers have imported these names from this module since before it existed.
@@ -69,7 +100,7 @@ class ChatCompletionsClient:
 
         try:
             openai_history = transform_history_to_openai(history)
-            response = await openai.chat.completions.create(
+            response = await get_client().chat.completions.create(
                 messages=openai_history,
                 **transform_arguments_for_model(self.model),
             )
@@ -83,7 +114,7 @@ class ChatCompletionsClient:
             "Summarize the following text in a concise manner:\n\n"
             f"{text}"
         )
-        response = await openai.chat.completions.create(
+        response = await get_client().chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
             **transform_arguments_for_model(self.model),
         )

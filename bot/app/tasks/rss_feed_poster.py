@@ -34,6 +34,13 @@ from bot.app.redis.locks import redis_lock
 from bot.app.redis.client import get_redis_client, initialize_redis, close_redis
 from bot.app.redis.exceptions import LockAcquisitionError
 
+# Most items a single run will queue for one feed. Feeds poll every 10 minutes,
+# so a healthy feed produces far fewer; the cap only bites on a backlog.
+MAX_NEW_ITEMS_PER_RUN = 10
+
+# Tighter cap the very first time a feed is polled (seen set still empty).
+FIRST_RUN_ITEM_LIMIT = 5
+
 logger = logging.getLogger("RSSFeedPoster")
 logging.basicConfig(
     level=logging.INFO,
@@ -197,7 +204,7 @@ async def _roundup_llm_confirm(article_data: Dict[str, Any], match_query: str) -
     """Use LLM to confirm if an article matches the roundup query."""
     try:
         from bot.domain.llm.models import UTILITY_MODEL
-from bot.api.openai.chat_completions_client import ChatCompletionsClient
+        from bot.api.openai.chat_completions_client import ChatCompletionsClient
         client = ChatCompletionsClient.factory(UTILITY_MODEL)
         messages = [
             {"role": "system", "content": "You are a classifier. Answer only 'yes' or 'no'."},
@@ -481,10 +488,30 @@ async def collect_rss_updates() -> None:
                         if not await store.is_seen(guild_id_str, feed_name, item_id):
                             new_entries.append(entry)
 
-                    # If this is the first run (empty seen set), only process the 5 most recent items
-                    if seen_count == 0 and len(new_entries) > 5:
-                        logger.info("First run for feed '%s', limiting to 5 most recent items", feed_name)
-                        new_entries = new_entries[:5]
+                    # Cap how many items one run may queue. Feeds are ordered
+                    # newest-first, so keep the most recent and backfill the rest
+                    # into the seen set: without this a feed that accumulated a
+                    # backlog (e.g. after an outage) would dump thousands of
+                    # stale articles into a single summary.
+                    limit = FIRST_RUN_ITEM_LIMIT if seen_count == 0 else MAX_NEW_ITEMS_PER_RUN
+                    backfill_entries = []
+                    if len(new_entries) > limit:
+                        backfill_entries = new_entries[limit:]
+                        new_entries = new_entries[:limit]
+                        logger.info(
+                            "Feed '%s': %d new items exceeds the %d-item cap%s; "
+                            "queueing the %d most recent and marking %d older items as seen",
+                            feed_name, limit + len(backfill_entries), limit,
+                            " (first run)" if seen_count == 0 else "",
+                            limit, len(backfill_entries),
+                        )
+
+                    if backfill_entries:
+                        await store.mark_seen(
+                            guild_id_str,
+                            feed_name,
+                            [get_item_id(entry) for entry in backfill_entries],
+                        )
 
                     if new_entries:
                         logger.info("Found %d new items from feed '%s' (mode: %s)", len(new_entries), feed_name, post_mode)

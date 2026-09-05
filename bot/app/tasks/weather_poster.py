@@ -276,10 +276,10 @@ async def post_weather() -> None:
         logger.info("=== Weather Poster Finished ===")
 
         # Close the OpenAI client to prevent connection leaks
-        from bot.api.openai.chat_completions_client import openai
+        from bot.api.openai.chat_completions_client import close_client
 
         try:
-            await openai.close()
+            await close_client()
             await asyncio.sleep(1.0)
         except Exception as e:
             logger.warning(f"Error closing OpenAI client: {e}")
