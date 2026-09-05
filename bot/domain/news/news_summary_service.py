@@ -3,7 +3,7 @@ news_summary_service.py
 Service for AI-powered news article ranking and summarization.
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Tuple
 import re
 
 from bot.domain.llm.models import UTILITY_MODEL
@@ -366,7 +366,7 @@ async def check_story_similarity(
     new_articles: List[Dict[str, Any]],
     historical_titles: List[str],
     story_history: List[Dict[str, Any]]
-) -> tuple[bool, Dict[str, Any] | None]:
+) -> Tuple[bool, Optional[Dict[str, Any]]]:
     """
     Check if a new story is semantically similar to any story in today's history.
 
@@ -485,7 +485,7 @@ async def _process_cluster_for_dedup(
     cluster: Dict[str, Any],
     historical_titles: List[str],
     story_history: List[Dict[str, Any]]
-) -> tuple[Dict[str, Any] | None, str]:
+) -> Tuple[Optional[Dict[str, Any]], str]:
     """
     Process a single cluster for deduplication.
 
