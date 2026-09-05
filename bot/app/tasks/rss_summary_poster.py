@@ -27,7 +27,6 @@ from dotenv import load_dotenv
 # Load environment variables from .env
 load_dotenv()
 from bot.app.app_state import get_all_guild_states, set_state_value, get_state_value
-from bot.app.pending_news import get_all_pending_by_channel, clear_pending_articles_for_channel
 from bot.app.redis.rss_store import RSSRedisStore
 from bot.app.redis.locks import redis_lock
 from bot.app.redis.client import get_redis_client, initialize_redis, close_redis
@@ -143,11 +142,20 @@ async def should_post_summary_for_channel(
     return False, ""
 
 
-def _cleanup_inaccessible_channel(guild_id: int, channel_id: int, reason: str) -> None:
+async def _cleanup_inaccessible_channel(
+    store: RSSRedisStore, guild_id: int, channel_id: int, reason: str
+) -> None:
     """
     Clean up pending articles and state for channels that are permanently inaccessible.
 
+    Pending articles live in Redis. This used to call the pending_news.py JSON
+    helpers, which 2420d5f left behind when the RSS system moved to Redis, so it
+    read an empty pending_news.json, logged "Cleared 0" and left the real Redis
+    lists untouched. A deleted channel therefore accumulated pending articles
+    forever — one feed reached 907,737 entries and 792 MB before this was found.
+
     Args:
+        store: RSSRedisStore instance
         guild_id: Guild ID
         channel_id: Channel ID that's inaccessible
         reason: Human-readable reason (for logging)
@@ -156,8 +164,8 @@ def _cleanup_inaccessible_channel(guild_id: int, channel_id: int, reason: str) -
 
     try:
         # Clear pending articles to prevent future retry attempts
-        cleared_count = clear_pending_articles_for_channel(guild_id, channel_id)
-        logger.info(f"Cleared {cleared_count} pending articles for deleted/inaccessible channel {channel_id}")
+        cleared_count = await store.clear_pending(str(guild_id), channel_id)
+        logger.info(f"Cleared {cleared_count} pending article lists for deleted/inaccessible channel {channel_id}")
 
         # Optionally: Remove channel from any custom configurations
         # (schedules, limits, diversity settings, etc.)
@@ -361,17 +369,17 @@ async def post_summaries() -> None:
 
                     except discord.Forbidden as exc:
                         logger.error(f"PERMANENT: Missing permissions for channel {channel_id}: {exc}")
-                        _cleanup_inaccessible_channel(guild_id, channel_id, "Missing permissions")
+                        await _cleanup_inaccessible_channel(store, guild_id, channel_id, "Missing permissions")
                         continue
 
                     except discord.HTTPException as exc:
                         if exc.code == DISCORD_ERROR_UNKNOWN_CHANNEL:  # 10003: Unknown Channel
                             logger.error(f"PERMANENT: Channel {channel_id} does not exist (404)")
-                            _cleanup_inaccessible_channel(guild_id, channel_id, "Channel deleted")
+                            await _cleanup_inaccessible_channel(store, guild_id, channel_id, "Channel deleted")
                             continue
                         elif exc.code == DISCORD_ERROR_MISSING_PERMISSIONS:  # 50013: Missing Access
                             logger.error(f"PERMANENT: No access to channel {channel_id} (403)")
-                            _cleanup_inaccessible_channel(guild_id, channel_id, "Access denied")
+                            await _cleanup_inaccessible_channel(store, guild_id, channel_id, "Access denied")
                             continue
                         else:
                             # Transient error - log and skip this run
@@ -393,10 +401,9 @@ async def post_summaries() -> None:
                     orphaned_feeds = [name for name in feed_names if name not in all_feeds]
 
                     if orphaned_feeds:
-                        from bot.app.pending_news import clear_pending_articles_for_feed
                         logger.warning(f"Found orphaned feeds in channel {channel_id}: {orphaned_feeds}")
                         for orphaned_feed in orphaned_feeds:
-                            cleared = clear_pending_articles_for_feed(str(guild_id), channel_id, orphaned_feed)
+                            cleared = await store.clear_pending_for_feed(str(guild_id), channel_id, orphaned_feed)
                             logger.info(f"Cleaned up {cleared} orphaned articles from removed feed: {orphaned_feed}")
 
                         # Update feed_names to only include valid feeds
@@ -503,14 +510,14 @@ async def post_summaries() -> None:
                     except discord.Forbidden as exc:
                         # Permissions changed since we verified - cleanup
                         logger.error(f"PERMANENT: Lost permissions for channel {channel_id}: {exc}")
-                        _cleanup_inaccessible_channel(guild_id, channel_id, "Lost permissions")
+                        await _cleanup_inaccessible_channel(store, guild_id, channel_id, "Lost permissions")
                         continue
 
                     except discord.HTTPException as exc:
                         # Unlikely since we already verified channel exists, but handle anyway
                         if exc.code == DISCORD_ERROR_UNKNOWN_CHANNEL:
                             logger.error(f"PERMANENT: Channel {channel_id} deleted after verification: {exc}")
-                            _cleanup_inaccessible_channel(guild_id, channel_id, "Channel deleted")
+                            await _cleanup_inaccessible_channel(store, guild_id, channel_id, "Channel deleted")
                             continue
                         else:
                             # Transient error (rate limit, server error, etc)

@@ -12,8 +12,6 @@ import subprocess
 import sys
 import textwrap
 
-import pytest
-
 
 def _run_without_api_key(source: str) -> subprocess.CompletedProcess:
     """Run source in a subprocess with OPENAI_API_KEY stripped from the env."""
@@ -42,11 +40,6 @@ def test_client_module_imports_without_api_key() -> None:
     assert "OK" in result.stdout, result.stderr
 
 
-@pytest.mark.skipif(
-    sys.version_info < (3, 10),
-    reason="news_summary_service uses runtime `X | None` annotations (3.10+); "
-           "the bot image is python:3.11-slim",
-)
 def test_breaking_news_service_imports_without_api_key() -> None:
     """The exact import that broke the RSS collector in production."""
     result = _run_without_api_key(
