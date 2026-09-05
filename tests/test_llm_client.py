@@ -14,12 +14,13 @@ def chat_history() -> List[Dict]:
     ]
 
 @pytest.mark.asyncio
-@patch("bot.api.openai.chat_completions_client.openai")
-async def test_chat_openai(mock_openai: MagicMock, chat_history: List[Dict]) -> None:
+@patch("bot.api.openai.chat_completions_client.get_client")
+async def test_chat_openai(mock_get_client: MagicMock, chat_history: List[Dict]) -> None:
     # Mock the OpenAI response
     mock_response = SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content="I can chat with you."))]
     )
+    mock_openai = mock_get_client.return_value
     mock_openai.chat.completions.create = AsyncMock(return_value=mock_response)
 
     client = ChatCompletionsClient(model="gpt-4o-mini")
@@ -29,12 +30,13 @@ async def test_chat_openai(mock_openai: MagicMock, chat_history: List[Dict]) -> 
     mock_openai.chat.completions.create.assert_awaited_once()
 
 @pytest.mark.asyncio
-@patch("bot.api.openai.chat_completions_client.openai")
-async def test_summarize_openai(mock_openai: MagicMock) -> None:
+@patch("bot.api.openai.chat_completions_client.get_client")
+async def test_summarize_openai(mock_get_client: MagicMock) -> None:
     # Mock the OpenAI response
     mock_response = SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content="This is a summary."))]
     )
+    mock_openai = mock_get_client.return_value
     mock_openai.chat.completions.create = AsyncMock(return_value=mock_response)
 
     client = ChatCompletionsClient(model="gpt-4o-mini")
