@@ -2,7 +2,7 @@
 
 ## Processes
 
-`docker-compose.yml` runs **nine** containers off one image and one Redis:
+`docker-compose.yml` runs **ten** containers off one image and one Redis:
 
 | Service | What it does | Cadence |
 |---|---|---|
@@ -15,6 +15,7 @@
 | `trivia-closer` | `bot.app.tasks.trivia_game_closer` | 60s |
 | `trivia-weekly-reset` | `bot.app.tasks.trivia_weekly_reset` | 600s |
 | `weather-poster` | `bot.app.tasks.weather_poster` | 300s |
+| `framed-sync` | `bot.app.tasks.framed_sync` — reads finished days of Framed results, posts the recap; connects to Discord only when there is work | 600s |
 
 Workers are `bash -c "while true; do python -m ...; sleep N; done"` — each tick is
 a fresh process that connects to Discord, does its work, and exits. They share

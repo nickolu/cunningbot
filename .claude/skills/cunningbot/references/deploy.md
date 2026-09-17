@@ -77,7 +77,7 @@ journalctl -u cunningbot-autodeploy.service -n 50 --no-pager   # "Deploying <old
 
 cd /home/dad/cunningbot
 git log --oneline -3          # confirm the commit landed
-docker compose ps             # all nine services up?
+docker compose ps             # all ten services up?
 docker compose logs -f --tail=100 cunningbot
 docker compose logs --tail=50 weather-poster
 ```

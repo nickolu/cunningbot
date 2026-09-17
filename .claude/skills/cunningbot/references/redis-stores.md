@@ -10,7 +10,7 @@ durable-enough state, not as a system of record for anything irreplaceable.
 <feature>:<guild_id>:<thing>
 ```
 
-Existing prefixes: `agent:`, `trivia:`, `rss:`, `weather:`, `bot_updates:`,
+Existing prefixes: `agent:`, `framed:`, `trivia:`, `rss:`, `weather:`, `bot_updates:`,
 `lock:`. Values are JSON strings (`json.dumps`), read back with `json.loads`
 guarded by `try/except JSONDecodeError` returning `None`.
 
@@ -76,7 +76,7 @@ store. Use `SCAN`, never `KEYS`.
 
 ## Concurrency
 
-Nine containers share this Redis. Read-modify-write on a JSON blob is a lost
+Ten containers share this Redis. Read-modify-write on a JSON blob is a lost
 update waiting to happen.
 
 - **Cross-container coordination** — `redis_lock` from `bot/app/redis/locks.py`:

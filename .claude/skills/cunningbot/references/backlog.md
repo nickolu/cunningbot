@@ -21,11 +21,18 @@ changed since — check before acting on a claim, and update the date when you d
 
 ## Ops — small, unblocked, mostly on the Pi or in Discord
 
-### After the next deploy: backfill `search_news`
-#54 adds `search_news` to `DEFAULT_TOOLS_TO_ADD`. Once it's deployed, run the
-backfill in `add-agent-tool.md` (dry run first) or registered channels won't get
-it. `list_pages` and `read_page` were backfilled into all 17 registered channels
-on 2026-09-17, so the run should only add `search_news`.
+### After the next deploy: backfill `search_news` and `framed_stats`
+#54 adds `search_news` and the Framed PR adds `framed_stats` to
+`DEFAULT_TOOLS_TO_ADD`. Once deployed, run the backfill in `add-agent-tool.md`
+(dry run first) or registered channels won't get them. `list_pages` and
+`read_page` were backfilled into all 17 registered channels on 2026-09-17.
+
+### After the Framed deploy: register and backfill
+The deploy must `--build` (new `framed-sync` service, new `bot/domain/framed`).
+Then an admin runs `/framed register` in the results channel and
+`/framed backfill`. Check the numbers with `/framed leaderboard period:All time`
+and `/framed status` (lists days whose posts the LLM couldn't read). Recap posts
+start the next morning.
 
 ### Turn on GitHub issue filing — needs a token
 Shipped in #40, still inert. #49 passes `GITHUB_TOKEN` and `GITHUB_ISSUE_REPO`
@@ -99,7 +106,7 @@ yet; pick them up in planning, not by starting on one.
 **Why:** the Pi's deploys are manual, its checkout drifts from `origin/main`, and
 the auto-deploy timer was never installed. A droplet is a chance to fix deploys
 properly rather than install the timer on hardware we're leaving.
-**Where:** `docker-compose.yml` is already portable — nine services plus
+**Where:** `docker-compose.yml` is already portable — ten services plus
 `redis:7-alpine` with a named `redis_data` volume, no ARM-specific images.
 **Decide in planning:** migrate Redis data (RDB dump from the Pi's volume) or
 start fresh; how `.env` gets there (every key also needs its compose
