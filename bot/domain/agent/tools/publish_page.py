@@ -50,9 +50,12 @@ SCHEMA: dict = {
                 "one_off": {
                     "type": "boolean",
                     "description": (
-                        "True only for a snapshot that should never be updated -- a "
-                        "reasoning trace, a weekly summary. Gives the page a random "
-                        "URL that cannot be found or updated again. Default false."
+                        "True for a snapshot that should never be updated -- a "
+                        "reasoning trace, or a summary of a particular day or week "
+                        "such as 'Today's Chat Summary'. Pages without it share a URL "
+                        "with any page of the same title, so a recurring summary "
+                        "left false overwrites the previous one. Gives the page a "
+                        "random URL that cannot be found or updated again. Default false."
                     ),
                 },
             },
