@@ -2,7 +2,7 @@
 
 from typing import Any, Dict
 
-from bot.app.commands.dice.roll import DiceRoller
+from bot.domain.dice import DiceRoller
 from bot.app.utils.logger import get_logger
 from bot.domain.agent.tools.base import AgentTool
 
