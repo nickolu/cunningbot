@@ -33,6 +33,7 @@ from typing import Dict, Optional, Pattern
 import discord
 from discord.ext import commands
 
+from bot.app.agent_runtime import AGENT_CHANNEL_LOCKS, fetch_agent_history
 from bot.app.redis.agent_store import DEFAULT_AGENT_CONFIG, AgentRedisStore
 from bot.domain.agent.agent_service import run_agent
 from bot.domain.agent.tools.registry import DEFAULT_ENABLED_TOOLS
@@ -69,8 +70,9 @@ class AgentListenerCog(commands.Cog):
         self._last_response: Dict[int, float] = {}
         # channel_id -> list of response timestamps in the current minute window
         self._response_timestamps: Dict[int, list] = defaultdict(list)
-        # channel_id -> asyncio.Lock to prevent concurrent agent runs per channel
-        self._channel_locks: Dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+        # channel_id -> asyncio.Lock to prevent concurrent agent runs per channel.
+        # Shared with the /bot command so the two can't overlap in a channel.
+        self._channel_locks: Dict[int, asyncio.Lock] = AGENT_CHANNEL_LOCKS
         # guild_id -> compiled pattern of the names the bot answers to there
         self._summon_patterns: Dict[int, Optional[Pattern]] = {}
 
@@ -267,27 +269,7 @@ class AgentListenerCog(commands.Cog):
             # Show typing indicator while processing
             async with channel.typing():
                 # Fetch channel history
-                history = []
-                async for msg in channel.history(limit=context_window, oldest_first=False):
-                    content = flatten_discord_message(msg)
-                    for att in msg.attachments:
-                        if att.content_type and att.content_type.startswith("image/"):
-                            content += f"\n[Image: {att.filename} | {att.url}]"
-                    author_name = sanitize_name(msg.author.display_name)
-                    if msg.author.bot:
-                        history.append({
-                            "role": "assistant",
-                            "content": content,
-                            "name": author_name,
-                        })
-                    else:
-                        history.append({
-                            "role": "user",
-                            "content": content,
-                            "name": author_name,
-                        })
-
-                history.reverse()  # Chronological order
+                history = await fetch_agent_history(channel, context_window)
 
                 # Run the agent loop
                 response = await run_agent(
