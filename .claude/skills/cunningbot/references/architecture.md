@@ -47,31 +47,53 @@ Cogs are discovered by scanning `bot/app/commands/` in `bot/main.py` — every
 
 1. Ignore bots and anything that is not a `TextChannel` or `Thread` (forum
    posts are threads). A thread uses its own registration, else its parent's.
-2. Redis lookup `agent:{guild}:{channel}` — bail if absent or disabled.
-3. Cooldown (default 5s) — bypassed if @mentioned or replied to.
-4. Rate limit (default 10/min per channel).
-5. **Should we respond?** `response_mode`:
+2. Is the bot summoned? An @mention of the bot or of its managed role
+   (`<@&role>`), a reply to it, or its name in the text.
+3. Redis lookup `agent:{guild}:{channel}`. **Absent:** answer only if summoned,
+   using `UNREGISTERED_AGENT_CONFIG` (logs `agent_summoned_unregistered`).
+   **Disabled (paused):** stay silent, even when summoned.
+4. Cooldown (default 5s) — bypassed when summoned.
+5. Rate limit (default 10/min per channel).
+6. **Should we respond?** `response_mode`:
    - `always` — yes.
    - `strict` — only @mention or reply.
    - `smart` (default) — @mention/reply always wins; otherwise
      `bot/domain/agent/intent_classifier.py` asks `gpt-4o-mini` for
      `RESPOND` / `IGNORE` / `ASK_CLARIFY` given the last 8 messages. It is
      tuned to lean RESPOND.
-6. Per-channel `asyncio.Lock` — a second message while the agent is thinking is
-   dropped, not queued.
-7. Fetch `context_window` (default 30) messages, flatten each with
+7. Per-channel `asyncio.Lock` — a second message while the agent is thinking is
+   dropped, not queued. The locks live in `AGENT_CHANNEL_LOCKS` in
+   `bot/app/agent_runtime.py`, shared with `/bot`.
+8. `fetch_agent_history()` (also in `agent_runtime.py`) fetches
+   `context_window` (default 30) messages, flattens each with
    `flatten_discord_message()`, annotate image attachments as
    `[Image: filename | URL]`, reverse to chronological. **Embed text is not
    read** — the flattener only sees `message.content`, so RSS posts, summaries,
    and other bot embeds are invisible to the agent (`read_channel` shows them
    as `[+N embed(s)]`). News lives in Redis `story_history` instead.
-8. `run_agent()` → OpenAI tool-calling loop, max **5** rounds
+9. `run_agent()` → OpenAI tool-calling loop, max **5** rounds
    (`MAX_TOOL_ROUNDS`). Tools that produce rich output (images) send to the
    channel themselves and return a text summary to the model.
-9. Final text is chunked by `split_message()` and sent.
+10. Final text is chunked by `split_message()` and sent.
 
 Configuration is per channel via `/agent register|configure|status|pause|resume|
 unregister`, stored by `bot/app/redis/agent_store.py`.
+
+### `/bot` — the agent from a slash command
+
+`bot/app/commands/agent/bot_command.py` runs the same agent once, in any channel,
+without registration. It takes the channel's lock (busy → ephemeral "already
+working" reply, before deferring), defers, picks the channel's stored config if
+it is registered **and enabled**, otherwise `UNREGISTERED_AGENT_CONFIG`, then
+fetches history with the same helper, appends the prompt, and calls `run_agent`
+with `interaction.channel`. The reply quotes the prompt's first line, since a
+slash invocation leaves no visible message, and sends with `@everyone` and role
+pings disabled.
+
+`agent_runtime.py` sits outside `bot/app/commands/` on purpose: every module in
+a command directory is loaded as an extension, and discord.py re-executes an
+extension's module on load, so module-level state there (like a lock dict) can
+exist twice.
 
 ## Layer rules
 
@@ -87,5 +109,3 @@ unregister`, stored by `bot/app/redis/agent_store.py`.
 
 - `agent_listener.py`'s docstring says agent work "runs through the existing
   TaskQueue". It does not — `run_agent` is awaited directly.
-- `AGENTS.md` says `make test`; there is no such target.
-- `AGENTS.md`'s `/help` page listing lags the actual `HELP_PAGES`.

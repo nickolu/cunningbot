@@ -1,237 +1,194 @@
 # CunningBot
 
-CunningBot is a full-featured Discord bot powered by OpenAI.  It provides natural-language chat, image generation, and summarisation commands while allowing guild administrators to customize the bot's **default persona** at runtime.  The project is designed to be easy to run locally or inside Docker and is ready for deployment to Raspberry Pi or any Linux host.
+CunningBot is a Discord bot for a few friends' servers. It chats, generates and
+edits images, runs trivia, posts news and weather, and has a channel agent you
+can talk to in plain English — one that can search the web, look up the
+server's news, and publish web pages. It uses OpenAI and Google Gemini, keeps
+its state in Redis, and runs under Docker Compose on a Raspberry Pi.
+
+`/help` in Discord is the full, up-to-date command reference.
 
 ---
 
-## Core Features
+## Slash commands
 
-| Slash Command | Description |
-|---------------|-------------|
-| `/chat` | Chat with the LLM about anything.  Supports model selection, message-history window size, persona selection, and private replies. |
-| `/image` | Create an image from a text prompt using OpenAI's DALL-E API. |
-| `/image-json` | Create highly specific images using structured photography parameters formatted as JSON. |
-| `/af query` | Search Animation Factory GIFs with an ephemeral preview picker and post the selected result (supports style variants). |
-| `/af file` | Autocomplete Animation Factory GIF filenames and post the selected result directly (supports style variants). |
-| `/roll` | Roll dice using expressions like `4d6`, `1d20+5`, or `d20`. Defaults to 1d20 if no expression provided. |
-| `/framed` | Track the group's daily [Framed](https://framed.wtf) results from a registered channel: leaderboards (week/month/year/all-time, by points), player stats and streaks, daily rankings, head-to-head, backfill from channel history, and a morning recap. |
-| `/persona default [persona]` | Set or view the default persona for the chat in this guild. |
-| `/persona list` | List all available personas with descriptions. |
+| Command | What it does |
+|---|---|
+| `/chat` | Chat with an LLM. Pick the model, persona, context size, and whether the reply is private. |
+| `/image` | Generate an image, or edit one you attach. Gemini and OpenAI image models. |
+| `/image-json` | Generate an image from structured photography parameters (see below). |
+| **Edit Images** (right-click a message → Apps) | Edit every image in a message with a prompt. |
+| `/bot prompt:` | Ask the channel agent something once, in any channel — no setup needed. |
+| `/agent` | Set up the agent in a channel: `register`, `configure`, `tool`, `status`, `pause`, `resume`, `unregister`. |
+| `/trivia`, `/answer` | Scheduled trivia with difficulty-weighted scoring, weekly and all-time leaderboards, and personal stats. |
+| `/news` | Add RSS feeds to a channel, posted directly or as AI summaries on a schedule, with filters and dedup. |
+| `/weather` | On-demand forecasts and history by US ZIP code, or a daily forecast post. |
+| `/framed` | Track daily [Framed](https://framed.wtf) results from a registered channel: leaderboards by points, player stats and streaks, daily rankings, head-to-head, a morning recap, and backfill from channel history. |
+| `/poll`, `/poll-results` | Emoji-reaction polls with up to 10 options. |
+| `/roll` | Dice: `1d20`, `4d6`, `3d6+2d4*10`. |
+| `/af query` | Search Animation Factory GIFs with a private preview picker. |
+| `/r` | Share a subreddit link: `/r python`. |
+| `/persona` | Set or show the server's default chat persona. |
+| `/bot-updates` | Choose channels that get restart notifications (admin). |
+| `/queue` | Show the `/chat` and `/image` task queue. |
+| `/help` | The full command reference. |
 
-## Structured Image Generation
+## The channel agent
 
-The `/image-json` command allows you to create highly specific images by defining structured photography parameters that get formatted as JSON and passed to the image generation API. This gives you precise control over technical aspects like camera settings, lighting, and composition.
+Mention the bot, reply to it, or say its name — in any channel, including
+threads — and it answers. It can use tools:
 
-### Available Parameters
+- weather, image generation and editing, GIFs, dice
+- web search, reading other channels, searching the last week of this
+  server's news summaries, and looking up Framed stats
+- publishing a web page and finding, reading, or updating pages published
+  earlier
+- filing GitHub issues against this repo (off unless a channel enables it)
 
-| Parameter | Description | Examples |
-|-----------|-------------|----------|
-| **json_string** | Raw JSON string with any image parameters | `{"filter":"prism","mood":"dramatic"}`, `{"subject":"car","style":"cinematic"}` |
-| **subject** | The main subject of the image | `"a red sports car driving down the road"`, `"portrait of a woman"` |
-| **lighting** | Lighting conditions | `"street lights at night"`, `"golden hour"`, `"studio lighting"` |
-| **focal_length** | Camera focal length | `"85mm"`, `"24mm"`, `"200mm"` |
-| **aperture** | Camera aperture | `"f/1.4"`, `"f/2.8"`, `"f/8"` |
-| **shutter_speed** | Camera shutter speed | `"1/1000"`, `"1/60"`, `"1s"` |
-| **style** | Photography/art style | `"sports photography"`, `"portrait photography"`, `"cinematic"` |
-| **camera** | Camera model or type | `"Canon EOS R5"`, `"film camera"`, `"vintage camera"` |
-| **lens** | Lens type | `"macro lens"`, `"wide angle"`, `"telephoto"` |
-| **iso** | ISO setting | `"ISO 100"`, `"ISO 800"`, `"ISO 3200"` |
-| **composition** | Composition style | `"rule of thirds"`, `"leading lines"`, `"symmetry"` |
-| **mood** | Overall mood or atmosphere | `"dramatic"`, `"peaceful"`, `"energetic"` |
-| **color_palette** | Color scheme | `"warm tones"`, `"monochrome"`, `"vibrant colors"` |
-| **weather** | Weather conditions | `"sunny"`, `"stormy"`, `"foggy"` |
-| **time_of_day** | Time setting | `"dawn"`, `"midday"`, `"dusk"`, `"midnight"` |
-| **location** | Location or setting | `"urban street"`, `"mountain peak"`, `"studio"` |
-| **color_temperature** | Color temperature | `"5000k"`, `"6500k"`, `"7000k"` |
-| **custom_\* / custom_\*_value** | Up to three arbitrary key/value pairs | `custom_1:"filterType" custom_1_value:"prism"` |
+`/agent register` lets the bot also join a channel's conversation on its own,
+with per-channel model, persona, response mode, cooldown, context window, and
+tool settings. `/bot prompt:` runs the agent once anywhere without registering.
 
-### Usage Examples
+**Web pages** are served by a small Vercel app in `web/` — see `web/README.md`.
+Pages published under a name live for a year and update in place; one-off
+snapshots such as a day's chat summary get their own link and last 30 days.
 
-**Using discrete parameters:**
-```
-/image-json subject:"a red sports car driving down the road" lighting:"street lights at night" focal_length:"85mm" aperture:"f/1.4" shutter_speed:"1/1000" style:"sports photography"
-```
+## Background workers
 
-**Using raw JSON:**
-```
-/image-json json_string:{"subject":"a red sports car driving down the road","lighting":"street lights at night","focalLength":"85mm","aperture":"f/1.4","shutterSpeed":"1/1000","style":"sports photography"}
-```
+Alongside the main bot, Docker Compose runs short-lived workers on a loop: RSS
+feed posting, news summaries, breaking-news checks, trivia posting and closing,
+the weekly trivia reset, scheduled weather posts, and reading each day's
+Framed results. All of them share one
+Redis instance with the bot.
 
-**Combining JSON with discrete parameters (discrete parameters override JSON):**
-```
-/image-json json_string:{"filter":"prism","mood":"dramatic"} filter_type:"red moon" style:"cinematic"
-```
-In this example, `filter_type` will be "red moon" (not "prism") and `style` will be "cinematic", while `mood` remains "dramatic".
+## `/image-json`
 
-**Using custom parameter pairs:**
-```
-/image-json subject:"sunset over lake" custom_1:"colorTemperature" custom_1_value:"5000k"
-```
+Builds a JSON prompt from structured parameters and shows the final JSON in its
+reply, so you can see exactly what was sent. Every parameter is optional.
 
-All of these approaches convert your parameters into a JSON structure that serves as the prompt for image generation, giving the AI very specific technical guidance for creating your image. **The final JSON structure is displayed in the bot's response** so you can see exactly what was sent to the image generation API.
+| Parameter | Examples |
+|---|---|
+| `json_string` | Raw JSON to start from: `{"filter":"prism","mood":"dramatic"}` |
+| `subject` | `"a red sports car driving down the road"` |
+| `lighting` | `"street lights at night"`, `"golden hour"` |
+| `style` | `"sports photography"`, `"cinematic"` |
+| `focal_length`, `aperture`, `shutter_speed` | `"85mm"`, `"f/1.4"`, `"1/1000"` |
+| `mood`, `color_palette`, `color_temperature` | `"dramatic"`, `"warm tones"`, `"5000k"` |
+| `weather`, `time_of_day`, `location` | `"foggy"`, `"dusk"`, `"urban street"` |
+| `custom_1`…`custom_3` with `custom_N_value` | Any extra key/value pair: `custom_1:"filterType" custom_1_value:"prism"` |
+| `model`, `size`, `quality`, `background` | Image generation settings |
 
-### Features
-
-- **🆕 Raw JSON Support**: Pass structured JSON directly with the `json_string` parameter for maximum flexibility
-- **🔀 Smart Parameter Merging**: Combine JSON with discrete parameters - discrete parameters always override JSON conflicts
-- **📋 18 built-in parameters + 3 custom pairs**: Plenty of control while still fitting Discord's 25-option limit
-- **🔍 Dropdown Choices**: Many parameters include predefined choices for common photography settings
-- **⚡ Flexible Usage**: All parameters are optional - use as many or as few as needed
-- **📸 Technical Precision**: Perfect for photographers who want specific camera settings simulated
-- **🎨 Creative Control**: Combine technical and artistic parameters for unique results
-- **✅ JSON Validation**: Clear error messages for invalid JSON with helpful examples
-- **📱 Response Display**: Final JSON structure is shown in the bot's response for transparency
-
-## Available Personas
-
-The bot supports multiple personas that change its behavior and response style:
-
-| Persona | Description |
-|---------|-------------|
-| **A discord user** (`discord_user`) | *Default* - Casual, friendly chat style suitable for Discord conversations |
-| **Cat** (`cat`) | Responds like a literal cat with meows, purrs, and cat-like behavior |
-| **Helpful Assistant** (`helpful_assistant`) | Professional, informative assistance style |
-| **Sarcastic Jerk** (`sarcastic_jerk`) | Responds with sarcasm and attitude |
-| **Homer Simpson** (`homer_simpson`) | Method actor playing Homer Simpson character |
-
-### Persona System
-
-- **Global Default**: All guilds use "A discord user" persona by default
-- **Guild-Specific**: Configured guilds can set their own default persona
-- **Per-Chat Override**: Individual `/chat` commands can specify a different persona
-- **Access Control**: Only properly configured guilds can change default personas
-
-## Guild Configuration
-
-CunningBot uses a guild configuration system to control which Discord servers can modify bot settings:
-
-- **Configured Guilds**: Can use `/persona default` to set custom default personas
-- **Unconfigured Guilds**: Use the global default persona ("A discord user") and cannot change settings
-- **Configuration File**: Guild access is controlled via `.guild_config.json` (see setup instructions)
-- **Error Handling**: Unconfigured guilds receive clear error messages when attempting to change settings
-
-This system ensures that only authorized servers can modify the bot's behavior while maintaining a consistent default experience.
-
-Additional helper utilities include message splitting to respect Discord's 2 000-character limit and rich structured logging.
-
-## Project Layout
+Discrete parameters override the same keys in `json_string`:
 
 ```
-├── bot/                     # Source code
-│   ├── api/                 # Third-party service clients
-│   ├── commands/            # Discord Cogs (slash commands)
-│   ├── domain/              # Domain & state-management services
-│   ├── utils.py             # Generic helpers
-│   └── main.py              # Application entry-point
-├── generated_images/        # Saved images from `/image`
-├── logs/                    # Rotating json logs
-├── tests/                   # PyTest suite
-├── Dockerfile               # Production container image
-├── docker-compose.yml       # 1-click local deployment
-├── requirements.txt         # Python dependencies (locked versions)
-├── Makefile                 # Common dev & ops tasks
+/image-json json_string:{"filter":"prism","mood":"dramatic"} style:"cinematic"
 ```
 
-## Installation
+The command is at Discord's 25-option limit, so new keys go through the
+`custom_*` pairs rather than new options.
 
-### 1. Clone & create your `.env`
+## Personas
+
+| Persona | Style |
+|---|---|
+| **A discord user** (`discord_user`) | Default — casual Discord chat |
+| **Cat** (`cat`) | A literal cat |
+| **Helpful Assistant** (`helpful_assistant`) | Professional and informative |
+| **Sarcastic Jerk** (`sarcastic_jerk`) | Sarcasm and attitude |
+| **Homer Simpson** (`homer_simpson`) | Homer Simpson |
+
+`/chat` can override the persona per message, and agent channels set their own.
+Only servers listed in `.guild_config.json` can change their default persona;
+others use "A discord user".
+
+## Project layout
+
+```
+├── bot/
+│   ├── api/            # Clients for outside services (OpenAI, Google, Perplexity, Open-Meteo, GitHub, pages, …)
+│   ├── domain/         # Feature logic, including the agent and its tools (no discord.py)
+│   ├── app/
+│   │   ├── commands/   # Slash commands, one folder per feature, auto-loaded
+│   │   ├── tasks/      # Background workers
+│   │   └── redis/      # One store per feature; all Redis access goes through these
+│   └── main.py         # Entry point
+├── web/                # Vercel app that hosts published pages
+├── tests/              # pytest suite
+├── scripts/            # One-off tools, e.g. check_models.py
+├── docker-compose.yml  # The bot, the workers, and Redis
+└── Makefile            # Docker shortcuts
+```
+
+## Setup
+
+### 1. Create `.env`
 
 ```bash
 cp .env.example .env
-# Edit the file and fill in real values
 ```
 
-Required keys:
+| Variable | Needed for |
+|---|---|
+| `DISCORD_TOKEN` | Required — the bot token |
+| `OPENAI_API_KEY` | Required — chat, the agent, OpenAI images |
+| `GOOGLE_API_KEY` | Gemini image models |
+| `PERPLEXITY_API_KEY` | The agent's web search |
+| `REDIS_HOST`, `REDIS_PORT`, `REDIS_DB`, `REDIS_PASSWORD` | Redis (Compose provides Redis itself) |
+| `PAGES_BASE_URL`, `PAGES_PUBLISH_TOKEN`, `PAGES_ID_SECRET` | Publishing web pages |
+| `GITHUB_TOKEN`, `GITHUB_ISSUE_REPO` | Filing GitHub issues from the agent |
 
-| Variable           | Purpose                              |
-|--------------------|--------------------------------------|
-| `DISCORD_TOKEN`    | Bot token from the Discord Developer Portal |
-| `CLIENT_ID`        | Application / Client ID (used for invite URL) |
-| `OPENAI_API_KEY`   | OpenAI secret key                    |
-| `GUILD_ID`         | *(optional)* Restrict command sync to one guild |
+Anything optional that's missing just turns that feature off.
 
-### 2. Native (Python ≥ 3.11)
+**With Docker Compose, a variable must also be listed in that service's
+`environment:` block** in `docker-compose.yml` — `.env` isn't copied into the
+image, so a key that isn't listed never reaches the container.
+
+### 2. Run it
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-make install         # ⇢ pip install -r requirements.txt
-make run             # ⇢ python -m bot.main
+make up      # docker compose up -d: the bot, all workers, and Redis
+make logs    # follow logs
+make down    # stop everything
+make rebuild # rebuild images from scratch and restart
 ```
 
-### 3. Docker / Docker-Compose
+Code under `bot/domain` and `bot/api` is baked into the image, so changes there
+need a rebuild; `bot/app` is mounted from the host.
+
+To run just the bot without Docker you need Python 3.11 and a Redis server:
 
 ```bash
-make build   # Build image (or `docker-compose build`)
-make start   # Run in background
-make logs    # Tail container logs
+make install   # pip install -r requirements.txt
+make run       # python3 -m bot.main
 ```
-
-The image runs as an unprivileged `appuser` and stores data in *logs/*, *generated_images/* and *bot/domain/app_state.json* which can be mounted on the host if desired.
 
 ## Development
 
-* **Formatting** – [black](https://black.readthedocs.io/) & [isort](https://pycqa.github.io/isort/)
-* **Type Checking** – `mypy` (strict settings configured in *mypy.ini*)
-* **Linting** – `ruff` (optional)
-* **Tests** – `pytest`
+```bash
+python3 -m pytest tests/
+```
 
-Typical workflow:
+The suite runs in a few seconds and should be fully green. Some test modules
+currently need `OPENAI_API_KEY` set to import.
+
+- **Adding a command:** add a cog under `bot/app/commands/<feature>/` with an
+  `async def setup(bot)`; it's loaded automatically. Then add it to `/help`
+  (`HELP_PAGES` in `bot/app/commands/help.py`) — that's the bot's user-facing
+  documentation.
+- **Adding models:** edit `bot/domain/llm/models.py`, then run
+  `python3 scripts/check_models.py` to confirm the model actually works.
+- **Logs:** structured JSON lines in `logs/YYYY-MM-DD.jsonl`.
+
+Contributor and AI-agent guidance lives in `AGENTS.md` and
+`.claude/skills/cunningbot/` (architecture, how-to recipes, deploy, and the
+backlog).
+
+## Deployment
+
+Merging to `main` does **not** deploy. On the Pi:
 
 ```bash
-pytest          # run tests
-mypy bot        # static type checks
+cd /home/dad/cunningbot && git pull && docker compose up -d --build
 ```
 
-### Adding New Slash Commands
-
-Create a new Cog under *bot/app/commands/*.  Register your command with `@app_commands.command` and add the cog in its own `setup` coroutine.
-
-```python
-class HelloCog(commands.Cog):
-    @app_commands.command(name="hello")
-    async def hello(self, interaction: discord.Interaction):
-        await interaction.response.send_message("Hello world!")
-
-async def setup(bot):
-    await bot.add_cog(HelloCog())
-```
-
-The bot auto-loads every `*.py` file in that directory when starting.
-
-
-## Logging
-
-Structured JSON logs are written to *logs/cunningbot-YYYY-MM-DD.json* (date-rotated).  Adjust verbosity or format by editing *bot/app/logger.py*.
-
-## Testing
-
-```bash
-# If .venv doesn't exist yet
-python -m venv .venv
-
-# Activate the virtual environment
-source .venv/bin/activate
-
-# Install dependencies (if needed)
-make install
-
-# Run tests
-pytest -q           # run all tests quietly
-```
-
-CI pipelines should run `pytest` and `mypy` to ensure correctness and maintain strict typing.
-
-## Deployment Notes
-
-* The container image is based on `python:3.11-slim`.
-* A non-root user (UID 1000) is created for safer execution (ideal for Raspberry Pi).
-* Volume-mount *logs/*, *generated_images/* and *bot/domain/app_state.json* if you need persistent data.
-
-## Contributing
-
-Pull requests are welcome!  Please ensure all existing tests pass and include new tests for any changed functionality.
-
-## License
-
-This project is licensed under the MIT License – see `LICENSE` for details.
+The pages app in `web/` deploys separately with `vercel --prod` from `web/`.

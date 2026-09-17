@@ -25,19 +25,26 @@ The `/help` command is the primary user-facing documentation for the bot. The `H
 
 The pages are currently organized as:
 - **Page 1** — `/chat`, `/image`, `/image-json`, Edit Images context menu
-- **Page 2** — `/trivia` group, `/answer`
+- **Page 2** — `/trivia` group, `/answer`, Submit Answer context menu
 - **Page 3** — `/news` group, `/weather` group
-- **Page 4** — `/poll`, `/roll`, `/af`, `/r`, `/persona`
-- **Page 5** — `/bot-updates`, `/queue`, `/help`
+- **Page 4** — `/poll`, `/poll-results`, `/roll`, `/af`, `/r`, `/persona`
+- **Page 5** — `/bot-updates`, `/agent`, `/bot`, `/queue`, `/help`
+
+The `/agent` entry also lists the agent's tools in plain words — update it when
+you add a user-visible agent tool.
 
 ## Running Tests
 
 ```bash
-make test
-# or directly:
-pytest tests/
+python3 -m pytest tests/
 ```
+
+There is no `make test` target. Use `python3`, not the checked-in `.venv`, which
+is broken. The suite is green on `main`, so any failure is real. It currently
+needs `OPENAI_API_KEY` set to import some modules.
 
 ## Deployment
 
-Use the `deploy-to-pi` skill (`.opencode/skills/deploy-to-pi/SKILL.md`) to deploy changes to the Raspberry Pi.
+Merging to `main` does not deploy. Deploy to the Raspberry Pi by hand — see
+`.claude/skills/cunningbot/references/deploy.md` (or the `deploy-to-pi` skill in
+`.opencode/skills/deploy-to-pi/SKILL.md`).
