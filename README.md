@@ -23,6 +23,7 @@ its state in Redis, and runs under Docker Compose on a Raspberry Pi.
 | `/trivia`, `/answer` | Scheduled trivia with difficulty-weighted scoring, weekly and all-time leaderboards, and personal stats. |
 | `/news` | Add RSS feeds to a channel, posted directly or as AI summaries on a schedule, with filters and dedup. |
 | `/weather` | On-demand forecasts and history by US ZIP code, or a daily forecast post. |
+| `/framed` | Track daily [Framed](https://framed.wtf) results from a registered channel: leaderboards by points, player stats and streaks, daily rankings, head-to-head, a morning recap, and backfill from channel history. |
 | `/poll`, `/poll-results` | Emoji-reaction polls with up to 10 options. |
 | `/roll` | Dice: `1d20`, `4d6`, `3d6+2d4*10`. |
 | `/af query` | Search Animation Factory GIFs with a private preview picker. |
@@ -38,8 +39,8 @@ Mention the bot, reply to it, or say its name — in any channel, including
 threads — and it answers. It can use tools:
 
 - weather, image generation and editing, GIFs, dice
-- web search, reading other channels, and searching the last week of this
-  server's news summaries
+- web search, reading other channels, searching the last week of this
+  server's news summaries, and looking up Framed stats
 - publishing a web page and finding, reading, or updating pages published
   earlier
 - filing GitHub issues against this repo (off unless a channel enables it)
@@ -56,7 +57,8 @@ snapshots such as a day's chat summary get their own link and last 30 days.
 
 Alongside the main bot, Docker Compose runs short-lived workers on a loop: RSS
 feed posting, news summaries, breaking-news checks, trivia posting and closing,
-the weekly trivia reset, and scheduled weather posts. All of them share one
+the weekly trivia reset, scheduled weather posts, and reading each day's
+Framed results. All of them share one
 Redis instance with the bot.
 
 ## `/image-json`

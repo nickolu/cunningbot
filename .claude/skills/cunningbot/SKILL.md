@@ -103,7 +103,7 @@ python3 -m pytest tests/test_trivia_points.py -q   # single file
 - **`bot/app` is bind-mounted** in `docker-compose.yml`, so state files persist
   across rebuilds. `bot/domain` and `bot/api` are baked into the image — changes
   there need a rebuild, not a restart.
-- **Nine containers share one Redis.** Anything a worker does on a timer needs
+- **Ten containers share one Redis.** Anything a worker does on a timer needs
   `redis_lock()` from `bot/app/redis/locks.py` or it fires once per container.
 - `bot/app/commands/baseball/` and `daily_game/` contain only stale
   `__pycache__` — leftovers from unmerged branches, not features.

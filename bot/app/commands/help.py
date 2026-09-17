@@ -139,7 +139,7 @@ HELP_PAGES = [
 
     # Page 4 — Polls, Dice, GIFs, Reddit, Personas
     discord.Embed(
-        title="CunningBot Help (4/5) — Polls, Dice, GIFs & More",
+        title="CunningBot Help (4/5) — Polls, Dice, Framed & More",
         color=discord.Color.orange(),
     ).add_field(
         name="/poll & /poll-results",
@@ -161,6 +161,19 @@ HELP_PAGES = [
             "Search the Animation Factory GIF library. Returns an interactive preview "
             "with **Prev / Next / Send / Cancel** buttons (only visible to you). "
             "Supports `clear`, `white`, and `black` style variants."
+        ),
+        inline=False,
+    ).add_field(
+        name="/framed — Framed movie game stats",
+        value=(
+            "Tracks results posted in a registered channel (share text, `3`, `X`, or plain words "
+            "like `nada`). Each day is read after midnight Pacific; points are 1→6 … 6→1, miss→0.\n"
+            "`/framed stats [player]` — points, averages, wins, streaks, score chart\n"
+            "`/framed leaderboard [period] [year]` — rankings by total points\n"
+            "`/framed day [puzzle or date]` — one day's ranking\n"
+            "`/framed h2h player [other]` — head-to-head record\n"
+            "`/framed status` · `/framed sync` — check for or catch up on missed days\n"
+            "Admin: `/framed register` · `unregister` · `backfill [start] [end]` · `fix`"
         ),
         inline=False,
     ).add_field(
