@@ -296,4 +296,4 @@ people want to browse a server's pages without asking the bot.
 | 1 | `create_github_issue` tool + `/agent tool` toggle | #40 |
 | 2 | Pages store source; per-guild index; reindex endpoint | #41 |
 | 2 | `list_pages`, `read_page`, slug-by-default, 365-day stable pages | #42 |
-| — | Dated summaries publish as one-off pages instead of overwriting each other | #PR |
+| — | Dated summaries publish as one-off pages instead of overwriting each other | #47 |
