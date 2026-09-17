@@ -1,6 +1,6 @@
 ---
 name: cunningbot
-description: Work on CunningBot — the Discord bot in this repo. Use for adding or changing slash commands, agent tools, background tasks, Redis state, or personas; for understanding how a request flows from Discord to a response; and for testing and deploying to the Raspberry Pi. Load before editing anything under bot/.
+description: Work on CunningBot — the Discord bot in this repo. Use for adding or changing slash commands, agent tools, background tasks, Redis state, or personas; for understanding how a request flows from Discord to a response; for testing and deploying to the Raspberry Pi; and for what to work on next — the backlog, roadmap, and planned phases. Load before editing anything under bot/.
 ---
 
 # CunningBot
@@ -64,11 +64,12 @@ between them.
 | Publishing content as a web page | `references/publishing.md` |
 | Shipping it | `references/deploy.md` |
 | How a message becomes a response | `references/architecture.md` |
+| Deciding what to build next, or planning a phase | `references/backlog.md` |
 
 ## Verify before shipping
 
 ```bash
-python3 -m pytest tests/          # 183 tests, ~45s, no network or keys needed
+python3 -m pytest tests/          # 249 tests, ~45s, no network or keys needed
 python3 -m pytest tests/test_trivia_points.py -q   # single file
 ```
 
