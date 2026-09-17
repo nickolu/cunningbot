@@ -19,6 +19,7 @@ from bot.domain.agent.tools import (
     read_channel,
     read_page,
     search_gifs,
+    search_news,
     weather,
     web_search,
 )
@@ -38,6 +39,7 @@ _MODULES = (
     create_github_issue,
     list_pages,
     read_page,
+    search_news,
 )
 
 TOOLS: Tuple[AgentTool, ...] = tuple(m.TOOL for m in _MODULES)

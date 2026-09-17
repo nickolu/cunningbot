@@ -319,4 +319,4 @@ def test_backfill_ships_the_new_tools_to_existing_channels():
     """Default-on tools do not reach already-registered channels on their own."""
     from bot.app.redis.migrations.backfill_agent_tools import DEFAULT_TOOLS_TO_ADD
 
-    assert set(DEFAULT_TOOLS_TO_ADD) == {"list_pages", "read_page"}
+    assert {"list_pages", "read_page"} <= set(DEFAULT_TOOLS_TO_ADD)

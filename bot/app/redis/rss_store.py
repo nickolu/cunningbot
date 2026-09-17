@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 from bot.app.redis.client import get_redis_client
-from bot.app.redis.serialization import guild_id_to_str
+from bot.app.redis.serialization import channel_id_to_str, guild_id_to_str
 
 logger = logging.getLogger("RSSRedisStore")
 
@@ -513,6 +513,40 @@ class RSSRedisStore:
         """
         key = f"rss:{guild_id}:story_history:{channel_id}"
         return await self.redis.zcard(key)
+
+    async def get_story_history_channels(self, guild_id: str) -> List[str]:
+        """List the channel IDs in a guild that have story history.
+
+        The guild ID is part of the key, so the SCAN pattern can only match
+        this guild's channels. Each key's prefix is re-checked anyway, so a
+        malformed guild ID can never pull in another guild's channels.
+
+        Args:
+            guild_id: Guild ID as string (from guild_id_to_str)
+
+        Returns:
+            Channel ID strings, sorted, without duplicates
+        """
+        if not str(guild_id).isdigit():
+            return []
+        prefix = f"rss:{guild_id}:story_history:"
+        channels = set()
+
+        cursor = 0
+        while True:
+            cursor, keys = await self.redis.scan(cursor, match=f"{prefix}*", count=100)
+            for key in keys:
+                if isinstance(key, bytes):
+                    key = key.decode("utf-8")
+                if not key.startswith(prefix):
+                    continue
+                channel_id = key[len(prefix):]
+                if channel_id.isdigit():
+                    channels.add(channel_id_to_str(int(channel_id)))
+            if cursor == 0:
+                break
+
+        return sorted(channels)
 
     # --- Breaking News Pending Items ---
 
