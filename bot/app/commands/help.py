@@ -207,6 +207,15 @@ HELP_PAGES = [
         ),
         inline=False,
     ).add_field(
+        name="/bot — Ask the agent once",
+        value=(
+            "`/bot prompt:<text>` — run the agent once in any channel, no registration needed. "
+            "It reads recent messages for context, can use its tools, and quotes your prompt "
+            "in the reply. In a registered channel it uses that channel's model, persona, and "
+            "tools; works in paused channels too."
+        ),
+        inline=False,
+    ).add_field(
         name="/queue",
         value=(
             "Check the current task queue status: number of queued tasks, active tasks, "
