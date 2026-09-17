@@ -107,8 +107,8 @@ if __name__ == "__main__":
 ```
 
 Add `OPENAI_API_KEY` only if the task actually calls OpenAI. A new service means
-the deploy must rebuild (`docker compose up -d --build`), which the Pi's
-auto-deploy already does.
+the deploy must rebuild (`docker compose up -d --build`). The manual deploy
+command in `deploy.md` does; so would the auto-deploy, once installed.
 
 ## Rules
 

@@ -7,7 +7,8 @@ description: Work on CunningBot — the Discord bot in this repo. Use for adding
 
 A Discord bot (Python, discord.py 2.5, OpenAI) running under Docker Compose on a
 Raspberry Pi at `dad@192.168.1.182:/home/dad/cunningbot`. State lives in Redis.
-Merging a PR to `main` auto-deploys within ~2 minutes.
+Merging a PR to `main` does **not** deploy — the auto-deploy timer was never
+installed on the Pi. Deploy by hand; see `references/deploy.md`.
 
 ## Two ways users reach the bot
 
@@ -34,7 +35,7 @@ between them.
 | `bot/app/tasks/` | Standalone worker scripts run on a loop | Each is a `python -m` entry point, not a cog |
 | `bot/app/redis/*_store.py` | One store class per feature; owns its key schema | All persistence goes through a store |
 | `bot/app/utils/` | logger, zip lookup, feed fetch | |
-| `tests/` | pytest suite | 8 failures are pre-existing on `main` (af, chat, image, google) |
+| `tests/` | pytest suite | 7 failures are pre-existing on `main` (af, image, google) — confirmed 2026-09-16 |
 | `web/` | Vercel app that hosts published pages — deploys separately | |
 
 ## Non-negotiables
@@ -51,7 +52,7 @@ between them.
 4. **`get_logger()` from `bot/app/utils/logger.py`** for new code (structured
    JSONL into `logs/`). Older stores use stdlib `logging`; don't propagate that.
 5. **Slash commands cap at 25 options.** `/image-json` is already at the limit.
-6. **Never push to `main`.** It is protected and it auto-deploys. Feature branch → PR.
+6. **Never push to `main`.** It is protected. Feature branch → PR, then deploy by hand.
 
 ## Task router
 
