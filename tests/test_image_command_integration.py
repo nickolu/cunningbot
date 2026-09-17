@@ -414,7 +414,10 @@ class TestImageCommandRateLimitHandling:
         mock_gemini_client.generate_image = AsyncMock(
             return_value=(None, "RATE_LIMIT: Google Gemini is currently experiencing high demand. Please try again in a few moments.")
         )
+        # The cog routes by model name through gemini_generation_clients (since
+        # 0f82ea2); gemini_generation_client alone is only the availability check.
         cog.gemini_generation_client = mock_gemini_client
+        cog.gemini_generation_clients = {"gemini": mock_gemini_client}
         
         mock_interaction = AsyncMock(spec=discord.Interaction)
         mock_interaction.user.id = 12345
@@ -452,6 +455,7 @@ class TestImageCommandRateLimitHandling:
         # Mock both Gemini clients (generation is checked for availability)
         mock_gemini_generation_client = AsyncMock()
         cog.gemini_generation_client = mock_gemini_generation_client
+        cog.gemini_generation_clients = {"gemini": mock_gemini_generation_client}
         
         # Mock Gemini edit client to return rate limit error
         mock_gemini_edit_client = AsyncMock()
@@ -503,7 +507,10 @@ class TestImageCommandRateLimitHandling:
         mock_gemini_client.generate_image = AsyncMock(
             return_value=(None, "Some other error occurred")
         )
+        # The cog routes by model name through gemini_generation_clients (since
+        # 0f82ea2); gemini_generation_client alone is only the availability check.
         cog.gemini_generation_client = mock_gemini_client
+        cog.gemini_generation_clients = {"gemini": mock_gemini_client}
         
         mock_interaction = AsyncMock(spec=discord.Interaction)
         mock_interaction.user.id = 12345

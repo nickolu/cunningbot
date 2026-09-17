@@ -126,7 +126,7 @@ class TestGeminiImageGenerationClient:
 
     @pytest.mark.asyncio
     async def test_generate_image_no_candidates(self) -> None:
-        """Test handling when API returns no candidates"""
+        """Empty candidates are reported as a Gemini rate limit"""
         with patch.dict("os.environ", {"GOOGLE_API_KEY": "test-key"}), \
              patch("bot.api.google.image_generation_client.genai") as mock_genai:
             
@@ -139,8 +139,10 @@ class TestGeminiImageGenerationClient:
             client = GeminiImageGenerationClient()
             result_bytes, error_msg = await client.generate_image("test")
             
+            # Empty candidates is deliberately treated as a rate limit (c88ab26):
+            # the SDK returns an empty response on 429 instead of raising.
             assert result_bytes is None
-            assert "No parts returned" in error_msg
+            assert error_msg.startswith("RATE_LIMIT:")
 
     @pytest.mark.asyncio
     async def test_generate_image_no_image_parts(self) -> None:
@@ -410,7 +412,7 @@ class TestGeminiImageEditClient:
 
     @pytest.mark.asyncio
     async def test_edit_image_no_candidates(self) -> None:
-        """Test handling when API returns no candidates"""
+        """Empty candidates are reported as a Gemini rate limit"""
         with patch.dict("os.environ", {"GOOGLE_API_KEY": "test-key"}), \
              patch("bot.api.google.image_edit_client.genai") as mock_genai, \
              patch("bot.api.google.image_edit_client.types") as mock_types, \
@@ -434,8 +436,10 @@ class TestGeminiImageEditClient:
                 prompt="test"
             )
             
+            # Empty candidates is deliberately treated as a rate limit (c88ab26):
+            # the SDK returns an empty response on 429 instead of raising.
             assert result is None
-            assert "no image data" in error_msg.lower()
+            assert error_msg.startswith("RATE_LIMIT:")
 
     @pytest.mark.asyncio
     async def test_edit_image_no_image_parts_in_response(self) -> None:

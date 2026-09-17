@@ -123,6 +123,7 @@ class TestAFCommandExecution:
 
         mock_interaction = AsyncMock(spec=discord.Interaction)
         mock_interaction.user.id = 12345
+        mock_interaction.user.mention = "<@12345>"
         mock_interaction.channel = AsyncMock()
         mock_interaction.channel.send = AsyncMock()
         mock_interaction.response.defer = AsyncMock()
@@ -138,6 +139,7 @@ class TestAFCommandExecution:
 
         mock_interaction.channel.send.assert_called_once_with(
             "https://manchat.men/af/gifs/d15/food/vegetables/potato_walking_hb.gif"
+            "\n-# Shared by <@12345>"
         )
         mock_interaction.response.defer.assert_called_once()
         mock_interaction.delete_original_response.assert_called_once()
@@ -176,6 +178,7 @@ class TestAFCommandExecution:
 
         mock_interaction = AsyncMock(spec=discord.Interaction)
         mock_interaction.user.id = 12345
+        mock_interaction.user.mention = "<@12345>"
         mock_interaction.channel = AsyncMock()
         mock_interaction.channel.send = AsyncMock()
         mock_interaction.response.defer = AsyncMock()
@@ -191,6 +194,7 @@ class TestAFCommandExecution:
 
         mock_interaction.channel.send.assert_called_once_with(
             "https://manchat.men/af/gifs/d15/food/vegetables/potato_walking_ha.gif"
+            "\n-# Shared by <@12345>"
         )
 
     @pytest.mark.asyncio
