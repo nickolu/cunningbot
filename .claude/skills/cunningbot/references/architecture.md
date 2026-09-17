@@ -44,7 +44,8 @@ Cogs are discovered by scanning `bot/app/commands/` in `bot/main.py` — every
 
 `bot/app/commands/agent/agent_listener.py` is an `on_message` cog. Per message:
 
-1. Ignore bots and non-`TextChannel`s.
+1. Ignore bots and anything that is not a `TextChannel` or `Thread` (forum
+   posts are threads). A thread uses its own registration, else its parent's.
 2. Redis lookup `agent:{guild}:{channel}` — bail if absent or disabled.
 3. Cooldown (default 5s) — bypassed if @mentioned or replied to.
 4. Rate limit (default 10/min per channel).

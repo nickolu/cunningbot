@@ -6,11 +6,17 @@ triggering logic to decide whether to respond, then fetches recent
 history, runs the agent service's tool-calling loop, and sends the
 response back to the channel.
 
-An explicit summon — an @mention, a reply to the bot, or the bot's name
-in the message text — always gets a response, whatever the response mode,
+An explicit summon — an @mention (of the bot's user or of the managed role
+Discord creates for it), a reply to the bot, or the bot's name in the
+message text — always gets a response, whatever the response mode,
 and skips the classifier.  Channels with no registration are not ignored
 outright: a summon wakes the agent there with default settings.  A
 *paused* agent stays silent either way; pausing is a deliberate opt-out.
+
+Threads (including forum posts) are handled too.  A thread uses its own
+registration if it has one, otherwise its parent channel's, otherwise the
+unregistered defaults.  So a paused parent also silences its threads, and
+cooldown, rate limit and the concurrency lock are tracked per thread.
 
 Response modes:
 - "smart" (default): Uses hard gates + LLM intent classifier to decide
@@ -28,7 +34,7 @@ Guard rails:
 import asyncio
 import time
 from collections import defaultdict
-from typing import Dict, Optional, Pattern
+from typing import Any, Dict, Optional, Pattern
 
 import discord
 from discord.ext import commands
@@ -120,13 +126,30 @@ class AgentListenerCog(commands.Cog):
             self._summon_patterns[guild.id] = build_summon_pattern(names)
         return self._summon_patterns[guild.id]
 
+    def _mentions_bot_role(self, message: discord.Message) -> bool:
+        """True if the message mentions the managed role Discord made for this bot.
+
+        Picking the bot from the @ menu can insert ``<@&role_id>`` for its
+        same-named integration role instead of a user mention.  Only that
+        role counts -- other roles the bot happens to hold do not.
+        """
+        if self.bot.user is None:
+            return False
+        for role in message.role_mentions:
+            tags = role.tags
+            if tags is not None and tags.bot_id == self.bot.user.id:
+                return True
+        return False
+
     def _is_summoned(self, message: discord.Message) -> bool:
         """True if the message addresses the bot directly.
 
-        A mention, a reply to something the bot said, or the bot's name in
-        the text all count.
+        A mention (of the bot or its managed role), a reply to something the
+        bot said, or the bot's name in the text all count.
         """
         if self.bot.user in message.mentions:
+            return True
+        if self._mentions_bot_role(message):
             return True
         if self._is_reply_to_bot(message):
             return True
@@ -199,14 +222,25 @@ class AgentListenerCog(commands.Cog):
 
         return False
 
+    async def _get_channel_config(
+        self, guild_id: str, channel: discord.abc.GuildChannel
+    ) -> Optional[Dict[str, Any]]:
+        """Registration for the channel; a thread falls back to its parent's."""
+        config = await self.store.get_agent_config(guild_id, str(channel.id))
+        if config is None and isinstance(channel, discord.Thread):
+            config = await self.store.get_agent_config(
+                guild_id, str(channel.parent_id)
+            )
+        return config
+
     @commands.Cog.listener("on_message")
     async def on_message(self, message: discord.Message) -> None:
         # 1. Ignore bots (including ourselves)
         if message.author.bot:
             return
 
-        # 2. Only handle guild text channels
-        if not isinstance(message.channel, discord.TextChannel):
+        # 2. Only handle guild text channels and threads (incl. forum posts)
+        if not isinstance(message.channel, (discord.TextChannel, discord.Thread)):
             return
 
         guild_id = str(message.guild.id)
@@ -216,7 +250,7 @@ class AgentListenerCog(commands.Cog):
         summoned = self._is_summoned(message)
 
         # 4. Look up the channel's agent (fast Redis lookup)
-        config = await self.store.get_agent_config(guild_id, channel_id)
+        config = await self._get_channel_config(guild_id, message.channel)
         if config is None:
             # Unregistered channel — answer only when summoned by name/mention.
             if not summoned:
