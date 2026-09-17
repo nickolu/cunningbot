@@ -22,12 +22,11 @@ changed since — check before acting on a claim, and update the date when you d
 ## Ops — small, unblocked, mostly on the Pi or in Discord
 
 ### Backfill the page tools into registered channels
-`list_pages` and `read_page` shipped in #42 but the backfill never ran. The one
-registered agent channel's stored tool list has neither, so the agent there
-**cannot find or read pages** — unregistered channels can, since they get the
-defaults. Run the backfill in `add-agent-tool.md` (`DEFAULT_TOOLS_TO_ADD`
-already names both tools), or `/agent tool list_pages enable` and
-`/agent tool read_page enable` in that channel.
+`list_pages` and `read_page` shipped in #42 but the backfill never ran. A dry
+run on 2026-09-16 found **17 registered channels across 7 servers**, none with
+either tool, so the agent in any registered channel **cannot find or read
+pages** -- unregistered channels can, since they get the defaults. Run the
+backfill in `add-agent-tool.md` (`DEFAULT_TOOLS_TO_ADD` already names both).
 
 ### Turn on GitHub issue filing — needs a code change first
 Shipped in #40, inert, for two reasons:
@@ -264,16 +263,6 @@ order:
 Confirm on the host by grepping `logs/` for `agent_summoned_unregistered` right
 after a failing mention: no event means the gate rejected it (1 or 2).
 
-### Daily summaries probably overwrite each other
-Since #42, a page with no slug gets one derived from its title. The agent
-publishes "Today's Chat Summary" — the same title every day, so the same slug,
-so **each day's summary likely replaces the last** and yesterday's shared link
-shows today's content. Seen 2026-09-16: one such page, updated 09-15, with
-stored source. It should have been `one_off=true`. Fix options: sharpen the
-`one_off` guidance in the `publish_page` schema and system prompt around
-recurring/dated content, or have the agent date-stamp snapshot titles. Confirm
-by checking whether earlier summaries still exist before fixing.
-
 ### `-pro` and `-codex` models need the Responses API
 `gpt-5.5-pro` and `gpt-5.3-codex` are in the account's `/v1/models` listing but
 only serve `/v1/responses`; the bot only calls chat completions. Two such models
@@ -307,3 +296,4 @@ people want to browse a server's pages without asking the bot.
 | 1 | `create_github_issue` tool + `/agent tool` toggle | #40 |
 | 2 | Pages store source; per-guild index; reindex endpoint | #41 |
 | 2 | `list_pages`, `read_page`, slug-by-default, 365-day stable pages | #42 |
+| — | Dated summaries publish as one-off pages instead of overwriting each other | #PR |
