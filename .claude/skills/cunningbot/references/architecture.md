@@ -59,7 +59,10 @@ Cogs are discovered by scanning `bot/app/commands/` in `bot/main.py` — every
    dropped, not queued.
 7. Fetch `context_window` (default 30) messages, flatten each with
    `flatten_discord_message()`, annotate image attachments as
-   `[Image: filename | URL]`, reverse to chronological.
+   `[Image: filename | URL]`, reverse to chronological. **Embed text is not
+   read** — the flattener only sees `message.content`, so RSS posts, summaries,
+   and other bot embeds are invisible to the agent (`read_channel` shows them
+   as `[+N embed(s)]`). News lives in Redis `story_history` instead.
 8. `run_agent()` → OpenAI tool-calling loop, max **5** rounds
    (`MAX_TOOL_ROUNDS`). Tools that produce rich output (images) send to the
    channel themselves and return a text summary to the model.
