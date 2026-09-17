@@ -243,6 +243,38 @@ keyword vs. embeddings once there are too many to inject whole; a way for users
 to list and delete memories (probably `/memory`); size caps. Treat memory
 content as untrusted input — it's a persistent prompt-injection vector.
 
+### Delete pages
+**The ask:** be able to delete a published page.
+**What exists:** nothing. A page only goes away when its TTL runs out -- 30
+days for one-offs, 365 for slugged pages, extended on every republish. There is
+no delete route in `web/api/` (`pages.js` answers GET and POST only), no method
+in `bot/api/pages/client.py`, and no agent tool. The closest thing today is
+republishing over a slug, which replaces the content but keeps the URL alive.
+**Shape:**
+- `DELETE /api/pages?guild_id=<id>&id=<page>` in `web/api/pages.js`, behind the
+  publish token. Check the stored `guild_id` the way `publish.js` does, and
+  answer a page owned by another guild exactly like a missing one. `ZREM` the
+  id from the guild's index in the same call instead of waiting for a read to
+  prune it.
+- `delete_page(guild_id, reference)` in `page_service.py`, taking a slug, id,
+  or URL like `read_page`.
+- Exposed as an agent tool, a `/pages delete` subcommand (see the optional
+  `/pages` follow-up below), or both.
+- `web/` deploys separately (`vercel --prod` from `web/`), and the client must
+  report `PagesNotDeployed` when the route isn't there yet.
+**Decide in planning:**
+- **Who may delete.** The agent acts for anyone in the channel, and page
+  content or channel history can prompt-inject it. Options: slash command only
+  with `manage_messages`, or an agent tool that asks for confirmation. Probably
+  keep it off the default tool list either way.
+- **Hosted images.** Images uploaded with `host_image` live in Vercel Blob with
+  no TTL and aren't tied to a page, so deleting a page leaves them behind.
+  Decide whether deleting a page also removes the images only it uses.
+- Whether deletion is immediate or soft (hidden, then purged after a few days)
+  so a mistaken delete can be undone.
+**Unblocks:** removing the stray URLs left over from *Consolidate the wishlist
+pages* above.
+
 ---
 
 ## Follow-ups
