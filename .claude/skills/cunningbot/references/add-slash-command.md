@@ -68,6 +68,13 @@ method instead of a `Group`.
   — see `/weather` setup for the pattern.
 - **Long or expensive LLM work** should go through `bot/app/task_queue.py` the
   way `/chat` and `/image` do, so it doesn't block the gateway.
+- **Don't start a command method's name with `bot_`.** discord.py reserves
+  that prefix for cog hooks and refuses to load the cog, which is why `/bot`'s
+  method is `ask`. Name the method anything; `name=` sets the command.
+- **No shared state at module level in a command file.** discord.py re-executes
+  an extension's module when it loads it, so a module-level dict can exist
+  twice. Put state that two cogs share in `bot/app/` outside `commands/` (see
+  `bot/app/agent_runtime.py`).
 - **Commands sync on startup.** A renamed or newly grouped command can take a
   few minutes to appear in the Discord client.
 

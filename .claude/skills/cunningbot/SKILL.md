@@ -19,7 +19,8 @@ Every feature is exposed through one or both of these. Decide which before you w
 2. **Channel agent** — plain English at the bot (`@CunningBot can you...`). An
    `on_message` listener decides whether the bot is being addressed, then runs an
    OpenAI tool-calling loop. One module per tool in `bot/domain/agent/tools/`,
-   collected by `registry.py`.
+   collected by `registry.py`. `/bot prompt:` runs the same agent once from a
+   slash command, in any channel.
 
 A capability that should work both ways needs a cog *and* an agent tool, both
 delegating to one service in `bot/domain/<feature>/`. Do not duplicate logic
@@ -32,6 +33,7 @@ between them.
 | `bot/api/<vendor>/` | Outbound clients (openai, google, perplexity, openmeteo, opentdb, animation_factory) | No discord.py, no business logic |
 | `bot/domain/<feature>/` | Business logic and services | No discord.py imports, no Redis keys inline |
 | `bot/app/commands/<feature>/` | discord.py Cogs (slash commands) | Thin — parse, call domain, format embed |
+| `bot/app/agent_runtime.py` | History fetch and per-channel locks shared by the agent listener and `/bot` | Shared cog state lives outside `commands/` |
 | `bot/app/tasks/` | Standalone worker scripts run on a loop | Each is a `python -m` entry point, not a cog |
 | `bot/app/redis/*_store.py` | One store class per feature; owns its key schema | All persistence goes through a store |
 | `bot/app/utils/` | logger, zip lookup, feed fetch | |

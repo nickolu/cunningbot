@@ -55,12 +55,23 @@ tool returns the message as a string; a cog sends it as an ephemeral reply.
 
 Pages are stable **by default**: with no `slug`, one is derived from the title.
 Pass `one_off=True` for a snapshot that should never be updated -- a reasoning
-trace, a weekly summary -- and it gets a random id instead.
+trace, or a summary of a particular day or week -- and it gets a random id
+instead.
 
 That default is deliberate. A random id is derived from `secrets.token_hex(4)`
-and can never be recomputed, by the bot or anyone else, so an unslugged page was
-unfindable the moment its URL scrolled out of the channel. Asked to add to one,
-the agent could only publish a second page holding the new item alone.
+and can never be recomputed from the title, so before the per-guild index
+existed an unslugged page was unfindable once its URL scrolled out of the
+channel, and asked to add to one the agent could only publish a second page
+holding the new item alone.
+
+The flip side bit dated content: "Today's Chat Summary" got the same derived
+slug every day, so each summary replaced the last and yesterday's shared link
+showed today's. The `publish_page` schema and system prompt now tell the agent
+to publish dated summaries with `one_off=true` (#47).
+
+**One-offs are still findable.** `web/api/publish.js` adds *every* page to the
+guild's index, so `list_pages` returns one-offs too -- the agent can find last
+Tuesday's summary by title. They just can't be updated in place.
 
 Slugged pages live 365 days (`STABLE_TTL_DAYS`); one-offs get 30
 (`SNAPSHOT_TTL_DAYS`). A living list that expires a month after its last edit is
