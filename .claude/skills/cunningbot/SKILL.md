@@ -35,7 +35,7 @@ between them.
 | `bot/app/tasks/` | Standalone worker scripts run on a loop | Each is a `python -m` entry point, not a cog |
 | `bot/app/redis/*_store.py` | One store class per feature; owns its key schema | All persistence goes through a store |
 | `bot/app/utils/` | logger, zip lookup, feed fetch | |
-| `tests/` | pytest suite | 7 failures are pre-existing on `main` (af, image, google) — confirmed 2026-09-16 |
+| `tests/` | pytest suite | Green on `main` since #52 — any failure is real |
 | `web/` | Vercel app that hosts published pages — deploys separately | |
 
 ## Non-negotiables
@@ -70,7 +70,7 @@ between them.
 ## Verify before shipping
 
 ```bash
-python3 -m pytest tests/          # 249 tests, ~45s, no network or keys needed
+python3 -m pytest tests/          # ~290 tests, ~3s; needs OPENAI_API_KEY set (see backlog)
 python3 -m pytest tests/test_trivia_points.py -q   # single file
 ```
 

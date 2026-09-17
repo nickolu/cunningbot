@@ -3,7 +3,7 @@
 What's left to build on CunningBot, in rough priority order, with the context
 and decisions already made so nobody re-plans them.
 
-**Last verified against `main` and the Pi: 2026-09-16.** Anything below may have
+**Last verified against `main` and the Pi: 2026-09-17.** Anything below may have
 changed since — check before acting on a claim, and update the date when you do.
 
 ## Keeping this file honest
@@ -21,36 +21,20 @@ changed since — check before acting on a claim, and update the date when you d
 
 ## Ops — small, unblocked, mostly on the Pi or in Discord
 
-### Backfill the page tools into registered channels
-`list_pages` and `read_page` shipped in #42 but the backfill never ran. A dry
-run on 2026-09-16 found **17 registered channels across 7 servers**, none with
-either tool, so the agent in any registered channel **cannot find or read
-pages** -- unregistered channels can, since they get the defaults. Run the
-backfill in `add-agent-tool.md` (`DEFAULT_TOOLS_TO_ADD` already names both).
+### After the next deploy: backfill `search_news`
+#54 adds `search_news` to `DEFAULT_TOOLS_TO_ADD`. Once it's deployed, run the
+backfill in `add-agent-tool.md` (dry run first) or registered channels won't get
+it. `list_pages` and `read_page` were backfilled into all 17 registered channels
+on 2026-09-17, so the run should only add `search_news`.
 
-### Turn on GitHub issue filing — needs a code change first
-Shipped in #40, inert, for two reasons:
-
-1. **`docker-compose.yml` doesn't pass the variables.** #43 stopped baking `.env`
-   into the image, so a key only reaches a container if its service's
-   `environment:` block names it. The `cunningbot` service lists
-   `PAGES_PUBLISH_TOKEN` but not `GITHUB_TOKEN` or `GITHUB_ISSUE_REPO` — #40
-   predates #43 and was never updated. Adding the token to `.env` alone does
-   nothing. Needs a PR adding both lines.
-2. `GITHUB_TOKEN` is not in the Pi's `.env`. Needs a fine-grained PAT (repo
-   `nickolu/cunningbot`, Issues: read and write) and
-   `GITHUB_ISSUE_REPO=nickolu/cunningbot`.
-
-Then rebuild, and `/agent tool create_github_issue enable` in one channel.
+### Turn on GitHub issue filing — needs a token
+Shipped in #40, still inert. #49 passes `GITHUB_TOKEN` and `GITHUB_ISSUE_REPO`
+to the `cunningbot` container (the only service that loads agent tools); before
+it, #43's switch away from a baked-in `.env` meant the keys never arrived.
+What's left is on the Pi: add a fine-grained PAT (repo `nickolu/cunningbot`,
+Issues: read and write) and `GITHUB_ISSUE_REPO=nickolu/cunningbot` to `.env`,
+rebuild, then `/agent tool create_github_issue enable` in one channel.
 **Do not backfill it**; it's opt-in because it writes to a public repo.
-
-### Consolidate the wishlist pages
-Guild `844003671334977607` has four near-duplicate "Bot Fails + Wishlist" pages
-— the exact fragmentation Phase 2 fixed. All predate source storage, so the
-agent can't append to any of them: it will correctly refuse and say republishing
-replaces the page. Merge their rendered content into one page under slug
-`bot-fails-wishlist`; after that it appends normally. Deleting the stray URLs is
-the user's call — someone may have them.
 
 ### Install the Pi auto-deploy timer
 PR #31 added it; the one-time `sudo` install was never run (still no timer on
@@ -128,8 +112,8 @@ then moot — probably yes, so don't do both. Update `deploy.md` and memory.
 have already pulled in.
 **What exists** (`bot/app/redis/rss_store.py`): there is **no searchable article
 archive**. `seen` sets hold only IDs; `pending` lists are cleared after each
-summary; `story_history:{channel}` is a sorted set kept for dedup and pruned at
-**7 days** (`cleanup_old_story_history`); roundup `articles` lists are capped at
+summary; `story_history:{channel}` is a sorted set kept for dedup and meant to be
+pruned at **7 days** (see the gap below); roundup `articles` lists are capped at
 100. So a search tool today could only see about a week of summarized stories.
 **Decided 2026-09-16: 7 days to start, so no new storage.** `story_history`
 already is a 7-day archive: `rss_summary_poster.py` writes every posted story
@@ -141,39 +125,37 @@ renders them as `[+1 embed(s)]`. Scanning channels would also mean paging
 through history (Phase 3's problem) and parsing formatted summaries back into
 stories that Redis already holds in structured form.
 
-**Shape:** a `search_news` agent tool (one module in `bot/domain/agent/tools/`)
-that loads `get_stories_within_window(..., 168)` for each of the guild's summary
-channels, keyword-matches title + summary, and returns matches with their links
-and dates. Add a store method to list a guild's `story_history` channels.
-Fall back to `web_search` when nothing matches.
+**Step 1 is built: #54.** `search_news` searches `story_history` for the
+guild (keys are `rss:{guild_id}:story_history:{channel_id}`, so no config lookup
+is needed), 168 hours back. Query words are prefix-matched against title and
+summary with filler words dropped; stories with every word come first, else
+ones with at least half, newest first, capped at 10. No match points the model
+at `web_search`. Breaking-news entries live in the same set and are searchable.
+Directly posted feeds are not -- step 2 fixes that.
 
-**Gaps to check before building:**
-- **Feeds posted directly aren't archived.** `post_direct_items` in
-  `rss_feed_poster.py` sends an embed per item and saves nothing searchable.
-  Either write those items to history too (small change) or accept that only
-  summary channels are searchable.
-- Check whether any channel's dedup window is set shorter than 7 days (and
-  whether that affects what's kept), and that the 7-day cleanup actually runs.
-**Built in two steps (decided 2026-09-16):**
+**Found while building step 1 -- decide before step 2:**
+- **The 7-day cleanup never runs.** `RSSRedisStore.cleanup_old_story_history`
+  has no callers; `rss_summary_poster` calls `cleanup_old_history()` in
+  `bot/app/story_history.py`, which prunes the old JSON file, not Redis. So
+  `story_history` grows forever and only `allkeys-lru` eviction bounds it --
+  which under memory pressure can evict *any* key, trivia and agent config
+  included. Wiring the cleanup in deletes the only history older than a week,
+  which step 2 might want, so it was left alone. Decide with step 2's storage.
+- A channel's dedup window (6-168 h) only controls how much history dedup
+  reads; every post is written regardless, so it doesn't shorten what's kept.
 
-1. **Search the 7 days we already keep.** `search_news` over `story_history`,
-   as above. Keyword match only.
-2. **Start archiving news so history goes back further.** Save every feed item
-   when `rss_feed_poster.py` first sees it: title, link, feed name, published
-   date, feed description. Save it whether the feed posts items directly or
-   feeds a summary, which also closes the gap above. `search_news` then searches
-   the archive, and `story_history` goes back to only doing dedup.
-   **Decide when planning step 2:**
-   - **Storage.** Redis keeps everything in memory, which suits a week of
-     stories, but months of articles is a question for the droplet move. The
-     other option is SQLite/Postgres with full-text search. Decide alongside
-     the droplet item.
-   - **Retention.** How long to keep items (90 days? a year?).
-   - **Search.** Keyword vs. embeddings, and whether to dedup the same story
-     across feeds.
-
-   Step 2 can start archiving before step 1 ships, since history only builds
-   from the day archiving starts.
+**Step 2 -- start archiving news so history goes back further.** Save every
+feed item when `rss_feed_poster.py` first sees it: title, link, feed name,
+published date, feed description. Save it whether the feed posts items directly
+or feeds a summary. `search_news` then searches the archive, and
+`story_history` goes back to only doing dedup.
+**Decide when planning step 2:**
+- **Storage.** Redis keeps everything in memory, which suits a week of stories,
+  but months of articles is a question for the droplet move. The other option
+  is SQLite/Postgres with full-text search. Decide alongside the droplet item.
+- **Retention.** How long to keep items (90 days? a year?).
+- **Search.** Keyword vs. embeddings, and whether to dedup the same story
+  across feeds.
 
 ### More models, Grok, and managing models from Discord
 **Why:** `bot/domain/llm/models.py` is a hardcoded table plus a
@@ -189,14 +171,6 @@ use static `app_commands.Choice` lists, capped at 25.
   completion *and* a tool call — before a model is enabled. Listing ≠ working.
 - Switch model pickers to autocomplete to get past the 25-choice cap.
 **Related:** the `-pro`/`-codex` Responses API follow-up below.
-
-### `/bot` — one-shot agent call in any channel
-**The ask:** run the agent from a slash command without registering the channel.
-**Where:** `bot/app/commands/agent/agent.py` (the `/agent` group). Reuse
-`UNREGISTERED_AGENT_CONFIG` and `run_agent` from `agent_listener.py`; history
-fetch in `_handle_agent_response` should move somewhere both can call.
-Must `defer()` — the agent easily exceeds Discord's 3 s interaction deadline.
-Decide whether it includes channel history or only the prompt. Update `/help`.
 
 ### Multi-modal output: voice/sound, video, slideshows
 **Where:** image generation already has OpenAI and Google clients in
@@ -243,6 +217,17 @@ keyword vs. embeddings once there are too many to inject whole; a way for users
 to list and delete memories (probably `/memory`); size caps. Treat memory
 content as untrusted input — it's a persistent prompt-injection vector.
 
+### Rich page components
+**The ask** (from the wishlist page): image galleries, sortable tables, and
+similar widgets on published pages.
+**Constraint:** pages are served with `default-src 'none'` and no script
+execution (`web/api/_lib.js`), deliberately, so a prompt-injected page can do
+nothing. Galleries can probably be done in CSS alone inside
+`page_renderer.py`'s shell; anything interactive (sorting) needs JavaScript and
+therefore a CSP decision -- e.g. a fixed, first-party script served from `web/`
+with a nonce, never script from page content. Don't loosen the shared CSP for
+it without planning.
+
 ### Delete pages
 **The ask:** be able to delete a published page.
 **What exists:** nothing. A page only goes away when its TTL runs out -- 30
@@ -272,28 +257,29 @@ republishing over a slug, which replaces the content but keeps the URL alive.
   Decide whether deleting a page also removes the images only it uses.
 - Whether deletion is immediate or soft (hidden, then purged after a few days)
   so a mistaken delete can be undone.
-**Unblocks:** removing the stray URLs left over from *Consolidate the wishlist
-pages* above.
+**Unblocks:** removing the six stray wishlist copies. On 2026-09-17 seven
+overlapping "Bot fails" pages in guild `844003671334977607` were merged into
+`bot-fails-wishlist`; the others (slugs `bot-fails`, `bot-fails-4065083ecb10e71f`,
+`bot-fails-4065083ecb10e71f-copy`, `bot-fails-master`,
+`bot-fails-wishlist-a126d3329c649ae0`, `didnt-work-list`) are still live until
+they expire.
 
 ---
 
 ## Follow-ups
 
-### Mentioning the bot in an unregistered channel still doesn't work
-Long-standing. #36 was meant to fix it (`UNREGISTERED_AGENT_CONFIG` in
-`agent_listener.py`), yet it's still reported broken. Unconfirmed suspects, in
-order:
-1. **Role mention, not user mention.** Discord gives the bot a managed role with
-   the same name; picking that from the `@` menu produces `<@&role>`, which
-   isn't in `message.mentions`, so `_is_summoned` misses it. Check
-   `message.role_mentions` against `guild.me.roles`.
-2. **Threads and forum posts are ignored** — `on_message` returns unless the
-   channel is exactly `discord.TextChannel`.
-3. A channel that *was* registered and paused has `enabled: false` and stays
-   silent by design — it looks unregistered to users.
-
-Confirm on the host by grepping `logs/` for `agent_summoned_unregistered` right
-after a failing mention: no event means the gate rejected it (1 or 2).
+### Confirm the unregistered-mention fix
+Mentioning the bot in an unregistered channel was long reported broken despite
+#36. #51 fixes the two likeliest causes without having confirmed either: a
+mention of the bot's managed role (`<@&role>`) now summons it, and threads and
+forum posts are handled (a thread uses its own registration, else its parent's,
+else the unregistered defaults). After deploy, mention the bot where it failed
+and grep `logs/` for `agent_summoned_unregistered`:
+- **No event:** the gate still rejects it -- the cause is something else.
+- **Event but no reply:** most likely the bot lacks Read Message History there.
+  `channel.history()` raises Forbidden inside `_handle_agent_response`, which
+  only logs `Agent error in channel ...` and posts nothing.
+A registered-but-paused channel stays silent by design and looks unregistered.
 
 ### `-pro` and `-codex` models need the Responses API
 `gpt-5.5-pro` and `gpt-5.3-codex` are in the account's `/v1/models` listing but
@@ -302,16 +288,27 @@ shipped in `/chat` as guaranteed errors before #39 removed them. Supporting them
 means a second client path in `bot/api/openai/`. Run `scripts/check_models.py`
 after any catalog change.
 
-### Seven pre-existing test failures
-Red on `main` since before this backlog started: two in
-`test_af_command_integration.py`, two in `test_google_image_clients.py`, three
-in `test_image_command_integration.py`. They make it harder to tell a regression
-from noise — every PR has to say "same 7".
+### `/image` shows a rate-limit message for any Gemini error
+The catch-all `except` in `ImageCog._image_handler` shows the Gemini rate-limit
+message whenever the model is Gemini (`or is_gemini`), whatever the error
+actually was, so real bugs look like quota problems. Only show it for an actual
+`RATE_LIMIT:` result. Found while fixing the tests in #52.
 
-### Domain imports from app
-`bot/domain/agent/tools/dice.py` imports `bot.app.commands.dice.roll.DiceRoller`,
-breaking the rule that `bot/domain/` doesn't depend on `bot/app/`. Move
-`DiceRoller` into `bot/domain/dice/` and have the cog import it from there.
+### "generateding" in the `/image` error message
+The generic error builds `f"{action_type}ing"` from `action_type="generated"`,
+so users see "while generateding the image".
+
+### The test suite needs `OPENAI_API_KEY`, and one test calls the API
+Without the variable set, 5 test modules fail to import. With it set,
+`tests/test_llm_client.py::test_live_chat_openai` makes a real chat call (and
+fails with a dummy key). Until #52, three `/image` tests also made real, billed
+image calls. Make the modules importable without a key and skip live tests
+unless explicitly enabled (e.g. a marker plus an env flag).
+
+### `int | None` in the Gemini clients
+Both Gemini clients annotate a local as `retry_after_seconds: int | None`.
+Harmless (local annotations aren't evaluated) but breaks the `Optional[...]`
+rule; fix when next touching those files.
 
 ### `/pages` slash command (optional)
 Deliberately skipped in Phase 2 — the agent tools cover the ask. Worth adding if
@@ -329,3 +326,11 @@ people want to browse a server's pages without asking the bot.
 | 2 | Pages store source; per-guild index; reindex endpoint | #41 |
 | 2 | `list_pages`, `read_page`, slug-by-default, 365-day stable pages | #42 |
 | — | Dated summaries publish as one-off pages instead of overwriting each other | #47 |
+| — | Page tools backfilled into all 17 registered channels (ops, 2026-09-17) | — |
+| — | Seven "Bot fails" pages merged into `bot-fails-wishlist` (ops, 2026-09-17) | — |
+| — | `GITHUB_TOKEN` / `GITHUB_ISSUE_REPO` passed to the container | #49 |
+| — | `DiceRoller` moved to `bot/domain/dice/` | #50 |
+| — | Bot answers mentions of its managed role and in threads (unconfirmed fix) | #51 |
+| — | Seven stale tests fixed; suite green, no more live image calls | #52 |
+| — | `/bot` one-shot agent command with channel history | #53 |
+| — | `search_news` over the 7-day story history (news search step 1) | #54 |
