@@ -323,6 +323,40 @@ overlapping "Bot fails" pages in guild `844003671334977607` were merged into
 `bot-fails-wishlist-a126d3329c649ae0`, `didnt-work-list`) are still live until
 they expire.
 
+### Suggested-reply buttons
+*Requested 2026-09-18. Build before scheduled prompts, which uses it.*
+**The ask:** the agent can end a reply with buttons offering suggested next
+messages, and the user clicks one instead of typing it.
+**Discord supports it:** up to 25 buttons per message (5 rows of 5, labels up
+to 80 characters), or a select menu of up to 25 options. A click is an
+interaction that must be acknowledged within 3 s, so defer first, then work.
+**What exists:** trivia already posts buttons
+(`bot/app/commands/trivia/trivia_views.py:113`, `custom_id`s like
+`trivia_q:{batch}:{n}:{label}`), and `bot/main.py:69-91` re-attaches them with
+`bot.add_view(view, message_id=...)` after a restart. Follow that pattern.
+**Design (agreed with the user 2026-09-18):**
+- **An agent tool, `suggest_replies(options)`**, taking 2–5 short options. The
+  listener attaches them as buttons to the last chunk of the reply
+  (`split_message` in `agent_listener.py`). A tool fits the registry and makes
+  buttons opt-in per reply. Rejected: asking the model to format options in
+  its text and parsing them out.
+- **A click posts a visible message** like "**Nick** chose: *Summarize the
+  last week*", then runs the agent as if that were the user's message. The
+  agent builds context from `channel.history()`, and a bare interaction never
+  appears there. Without the message, the agent can't see the choice.
+- **Anyone in the channel can click**, not just the requester. It's a group
+  chat.
+- **One click disables the set**, so a choice can't fire twice.
+- **Buttons expire when the next agent reply is posted** in that channel, so
+  old suggestions don't pile up. Store the live message id per channel in
+  Redis. On restart, re-attach only those (see `main.py`).
+- **A click while a run is going waits for the lock** instead of being dropped
+  like a mid-run message (`if lock.locked(): return`). Same change the
+  scheduled-prompts item needs, so build it once.
+**Also:** a system-prompt bullet on when to offer suggestions (sparingly: real
+forks in the conversation, not every reply); `/help` page 5 entry;
+`DEFAULT_TOOLS_TO_ADD` plus the backfill in `add-agent-tool.md`.
+
 ### Scheduled prompts (user-defined cron jobs)
 *Requested 2026-09-18.*
 **The ask:** "can you post a daily summary of this channel every day at 9am
@@ -350,15 +384,18 @@ A scheduled prompt is basically `/bot` on a timer.
 - **Schedule format:** store a cron expression plus an IANA zone (`0 9 * * *`,
   `America/Los_Angeles`), and compute `next_run` in that zone so DST is handled
   (`croniter` or similar is a new dependency). The agent turns "every day at
-  9am PT" into cron. Its reply repeats the schedule back in plain words, e.g.
-  "daily at 9:00 AM Pacific, next run tomorrow", so a wrong parse is visible.
+  9am PT" into cron. Before saving, it repeats the schedule back in plain words,
+  e.g. "daily at 9:00 AM Pacific, next run tomorrow", with **[Confirm]**,
+  **[Change time]**, and **[Cancel]** buttons (suggested-reply buttons above),
+  so a wrong parse is caught before anything runs.
 - **Creating and managing:** agent tools `schedule_prompt`,
   `list_scheduled_prompts`, and `cancel_scheduled_prompt`, plus a `/schedule
   list|cancel|pause` slash command so people can manage jobs without the agent.
   Add them to `/help` page 5.
 - **Output:** post the reply in the channel. If it's long, publish a page with
   `one_off=true` so each day's summary doesn't overwrite the last (#47).
-**Depends on:** Phase 3 PR 1 (`read_channel` `after`/date filter). A "daily
+**Depends on:** suggested-reply buttons (for the confirm step and the
+lock-waiting change), and Phase 3 PR 1 (`read_channel` `after`/date filter). A "daily
 summary" has to read the last 24 hours, and `read_channel` stops at 50
 messages today. Busy channels would get a summary of the last hour or so.
 **Decide in planning:**
