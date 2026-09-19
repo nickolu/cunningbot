@@ -126,6 +126,35 @@ def test_parse_reply_raises_on_garbage():
         parse_reply("There was an error: rate limited", [0])
 
 
+@pytest.mark.parametrize("reply, expected", [
+    # Fenced, and a bare X where the model forgot the quotes.
+    ('```json\n{"results":[{"index":0,"score":1},{"index":1,"score":X}]}\n```',
+     {0: (1, False), 1: (FAIL, False)}),
+    # Prose either side, and braces inside a string.
+    ('Here you go:\n{"results":[{"index":1,"score":3,"note":"said {maybe} 3"}]}\nhope that helps',
+     {1: (3, False)}),
+    # Two objects: the first one is the answer.
+    ('{"results": []} {"results": [{"index": 1, "score": 2}]}', {}),
+])
+def test_parse_reply_survives_the_models_formatting(reply, expected):
+    assert parse_reply(reply, [0, 1]) == expected
+
+
+@pytest.mark.asyncio
+async def test_interpret_day_retries_an_unreadable_reply():
+    from bot.domain.framed.interpreter import DayMessage, interpret_day
+
+    messages = [DayMessage(index=0, author="amy", time="09:00", text="hmm", parsed_score=None)]
+    llm = AsyncMock(side_effect=["not json at all", '{"results":[{"index":0,"score":4}]}'])
+    assert await interpret_day(date(2026, 9, 16), messages, llm) == {0: (4, False)}
+    assert llm.await_count == 2
+
+    llm = AsyncMock(return_value="still not json")
+    with pytest.raises(InterpretError):
+        await interpret_day(date(2026, 9, 16), messages, llm)
+    assert llm.await_count == 2
+
+
 # --- Stats ---
 
 D1, D2, D3, D4 = date(2026, 9, 1), date(2026, 9, 2), date(2026, 9, 3), date(2026, 9, 4)
