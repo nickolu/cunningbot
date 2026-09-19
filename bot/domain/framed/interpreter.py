@@ -20,6 +20,43 @@ class InterpretError(Exception):
     """The model could not be reached or returned something unreadable."""
 
 
+# The model mostly returns clean JSON, but sometimes fences it, and sometimes
+# writes a bare X for a miss, which is not valid JSON. Both are cheap to accept.
+_BARE_X = re.compile(r'("score"\s*:\s*)([Xx])(\s*[,}])')
+
+
+def extract_json(reply: str) -> str:
+    """The first balanced {...} in the reply, with a bare X quoted."""
+    text = (reply or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?", "", text).strip()
+        text = re.sub(r"```$", "", text).strip()
+    start = text.find("{")
+    if start < 0:
+        raise InterpretError("No JSON in model reply: %r" % (reply or "")[:200])
+    depth = 0
+    in_string = escaped = False
+    for i in range(start, len(text)):
+        char = text[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return _BARE_X.sub(r'\1"\2"\3', text[start:i + 1])
+    raise InterpretError("Unterminated JSON in model reply: %r" % text[start:start + 200])
+
+
 @dataclass(frozen=True)
 class DayMessage:
     index: int
@@ -82,11 +119,8 @@ def build_prompt(day: date, messages: List[DayMessage]) -> str:
 
 def parse_reply(reply: str, candidates: List[int]) -> Dict[int, Tuple[int, bool]]:
     """Map message index -> (score, corrects_earlier). Raises on garbage."""
-    match = re.search(r"\{.*\}", reply or "", re.DOTALL)
-    if not match:
-        raise InterpretError("No JSON in model reply: %r" % (reply or "")[:200])
     try:
-        data = json.loads(match.group())
+        data = json.loads(extract_json(reply))
     except json.JSONDecodeError as e:
         raise InterpretError("Bad JSON in model reply: %s" % e)
     results = data.get("results") if isinstance(data, dict) else None
@@ -120,13 +154,24 @@ async def interpret_day(
     candidates = [m.index for m in messages if m.parsed_score is None]
     if not candidates:
         return {}
-    try:
-        reply = await llm(SYSTEM_PROMPT, build_prompt(day, messages))
-    except InterpretError:
-        raise
-    except Exception as e:
-        raise InterpretError("Model call failed: %s" % e)
-    return parse_reply(reply, candidates)
+    prompt = build_prompt(day, messages)
+    last_error: Optional[InterpretError] = None
+    # One retry: an unreadable reply is usually a one-off, and giving up here
+    # costs a whole day of results until the next sync retries it.
+    for _ in range(2):
+        try:
+            reply = await llm(SYSTEM_PROMPT, prompt)
+        except InterpretError as e:
+            last_error = e
+            continue
+        except Exception as e:
+            last_error = InterpretError("Model call failed: %s" % e)
+            continue
+        try:
+            return parse_reply(reply, candidates)
+        except InterpretError as e:
+            last_error = e
+    raise last_error or InterpretError("No reply from the model")
 
 
 async def openai_llm(system: str, prompt: str) -> str:
