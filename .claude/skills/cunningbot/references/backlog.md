@@ -51,29 +51,81 @@ checkout to `origin/main` first, then install.
 
 ---
 
-## Phase 3 — Channel history and media backfill
+## Phase 3 — Scanning channel history
 
 **The ask:** "parse ~500 messages in a channel and collect the images moop
-posted, to make daily-update pages." Failed because the bot can't reach them.
+posted, to make daily-update pages", and more generally "look through the
+channel history to find restaurants". It fails because the bot can't reach them.
 
 **Why it fails today** (`bot/domain/agent/tools/read_channel.py`):
 - `limit` clamps to 50 and there's no `before`/`after` cursor, so nothing older
   than the last 50 messages is reachable.
 - Attachments render as `[Attachments: filename]` — **the URLs are discarded**.
   Even inside the 50-message window the images were unreachable.
+- Paging from the agent can't work anyway: `run_agent` stops after
+  `MAX_TOOL_ROUNDS = 5` tool rounds per reply.
 
-**Shape:**
-- `before`/`after` (message id or ISO date) and internal pagination past 50.
-- Filters: `author`, `has_attachments`.
-- Emit attachment URLs and `msg.jump_url`.
-- **Bulk hosting is part of this, not a follow-up.** Discord CDN URLs expire in
-  ~a day (`publishing.md`), so collected images die before the page is read.
-  Chain to `host_image_from_url`.
+**Design (agreed with the user 2026-09-17):**
 
-**Open questions for planning:** a hard ceiling on messages per call (the agent
-gets 5 tool rounds per message); whether this is one tool with filters or a
-separate `collect_channel_media` tool; what a 500-message result does to the
-model's context — probably summarize or return only matches, never raw history.
+- **No upper limit.** A scan pages until it reaches the start of the channel,
+  or a date/message the user gives. A whole channel can take minutes to hours.
+- **The loop lives inside one tool call, not in the agent's tool rounds.** The
+  agent calls `scan_channel_history(channel, instruction, ...)` once; the scan
+  pages on its own.
+- **Only one page is ever in context.** Per page (~100 messages, one Discord
+  history request): send the page and the instruction to `UTILITY_MODEL`, get
+  back only the *new* items as JSON (each with the message link it came from),
+  and merge them into the results **in code**, deduplicating on a normalized
+  key. The accumulated list is never sent back to the model, so every call is
+  the same size however long the list gets. The agent does a final pass over
+  the finished list (formatting, merging near-duplicates) when it reports.
+- **State lives in Redis**, as a scan job: guild, channel, requester,
+  instruction, cursor (oldest message id reached), status, counts, results.
+  A restart mid-scan resumes from the cursor instead of losing work.
+- **Runs in the background.** The agent replies right away ("scanning
+  #foodchat, I'll post when it's done") and releases the channel lock, so the
+  channel isn't blocked. The scan posts the result when it finishes: a message,
+  or a published page when the list is long.
+- **Progress:** the bot edits its status message periodically (e.g. every
+  30 s, not every page): "12,400 messages scanned, 37 restaurants so far".
+- **Cancelling:** "stop" or a 🛑 reaction from the requester ends the scan and
+  reports what was found so far. The job checks a cancel flag in Redis between
+  pages. This is job-level and simpler than the general *Interrupt the bot*
+  item, so build it here rather than waiting on that.
+- **Who can start one: only the bot owner at first.** Check with
+  `await bot.is_owner(user)` (the Discord application owner) — confirm that is
+  the user's account before relying on it; otherwise use an explicit user-id
+  allowlist. Non-owners get a plain refusal from the tool. The executor needs
+  the requesting user, which channel-aware tools don't receive today, so
+  thread it through from the listener and `/bot`.
+- **One scan per channel at a time.**
+- **Two tools, not one.** `read_channel` stays the quick-read tool and gains
+  paging and image links; `scan_channel_history` is the long, instruction-driven
+  one.
+- **Images:** for "collect moop's images" the scan collects attachment URLs and
+  **hosts each one as it's found** via `host_image_from_url` — Discord CDN URLs
+  expire in about a day (`publishing.md`), so hosting later is too late.
+
+**PRs, in order:**
+1. **`read_channel` upgrade.** `before`/`after` (message id or ISO date),
+   `author` and `has_attachments` filters, attachment URLs and `msg.jump_url`
+   in the output. Small and useful on its own.
+2. **Scan engine.** A `scan_store.py` in `bot/app/redis/`, a service in
+   `bot/domain/` that runs the page → extract → merge loop against an
+   injectable history source (so it's testable without Discord), and a runner
+   in the `cunningbot` process that owns the asyncio tasks, resumes `running`
+   jobs on startup, and honours the cancel flag. It has to live in the gateway
+   process: the worker containers exit after each tick.
+3. **Agent tool and UX.** `scan_channel_history` (owner-only, not in
+   `DEFAULT_TOOLS_TO_ADD` — enable it with `/agent tool` where wanted), the
+   status message with progress edits, "stop"/🛑 cancel, the final report or
+   page, a system-prompt bullet, and `/help`.
+4. **Images.** Hosting found images as the scan goes, and the daily-update page
+   for moop's images as the first real use.
+
+**Still to decide while building:** page size if 100 proves too big for the
+model; how results are keyed for dedup per kind of scan (the model can propose
+a key per item); whether an unfinished scan that's been idle for days expires.
 
 ## Phase 4 — Temporary upload page and file catalog
 
