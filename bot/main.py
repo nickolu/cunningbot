@@ -121,6 +121,16 @@ async def on_ready() -> None:
     if not trivia_view_sync_task.is_running():
         trivia_view_sync_task.start()
 
+    # Restart channel scans that were running when the bot last stopped.
+    # They resume from their saved cursor; see bot/app/scan_runtime.py.
+    try:
+        from bot.app.scan_runtime import resume_running_jobs
+        resumed = await resume_running_jobs(bot)
+        if resumed:
+            logger.info(f"Resumed {resumed} channel scan(s)")
+    except Exception as e:
+        logger.error(f"Failed to resume channel scans: {e}")
+
     # Initialize task queue
     from bot.app.task_queue import get_task_queue
     task_queue = get_task_queue()
