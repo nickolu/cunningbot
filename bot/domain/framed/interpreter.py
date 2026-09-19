@@ -11,7 +11,7 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import date
-from typing import Awaitable, Callable, Dict, List, Optional
+from typing import Awaitable, Callable, Dict, List, Optional, Tuple
 
 from bot.domain.framed.puzzle import FAIL, MAX_GUESSES, format_score, puzzle_for_date
 
@@ -52,18 +52,36 @@ def build_prompt(day: date, messages: List[DayMessage]) -> str:
     return (
         "These are the messages posted on %s (Framed #%d).\n\n%s\n\n"
         "For each message NOT marked [already read], decide whether it reports "
-        "the author's own result for today's puzzle. Examples: \"three\" is 3, "
-        "\"nada\" or \"didn't get it\" is a miss, \"got it on the last frame\" is 6, "
-        "\"actually 4\" corrects an earlier post to 4. Ignore chatter, questions, "
-        "reactions to other people, and talk about other games or other days.\n\n"
-        "Reply as JSON: {\"results\": [{\"index\": <n>, \"score\": <1-6 or \"X\">}]} "
+        "the author's own result for today's puzzle. This chat is terse: people "
+        "report results in shorthand, and most short messages here are results.\n"
+        "- A number word or a number with anything around it is that score: "
+        "\"three\" is 3, \"got it on the last frame\" or \"last guess\" is 6, "
+        "\"barely, 5\" is 5.\n"
+        "- These all mean the author missed it: \"nada\", \"didn't get it\", "
+        "\"F\", \"big F\", \"nope\", \"never heard of it\", \"no clue\", 👎, 🤷, 💀.\n"
+        "- A sentence about their own failure is a miss too: \"I failed, hadn't "
+        "heard of this one\", \"couldn't remember the name\", \"I know this movie "
+        "but F\", \"saw it but blanked on the title\".\n"
+        "- \"same\", \"ditto\", \"me too\", \"also\" and \"also 2\" mean the author got "
+        "the score they name, or the score in the nearest result above their "
+        "message if they don't name one.\n"
+        "- \"actually 4\" or \"wait no, 4\" corrects that author's earlier post: "
+        "mark those with \"corrects\": true. A remark that just talks about the "
+        "guesses (\"picked wrong on 3\", \"nearly had it at 2\") is NOT a result "
+        "when the author already posted one.\n"
+        "Leave out: chatter about the movie itself, questions, praise or "
+        "sympathy for someone else, other games and other days, and above all "
+        "anyone else's score — \"bree on 2\", \"she got it in one\", \"same as "
+        "Dan\" about another player are NOT the author's result.\n\n"
+        "Reply as JSON: {\"results\": [{\"index\": <n>, \"score\": <1-6 or \"X\">, "
+        "\"corrects\": <true only for an explicit correction>}]} "
         "listing only the messages that are results. Use an empty list if none are."
         % (day.isoformat(), puzzle_for_date(day), "\n".join(lines))
     )
 
 
-def parse_reply(reply: str, candidates: List[int]) -> Dict[int, int]:
-    """Map message index -> score from the model's JSON. Raises on garbage."""
+def parse_reply(reply: str, candidates: List[int]) -> Dict[int, Tuple[int, bool]]:
+    """Map message index -> (score, corrects_earlier). Raises on garbage."""
     match = re.search(r"\{.*\}", reply or "", re.DOTALL)
     if not match:
         raise InterpretError("No JSON in model reply: %r" % (reply or "")[:200])
@@ -76,7 +94,7 @@ def parse_reply(reply: str, candidates: List[int]) -> Dict[int, int]:
         raise InterpretError("Model reply has no results list")
 
     allowed = set(candidates)
-    scores: Dict[int, int] = {}
+    scores: Dict[int, Tuple[int, bool]] = {}
     for item in results:
         if not isinstance(item, dict):
             continue
@@ -86,17 +104,18 @@ def parse_reply(reply: str, candidates: List[int]) -> Dict[int, int]:
             continue
         if index not in allowed:
             continue
+        corrects = bool(item.get("corrects"))
         raw = str(item.get("score", "")).strip().upper()
         if raw in ("X", "0", "MISS", "FAIL"):
-            scores[index] = FAIL
+            scores[index] = (FAIL, corrects)
         elif raw.isdigit() and 1 <= int(raw) <= MAX_GUESSES:
-            scores[index] = int(raw)
+            scores[index] = (int(raw), corrects)
     return scores
 
 
 async def interpret_day(
     day: date, messages: List[DayMessage], llm: LLMCall
-) -> Dict[int, int]:
+) -> Dict[int, Tuple[int, bool]]:
     """Scores for the messages the rules didn't read. Raises InterpretError."""
     candidates = [m.index for m in messages if m.parsed_score is None]
     if not candidates:

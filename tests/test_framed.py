@@ -10,7 +10,9 @@ import pytest
 
 from bot.domain.framed import stats_service
 from bot.domain.framed.interpreter import InterpretError, parse_reply
-from bot.domain.framed.parser import parse_message, parse_share, parse_simple
+from bot.domain.framed.parser import (
+    parse_message, parse_miss_shorthand, parse_share, parse_simple,
+)
 from bot.domain.framed.puzzle import (
     FAIL, date_for_puzzle, get_tz, latest_complete_day, points_for, puzzle_for_date,
 )
@@ -84,15 +86,39 @@ def test_parse_simple(text, score):
     assert parse_simple(text).score == score
 
 
+@pytest.mark.parametrize("text", ["F", "f.", "Also F", "👎", "🙅\u200d♂️", "Nope!",
+                                  "||never heard of it||", "🤷\u200d♂️"])
+def test_parse_miss_shorthand(text):
+    assert parse_miss_shorthand(text).score == FAIL
+
+
+@pytest.mark.parametrize("text", ["fine", "never heard of that actor", "F for Kyle"])
+def test_shorthand_needs_the_whole_message(text):
+    assert parse_miss_shorthand(text) is None
+
+
+@pytest.mark.parametrize("text, score", [
+    ("6. pathetic.", 6), ("3 lol", 3), ("2 barely", 2),
+    ("Nope. Couldn't come up with the name", FAIL), ("F, never heard of it", FAIL),
+])
+def test_score_followed_by_an_aside(text, score):
+    assert (parse_simple(text) or parse_miss_shorthand(text)).score == score
+
+
+@pytest.mark.parametrize("text", ["4 people played today", "3 of us missed", "5 that was rough for everyone"])
+def test_a_sentence_about_numbers_is_not_a_score(text):
+    assert parse_simple(text) is None
+
+
 @pytest.mark.parametrize("text", ["8", "12", "got it in 3", "lol", "", "nada this time, brutal"])
 def test_parse_simple_leaves_the_rest(text):
     assert parse_message(text) is None
 
 
 def test_parse_reply_keeps_only_candidates_and_valid_scores():
-    reply = 'sure {"results": [{"index": 1, "score": 4}, {"index": 2, "score": "X"}, ' \
-            '{"index": 0, "score": 2}, {"index": 3, "score": 9}]}'
-    assert parse_reply(reply, [1, 2, 3]) == {1: 4, 2: FAIL}
+    reply = 'sure {"results": [{"index": 1, "score": 4, "corrects": true}, ' \
+            '{"index": 2, "score": "X"}, {"index": 0, "score": 2}, {"index": 3, "score": 9}]}'
+    assert parse_reply(reply, [1, 2, 3]) == {1: (4, True), 2: (FAIL, False)}
 
 
 def test_parse_reply_raises_on_garbage():
@@ -249,7 +275,8 @@ async def test_sync_reads_a_day_with_every_kind_of_post():
         msg(SEP16, 14, "CunningBot", "5", bot=True),
         msg(SEP15, 22, "eve", "2"),                         # a different day
     ])
-    llm = AsyncMock(return_value='{"results": [{"index": 2, "score": 4}, {"index": 4, "score": 6}]}')
+    llm = AsyncMock(return_value='{"results": [{"index": 2, "score": 4, "corrects": true}, '
+                                 '{"index": 4, "score": 6}]}')
 
     report = await sync_guild(store, GUILD, history, llm, now=now_after(SEP16))
 
@@ -266,9 +293,30 @@ async def test_sync_reads_a_day_with_every_kind_of_post():
 
 
 @pytest.mark.asyncio
+async def test_miss_shorthand_counts_but_never_overrides_a_real_score():
+    store = FakeStore(config(SEP16))
+    history = FakeHistory([
+        msg(SEP16, 8, "nick", "2"),
+        msg(SEP16, 9, "amy", "F"),          # amy's own miss
+        msg(SEP16, 10, "nick", "F"),        # sympathy for amy: nick still has a 2
+        msg(SEP16, 11, "bob", "👎"),
+        msg(SEP16, 12, "cat", "3"),
+        msg(SEP16, 13, "cat", "actually 4"),  # a real correction still wins
+        msg(SEP16, 14, "dan", "5"),
+        msg(SEP16, 15, "dan", "picked wrong on 2"),  # talk, not a new result
+    ])
+    llm = AsyncMock(return_value='{"results": [{"index": 5, "score": 4, "corrects": true}, '
+                                 '{"index": 7, "score": 2}]}')
+    await sync_guild(store, GUILD, history, llm, now=now_after(SEP16))
+    assert {uid: r["score"] for uid, r in store.days["2026-09-16"].items()} == {
+        "id-nick": 2, "id-amy": FAIL, "id-bob": FAIL, "id-cat": 4, "id-dan": 5,
+    }
+
+
+@pytest.mark.asyncio
 async def test_sync_skips_llm_when_rules_read_everything():
     store = FakeStore(config(SEP16))
-    history = FakeHistory([msg(SEP16, 8, "nick", "2")])
+    history = FakeHistory([msg(SEP16, 8, "nick", "2"), msg(SEP16, 9, "amy", "F")])
     llm = AsyncMock()
     await sync_guild(store, GUILD, history, llm, now=now_after(SEP16))
     llm.assert_not_called()

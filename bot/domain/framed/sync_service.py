@@ -25,7 +25,9 @@ from typing import (
 from bot.domain.framed.interpreter import (
     DayMessage, InterpretError, LLMCall, interpret_day,
 )
-from bot.domain.framed.parser import ParsedResult, parse_share, parse_simple
+from bot.domain.framed.parser import (
+    ParsedResult, parse_miss_shorthand, parse_share, parse_simple,
+)
 from bot.domain.framed.puzzle import (
     FRAMED_EPOCH, date_range, day_end, day_start, get_tz,
     latest_complete_day, local_date, puzzle_for_date,
@@ -38,6 +40,15 @@ logger = get_logger()
 MAX_LLM_ATTEMPTS = 5
 # Longer messages are conversation, not results; don't send them to the LLM.
 MAX_LLM_TEXT = 300
+
+# Sources that state a score outright, rather than being read out of chatter.
+EXPLICIT = ("share", "number", "word")
+
+
+def _is_a_remark(parsed: ParsedResult) -> bool:
+    if parsed.source == "shorthand":
+        return True
+    return parsed.source == "llm" and not parsed.corrects_earlier
 
 
 @dataclass(frozen=True)
@@ -102,7 +113,7 @@ async def read_day(
                 continue
             readings.append((msg, share))
             continue
-        simple = parse_simple(msg.content)
+        simple = parse_simple(msg.content) or parse_miss_shorthand(msg.content)
         if simple is None and len(msg.content) > MAX_LLM_TEXT:
             continue
         readings.append((msg, simple))
@@ -126,7 +137,8 @@ async def read_day(
             llm_failed = True
             scores = {}
         readings = [
-            (msg, ParsedResult(score=scores[i], source="llm") if i in scores else parsed)
+            (msg, ParsedResult(score=scores[i][0], source="llm",
+                               corrects_earlier=scores[i][1]) if i in scores else parsed)
             for i, (msg, parsed) in enumerate(readings)
         ]
 
@@ -135,6 +147,12 @@ async def read_day(
     names: Dict[str, str] = {}
     for msg, parsed in sorted(readings, key=lambda r: r[0].created_at):
         if parsed is None:
+            continue
+        posted = results.get(msg.author_id)
+        if posted is not None and _is_a_remark(parsed) and posted["source"] in EXPLICIT:
+            # "F" after posting a score is sympathy for someone else's miss,
+            # and "picked wrong on 3" is talk about a round already reported.
+            # Only another real score, or an explicit correction, replaces one.
             continue
         results[msg.author_id] = {
             "score": parsed.score,
