@@ -311,6 +311,9 @@ class AgentListenerCog(commands.Cog):
                     history=history,
                     agent_config=config,
                     guild_id=message.guild.id,
+                    # Tools that act for a person, or check whether they're
+                    # allowed to, need to know who asked.
+                    user=message.author,
                 )
 
             if response and response.strip():

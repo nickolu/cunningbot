@@ -23,12 +23,26 @@ class AgentTool:
 
     They used to live in separate dicts with nothing tying them together. Here
     the schema is the single source of the function name.
+
+    ``channel_aware`` and ``user_aware`` say what the executor is given besides
+    the model's arguments, in this order::
+
+        execute(arguments)                    # neither
+        execute(arguments, channel)           # channel_aware
+        execute(arguments, channel, user)     # both
+        execute(arguments, user)              # user_aware only
+
+    ``user`` is the Discord user whose message caused the run, which a tool
+    needs when it acts on someone's behalf or has to decide whether they are
+    allowed to (``scan_channel_history``). It is None when the caller could not
+    identify one, so a tool that requires it has to handle that.
     """
 
     config_key: str
     schema: dict
     executor: Callable[..., Coroutine]
     channel_aware: bool = False
+    user_aware: bool = False
     default_enabled: bool = True
 
     @property

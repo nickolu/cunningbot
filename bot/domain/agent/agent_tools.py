@@ -14,6 +14,7 @@ from bot.domain.agent.tools.registry import (
     TOOL_EXECUTORS,
     TOOL_SCHEMAS,
     TOOLS,
+    USER_AWARE_TOOLS,
     get_tool_schemas_for_config,
 )
 
@@ -49,6 +50,7 @@ __all__ = [
     "TOOL_EXECUTORS",
     "TOOL_SCHEMAS",
     "UNPUBLISHABLE_IMAGE_HOSTS",
+    "USER_AWARE_TOOLS",
     "WMO_CODES",
     "execute_edit_image",
     "execute_generate_image",
