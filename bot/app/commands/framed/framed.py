@@ -23,7 +23,7 @@ from bot.domain.framed.puzzle import (
     DEFAULT_TIMEZONE, FAIL, FRAMED_EPOCH, get_tz, latest_complete_day,
     local_date, puzzle_for_date,
 )
-from bot.domain.framed.stats import head_to_head, player_stats
+from bot.domain.framed.stats import head_to_head
 from bot.domain.framed.sync_service import prepare_backfill
 
 logger = get_logger()
@@ -293,7 +293,7 @@ class FramedCog(commands.Cog):
         member = player or interaction.user
         uid = str(member.id)
         data.names.setdefault(uid, member.display_name)
-        ps = player_stats(data.scores, uid, data.as_of)
+        ps = stats_service.stats_for(data, uid)
         embed = discord.Embed(
             title=f"🎬 Framed stats — {data.name(uid)}",
             description=stats_service.format_player(data, ps),

@@ -166,8 +166,9 @@ HELP_PAGES = [
     ).add_field(
         name="/framed — Framed movie game stats",
         value=(
-            "Tracks results posted in a registered channel (share text, `3`, `X`, or plain words "
-            "like `nada`). Each day is read after midnight Pacific; points are 1→6 … 6→1, miss→0.\n"
+            "Tracks results posted in a registered channel (share text, `3`, `X`, `F`, or words "
+            "like `nada`). Each day is read after midnight Pacific; points are 1→6 … 6→1, miss→0. "
+            "A day you don't post counts as a miss, so solve rates are out of every day.\n"
             "`/framed stats [player]` — points, averages, wins, streaks, score chart\n"
             "`/framed leaderboard [period] [year]` — rankings by total points\n"
             "`/framed day [puzzle or date]` — one day's ranking\n"

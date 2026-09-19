@@ -5,12 +5,24 @@ a miss. A player who didn't post on a day has no entry for it. Only days that
 have been synced appear, so a day with no entry at all is one nobody played or
 one that hasn't been read yet; `SyncState` says which.
 
+Not posting counts as a miss. People here often stay quiet on a day they
+didn't get it, so a day with no post is scored the same as one: 0 points, and
+it counts against the solve rate. Which days count is the `scope`:
+
+- Lifetime: every day from that player's own first result through `as_of`, so
+  someone who joined in 2024 isn't judged on 2022.
+- A week, month or year: every day of that period (bounded by `as_of` and by
+  the day the group started playing), so joining midway through a year doesn't
+  wipe out the months before.
+
 Definitions:
-- Points: 1 → 6 ... 6 → 1, miss → 0. Rankings over any period sort by total
-  points, then points per game, then wins.
+- Points: 1 → 6 ... 6 → 1, miss → 0, no post → 0. Rankings over any period sort
+  by total points, then points per day, then wins.
 - Daily ranking: by score, misses last; tied scores share a rank. The day's
   winners are everyone tied for the best score, and a day where everyone
   missed has no winner.
+- Solve rate: days solved ÷ days in scope, so missed and unposted days both
+  lower it. `played` stays the count of days actually posted.
 - Solve streak: consecutive days solved. A miss or a day not played ends it.
 - Play streak: consecutive days posted, misses included.
 - Current streaks run back from `as_of`, the last day that has been synced.
@@ -34,9 +46,27 @@ class DailyEntry:
     winner: bool
 
 
+# (start, end) of the days a player is judged on. A None start means "from
+# that player's own first result", which is what lifetime figures use.
+Scope = Tuple[Optional[date], date]
+
+
+def scope_length(scope: Optional[Scope], first_played: Optional[date]) -> int:
+    """How many days a player is judged on, given their first result."""
+    if scope is None:
+        return 0
+    start, end = scope
+    if start is None:
+        start = first_played
+    if start is None or end < start:
+        return 0
+    return (end - start).days + 1
+
+
 @dataclass
 class PlayerStats:
     user_id: str
+    days: int = 0        # days in scope: the denominator, unposted days included
     played: int = 0
     solved: int = 0
     points: int = 0
@@ -56,16 +86,28 @@ class PlayerStats:
         return self.played - self.solved
 
     @property
+    def absent(self) -> int:
+        """Days in scope with no post at all, which count as misses."""
+        return max(0, self.days - self.played)
+
+    @property
     def perfect(self) -> int:
         return self.distribution.get(1, 0)
 
     @property
     def solve_rate(self) -> float:
-        return self.solved / self.played if self.played else 0.0
+        """Share of days in scope that were solved. Not posting counts against."""
+        denominator = self.days or self.played
+        return self.solved / denominator if denominator else 0.0
 
     @property
-    def points_per_game(self) -> float:
-        return self.points / self.played if self.played else 0.0
+    def play_rate(self) -> float:
+        return self.played / self.days if self.days else 0.0
+
+    @property
+    def points_per_day(self) -> float:
+        denominator = self.days or self.played
+        return self.points / denominator if denominator else 0.0
 
     @property
     def average_guesses(self) -> Optional[float]:
@@ -84,10 +126,17 @@ class LeaderboardRow:
     played: int
     solved: int
     wins: int
+    days: int = 0
 
     @property
-    def points_per_game(self) -> float:
-        return self.points / self.played if self.played else 0.0
+    def points_per_day(self) -> float:
+        denominator = self.days or self.played
+        return self.points / denominator if denominator else 0.0
+
+    @property
+    def solve_rate(self) -> float:
+        denominator = self.days or self.played
+        return self.solved / denominator if denominator else 0.0
 
 
 @dataclass
@@ -142,8 +191,12 @@ def filter_period(scores: Scores, start: Optional[date], end: Optional[date]) ->
     }
 
 
-def leaderboard(scores: Scores) -> List[LeaderboardRow]:
+def leaderboard(scores: Scores, scope: Optional[Scope] = None) -> List[LeaderboardRow]:
     rows: Dict[str, LeaderboardRow] = {}
+    first_played: Dict[str, date] = {}
+    for day, day_scores in sorted(scores.items()):
+        for uid in day_scores:
+            first_played.setdefault(uid, day)
     for day_scores in scores.values():
         day_winners = set(winners(day_scores))
         for uid, score in day_scores.items():
@@ -155,8 +208,11 @@ def leaderboard(scores: Scores) -> List[LeaderboardRow]:
             if uid in day_winners:
                 row.wins += 1
 
+    for uid, row in rows.items():
+        row.days = scope_length(scope, first_played.get(uid))
+
     def key(r: LeaderboardRow) -> tuple:
-        return (-r.points, -round(r.points_per_game, 6), -r.wins)
+        return (-r.points, -round(r.points_per_day, 6), -r.wins)
 
     ordered = sorted(rows.values(), key=lambda r: key(r) + (r.user_id,))
     for rank, uid in _competition_ranks([(r.user_id, key(r)) for r in ordered]):
@@ -180,7 +236,12 @@ def _streaks(days: Iterable[date], as_of: Optional[date]) -> Tuple[int, int]:
     return current, longest
 
 
-def player_stats(scores: Scores, user_id: str, as_of: Optional[date]) -> PlayerStats:
+def player_stats(
+    scores: Scores,
+    user_id: str,
+    as_of: Optional[date],
+    scope: Optional[Scope] = None,
+) -> PlayerStats:
     stats = PlayerStats(user_id=user_id)
     played_days: List[date] = []
     solved_days: List[date] = []
@@ -201,6 +262,7 @@ def player_stats(scores: Scores, user_id: str, as_of: Optional[date]) -> PlayerS
     if played_days:
         stats.first_played = played_days[0]
         stats.last_played = played_days[-1]
+    stats.days = scope_length(scope, stats.first_played)
     stats.current_play_streak, stats.longest_play_streak = _streaks(played_days, as_of)
     stats.current_solve_streak, stats.longest_solve_streak = _streaks(solved_days, as_of)
     return stats
