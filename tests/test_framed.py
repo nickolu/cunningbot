@@ -17,8 +17,9 @@ from bot.domain.framed.puzzle import (
     FAIL, date_for_puzzle, get_tz, latest_complete_day, points_for, puzzle_for_date,
 )
 from bot.domain.framed.stats import (
-    daily_ranking, head_to_head, leaderboard, player_stats, winners,
+    daily_ranking, head_to_head, leaderboard, player_stats, scope_length, winners,
 )
+from bot.domain.framed.puzzle import date_range
 from bot.domain.framed.sync_service import (
     MAX_LLM_ATTEMPTS, ChatMessage, pending_days, prepare_backfill, sync_guild,
 )
@@ -147,6 +148,39 @@ def test_leaderboard_ranks_by_points():
         # a and c tie on points; c's 6 per game beats a's 3.
         (1, "b", 10, 3, 1), (2, "c", 6, 1, 1), (3, "a", 6, 2, 1),
     ]
+
+
+def test_days_not_posted_count_as_misses():
+    # Five days tracked; "a" posted on two of them, solving one.
+    scores = {D1: {"a": 2}, D2: {"a": FAIL}}
+    scope = (D1, D1 + timedelta(days=4))
+    ps = player_stats(scores, "a", as_of=D1 + timedelta(days=4), scope=scope)
+    assert ps.days == 5 and ps.played == 2 and ps.solved == 1
+    assert ps.missed == 1 and ps.absent == 3
+    assert ps.solve_rate == pytest.approx(1 / 5)      # not 1/2
+    assert ps.play_rate == pytest.approx(2 / 5)
+    assert ps.points_per_day == pytest.approx(5 / 5)  # a 2 is 5 points, over 5 days
+
+
+def test_lifetime_scope_starts_at_a_players_first_result():
+    # "old" has played since D1; "new" only showed up on D3.
+    scores = {D1: {"old": 3}, D2: {"old": 3}, D3: {"old": 3, "new": 1}, D4: {"new": 1}}
+    rows = {r.user_id: r for r in leaderboard(scores, scope=(None, D4))}
+    assert rows["old"].days == 4          # D1..D4
+    assert rows["new"].days == 2          # D3..D4, not punished for D1-D2
+    assert rows["new"].solve_rate == 1.0
+
+    # A period keeps its own start, so a mid-period joiner is judged on it all.
+    period = {r.user_id: r for r in leaderboard(scores, scope=(D1, D4))}
+    assert period["new"].days == 4 and period["new"].solve_rate == pytest.approx(0.5)
+
+
+def test_scope_length():
+    assert scope_length((D1, D4), None) == 4
+    assert scope_length((None, D4), D3) == 2      # from their first result
+    assert scope_length((None, D4), None) == 0    # never played
+    assert scope_length((D4, D1), None) == 0      # end before start
+    assert scope_length(None, D1) == 0
 
 
 def test_streaks():
@@ -403,6 +437,21 @@ async def test_backfill_extends_tracking_and_rereads():
 # --- Loading and warnings ---
 
 @pytest.mark.asyncio
+async def test_scope_skips_the_months_before_anyone_played():
+    store = FakeStore(config(date(2026, 1, 1)))
+    # Tracking starts Jan 1, but the group's first result is Sep 15.
+    store.days["2026-09-15"] = {"id-a": {"score": 3}}
+    store.synced = {d.isoformat(): {"llm_failed": False}
+                    for d in date_range(date(2026, 1, 1), SEP16)}
+    data = await stats_service.load(store, GUILD, now=now_after(SEP16))
+    assert data.group_started == SEP15
+    # The year's leaderboard counts from the first result, not from January.
+    assert data.scope(date(2026, 1, 1), SEP16) == (SEP15, SEP16)
+    _, rows = stats_service.leaderboard_for(data, "year")
+    assert rows[0].days == 2 and rows[0].played == 1
+
+
+@pytest.mark.asyncio
 async def test_load_applies_overrides_and_flags_pending_days():
     store = FakeStore(config(SEP15))
     store.days["2026-09-15"] = {"id-a": {"score": 3}, "id-b": {"score": 2}}
@@ -453,7 +502,7 @@ async def test_framed_stats_tool_leaderboard_and_player():
     channel = SimpleNamespace(guild=SimpleNamespace(id=123))
 
     with patch("bot.app.redis.framed_store.FramedRedisStore", return_value=store):
-        board = await execute_framed_stats({"action": "leaderboard", "period": "all"}, channel)
+        board = await execute_framed_stats({"action": "leaderboard", "period": "all"}, channel)  # noqa: E501
         player = await execute_framed_stats({"action": "player", "player": "amy"}, channel)
         missing = await execute_framed_stats({"action": "player", "player": "zed"}, channel)
 
