@@ -17,6 +17,7 @@ from bot.domain.llm.models import DEFAULT_AGENT_MODEL
 from bot.domain.agent.tools.registry import (
     TOOL_EXECUTORS,
     CHANNEL_AWARE_TOOLS,
+    USER_AWARE_TOOLS,
     get_tool_schemas_for_config,
 )
 from bot.domain.chat.chat_personas import CHAT_PERSONAS
@@ -43,6 +44,7 @@ You have access to tools — use them when the conversation calls for it. For ex
 - If someone asks about Framed (the daily movie-guessing game) -- rankings, streaks, someone's stats, or a day's results -- use framed_stats.
 - If someone asks about current events, recent news, or facts that would benefit from up-to-date information, use web_search.
 - If someone asks what's happening in another channel or needs context from elsewhere in the server, use read_channel.
+- If someone wants a channel's whole history gone through — every restaurant ever mentioned, every image someone posted, "search the channel for..." — or anything much further back than the last couple hundred messages, use scan_channel_history. It starts a background scan that posts its own results in the channel later, so say it has started and never claim to have found anything yet; read_channel is still the right tool for a small look-back.
 - If someone asks to see something as a web page or wants a shareable link, or if your answer is a long list, table, or write-up that reads badly in chat, use publish_page and share the link.
 - If a request sounds like it changes something already published -- "add this to the list", "update the wishlist", "that didn't work either" -- call list_pages first, then read_page, then publish_page with the SAME slug. Skipping that publishes a second page holding only the new item, which is worse than useless. If read_page says a page has no stored source, say so rather than replacing it silently.
 - A summary, recap, or report of a particular day or period ("today's chat summary", "this week's highlights") is a snapshot: publish it with one_off=true. Without it the page takes a URL from its title, so tomorrow's summary with the same title replaces today's and every link shared earlier shows the new content.
@@ -107,11 +109,16 @@ async def run_agent(
     history: List[Dict[str, str]],
     agent_config: Dict[str, Any],
     guild_id: Optional[int] = None,
+    user: Optional[discord.abc.User] = None,
 ) -> Optional[str]:
     """Run the agent loop and return the final text response (or None if empty).
 
     Images and other rich content are sent directly to the channel by tool
     executors, so the returned string is just the conversational text part.
+
+    ``user`` is whoever asked — the message's author, or the person who ran
+    ``/bot``. Only tools marked ``user_aware`` are given it; everything else is
+    called exactly as before.
     """
     model: str = agent_config.get("model", DEFAULT_AGENT_MODEL)
     enabled_tools: List[str] = agent_config.get("tools", [])
@@ -185,11 +192,15 @@ async def run_agent(
             if executor is None:
                 result = f"Unknown tool: {fn_name}"
             else:
+                # Positional, in the order the AgentTool flags declare: the
+                # model's arguments, then the channel, then the user.
+                extra: List[Any] = []
+                if fn_name in CHANNEL_AWARE_TOOLS:
+                    extra.append(channel)
+                if fn_name in USER_AWARE_TOOLS:
+                    extra.append(user)
                 try:
-                    if fn_name in CHANNEL_AWARE_TOOLS:
-                        result = await executor(fn_args, channel)
-                    else:
-                        result = await executor(fn_args)
+                    result = await executor(fn_args, *extra)
                 except Exception as e:
                     logger.error(f"Tool '{fn_name}' failed: {e}")
                     result = f"Tool error: {e}"

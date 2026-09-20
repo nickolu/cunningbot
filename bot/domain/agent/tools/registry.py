@@ -19,6 +19,7 @@ from bot.domain.agent.tools import (
     publish_page,
     read_channel,
     read_page,
+    scan_channel_history,
     search_gifs,
     search_news,
     weather,
@@ -42,6 +43,7 @@ _MODULES = (
     read_page,
     search_news,
     framed_stats,
+    scan_channel_history,
 )
 
 TOOLS: Tuple[AgentTool, ...] = tuple(m.TOOL for m in _MODULES)
@@ -72,6 +74,10 @@ TOOL_EXECUTORS: Dict[str, Callable[..., Coroutine]] = {
 
 # Function names whose executor takes the Discord channel as a second argument.
 CHANNEL_AWARE_TOOLS = {t.function_name for t in TOOLS if t.channel_aware}
+
+# Function names whose executor also takes the user whose message started the
+# run, after the channel if the tool is channel-aware as well.
+USER_AWARE_TOOLS = {t.function_name for t in TOOLS if t.user_aware}
 
 # Config keys a newly registered channel agent starts with.
 DEFAULT_ENABLED_TOOLS: List[str] = [t.config_key for t in TOOLS if t.default_enabled]
