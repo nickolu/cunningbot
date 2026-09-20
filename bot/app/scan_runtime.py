@@ -13,13 +13,14 @@ every module in a command directory is loaded as an extension, and discord.py
 re-executes an extension's module on load, so the task registry below could end
 up existing twice and a channel could get two scans.
 
-Nothing here is user-facing yet. PR 3 adds the agent tool, the status message
-and the cancel UX on top of `start_scan` / `cancel_scan`.
+The user-facing half — the status message, the progress edits, the report and
+the stop word — is `bot/app/scan_ux.py` and the `scan_channel_history` agent
+tool, both built on `start_scan` / `cancel_channel_scan` below.
 """
 
 import asyncio
 from datetime import timezone
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 import discord
 
@@ -37,8 +38,8 @@ logger = get_logger()
 # number would cost the same number of round trips for less work per model call.
 PAGE_SIZE = 100
 
-# How often the progress callback is allowed to fire. PR 3 turns it into an
-# edit of the bot's status message, and Discord rate-limits edits per channel.
+# How often the progress callback is allowed to fire. It is an edit of the
+# bot's status message, and Discord rate-limits edits per channel.
 PROGRESS_INTERVAL_SECONDS = 30.0
 
 # "{guild_id}:{job_id}" -> the task running it, so a scan isn't garbage
@@ -47,6 +48,11 @@ SCAN_TASKS: Dict[str, "asyncio.Task[None]"] = {}
 
 ProgressCallback = Callable[[Dict[str, Any], ScanProgress], Awaitable[None]]
 FinishCallback = Callable[[Dict[str, Any], ScanSummary], Awaitable[None]]
+# (job, channel) -> the callbacks a resumed job should report through.
+ResumeCallbacks = Callable[
+    [Dict[str, Any], Any],
+    Awaitable[Tuple[Optional[ProgressCallback], Optional[FinishCallback]]],
+]
 
 
 class ScanAlreadyRunning(Exception):
@@ -291,13 +297,18 @@ async def resume_running_jobs(
     client: discord.Client,
     store: Optional[ScanRedisStore] = None,
     llm: Optional[LLMCall] = None,
+    callbacks: Optional[ResumeCallbacks] = None,
 ) -> int:
     """Restart every scan that was running when the process last stopped.
 
     Called from on_ready. Each job resumes from its saved cursor, so a scan
-    interrupted 40,000 messages in does not start over. Callbacks are not
-    restored — the status message from the run that was interrupted belongs to
-    a dead task; PR 3 decides what to post instead.
+    interrupted 40,000 messages in does not start over.
+
+    A resumed job has no callbacks of its own: the status message from the run
+    that was interrupted belongs to a task that no longer exists. `callbacks` is
+    handed the job and its channel and returns the pair to use, which is where
+    `bot/app/scan_ux.py` posts a fresh status message saying the scan picked up
+    where it left off. Without it a scan resumes silently.
     """
     store = store or ScanRedisStore()
     resumed = 0
@@ -315,7 +326,15 @@ async def resume_running_jobs(
             logger.error(f"scan {job_id}: cannot resume, channel unreachable: {e}")
             await store.finish(guild_id, job_id, STATUS_FAILED, f"Channel unreachable: {e}")
             continue
-        _launch(job, channel, store, llm)
+        on_progress: Optional[ProgressCallback] = None
+        on_finish: Optional[FinishCallback] = None
+        if callbacks is not None:
+            try:
+                on_progress, on_finish = await callbacks(job, channel)
+            except Exception as e:
+                # A scan that can't announce itself still has work to finish.
+                logger.error(f"scan {job_id}: could not attach reporting on resume: {e}")
+        _launch(job, channel, store, llm, on_progress, on_finish)
         resumed += 1
         logger.info(
             f"scan {job_id} resumed from cursor {job.get('cursor')} "

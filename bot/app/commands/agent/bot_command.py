@@ -110,6 +110,7 @@ class BotCommandCog(commands.Cog):
                     history=history,
                     agent_config=config,
                     guild_id=interaction.guild.id,
+                    user=interaction.user,
                 )
             except Exception as e:
                 logger.error(f"/bot failed in channel {channel.id}: {e}", exc_info=True)
