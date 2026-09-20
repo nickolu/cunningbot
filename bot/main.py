@@ -125,7 +125,10 @@ async def on_ready() -> None:
     # They resume from their saved cursor; see bot/app/scan_runtime.py.
     try:
         from bot.app.scan_runtime import resume_running_jobs
-        resumed = await resume_running_jobs(bot)
+        from bot.app.scan_ux import resume_callbacks
+        # resume_callbacks posts a fresh status message in each channel: the one
+        # from before the restart belongs to a task that no longer exists.
+        resumed = await resume_running_jobs(bot, callbacks=resume_callbacks)
         if resumed:
             logger.info(f"Resumed {resumed} channel scan(s)")
     except Exception as e:
