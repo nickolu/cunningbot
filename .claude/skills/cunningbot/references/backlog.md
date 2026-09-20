@@ -3,7 +3,7 @@
 What's left to build on CunningBot, in rough priority order, with the context
 and decisions already made so nobody re-plans them.
 
-**Last verified against `main` and the Pi: 2026-09-17.** Anything below may have
+**Last verified against `main` and the Pi: 2026-09-19.** Anything below may have
 changed since — check before acting on a claim, and update the date when you do.
 
 ## Keeping this file honest
@@ -21,11 +21,23 @@ changed since — check before acting on a claim, and update the date when you d
 
 ## Ops — small, unblocked, mostly on the Pi or in Discord
 
-### After the next deploy: backfill `search_news` and `framed_stats`
-#54 adds `search_news` and the Framed PR adds `framed_stats` to
-`DEFAULT_TOOLS_TO_ADD`. Once deployed, run the backfill in `add-agent-tool.md`
-(dry run first) or registered channels won't get them. `list_pages` and
-`read_page` were backfilled into all 17 registered channels on 2026-09-17.
+### Backfill `search_news` and `framed_stats` into registered channels
+Both are in `DEFAULT_TOOLS_TO_ADD` and both are deployed (2026-09-19), but the
+backfill has not been run since, so the 17 registered channels have neither.
+Run it from `add-agent-tool.md`, dry run first. (`list_pages` / `read_page` were
+backfilled on 2026-09-17, so those should come back as already current.)
+
+### Turn on channel scans
+Deployed 2026-09-19 (#62, #64, #65 via #66) but unusable as shipped, by design:
+1. `SCAN_ALLOWED_USER_IDS` is **not set** on the Pi, so only the Discord
+   application owner can start a scan. Set it to the owner's user id (it is in
+   `.env.example`, deliberately without a value -- the repo is public) and
+   recreate the `cunningbot` container.
+2. `scan_channel_history` is `default_enabled=False` and **not** in
+   `DEFAULT_TOOLS_TO_ADD`. Enable it per channel with
+   `/agent tool scan_channel_history enable`. **Do not backfill it.**
+Then try a real scan (`#foodchat`, "every restaurant anyone recommended") and
+watch the status message, the stop word, and the final report.
 
 ### After the Framed deploy: register and backfill
 The deploy must `--build` (new `framed-sync` service, new `bot/domain/framed`).
@@ -51,81 +63,44 @@ checkout to `origin/main` first, then install.
 
 ---
 
-## Phase 3 — Scanning channel history
+## Phase 3 — Scanning channel history (PR 4 of 4 left)
 
 **The ask:** "parse ~500 messages in a channel and collect the images moop
-posted, to make daily-update pages", and more generally "look through the
-channel history to find restaurants". It fails because the bot can't reach them.
+posted, to make daily-update pages", and "look through the channel history to
+find restaurants". Design agreed 2026-09-17; PRs 1-3 shipped and deployed
+2026-09-19.
 
-**Why it fails today** (`bot/domain/agent/tools/read_channel.py`):
-- `limit` clamps to 50 and there's no `before`/`after` cursor, so nothing older
-  than the last 50 messages is reachable.
-- Attachments render as `[Attachments: filename]` — **the URLs are discarded**.
-  Even inside the 50-message window the images were unreachable.
-- Paging from the agent can't work anyway: `run_agent` stops after
-  `MAX_TOOL_ROUNDS = 5` tool rounds per reply.
+**What shipped**
+- **#62 — `read_channel`**: `before`/`after` (message id, link, or ISO date),
+  `author` and `has_attachments` filters, attachment URLs and message ids in
+  the output, up to 100 per call, and the cursor to continue from. A filtered
+  call scans up to 1000 messages before handing back a cursor.
+- **#64 — the engine**: `bot/app/redis/scan_store.py`, `bot/domain/scan/`
+  (loop + extractor, no discord.py), `bot/app/scan_runtime.py` (tasks, one scan
+  per channel, resume from `scan:running` in `on_ready`). One page (~100
+  messages) per model call; the accumulated list never goes back to the model;
+  results dedup in code. Cancel is a Redis flag checked between pages, so it
+  survives a restart. Five unreadable pages in a row fail the job; finished jobs
+  and results expire after 7 days.
+- **#65 (landed on main via #66) — the tool and UX**: `scan_channel_history`
+  (owner-gated by `SCAN_ALLOWED_USER_IDS`, else `bot.is_owner`;
+  `default_enabled=False`), status message with 30s progress edits, stop
+  word/🛑 from the requester, final report inline or as a page, resumed scans
+  posting a fresh status message. `AgentTool` gained `user_aware` so executors
+  can know who asked.
 
-**Design (agreed with the user 2026-09-17):**
+**PR 4 — images (not started).** Host each image a scan finds via
+`host_image_from_url` as it is found, not afterwards: Discord CDN URLs expire in
+about a day. Then the first real use, moop's images as daily-update pages
+(newest first). Decide: whether hosting is a property of the scan (every scan
+hosts what it finds) or of the instruction; how a day's images become one page
+section; and what a page looks like when a scan finds hundreds of images.
 
-- **No upper limit.** A scan pages until it reaches the start of the channel,
-  or a date/message the user gives. A whole channel can take minutes to hours.
-- **The loop lives inside one tool call, not in the agent's tool rounds.** The
-  agent calls `scan_channel_history(channel, instruction, ...)` once; the scan
-  pages on its own.
-- **Only one page is ever in context.** Per page (~100 messages, one Discord
-  history request): send the page and the instruction to `UTILITY_MODEL`, get
-  back only the *new* items as JSON (each with the message link it came from),
-  and merge them into the results **in code**, deduplicating on a normalized
-  key. The accumulated list is never sent back to the model, so every call is
-  the same size however long the list gets. The agent does a final pass over
-  the finished list (formatting, merging near-duplicates) when it reports.
-- **State lives in Redis**, as a scan job: guild, channel, requester,
-  instruction, cursor (oldest message id reached), status, counts, results.
-  A restart mid-scan resumes from the cursor instead of losing work.
-- **Runs in the background.** The agent replies right away ("scanning
-  #foodchat, I'll post when it's done") and releases the channel lock, so the
-  channel isn't blocked. The scan posts the result when it finishes: a message,
-  or a published page when the list is long.
-- **Progress:** the bot edits its status message periodically (e.g. every
-  30 s, not every page): "12,400 messages scanned, 37 restaurants so far".
-- **Cancelling:** "stop" or a 🛑 reaction from the requester ends the scan and
-  reports what was found so far. The job checks a cancel flag in Redis between
-  pages. This is job-level and simpler than the general *Interrupt the bot*
-  item, so build it here rather than waiting on that.
-- **Who can start one: only the bot owner at first.** Check with
-  `await bot.is_owner(user)` (the Discord application owner) — confirm that is
-  the user's account before relying on it; otherwise use an explicit user-id
-  allowlist. Non-owners get a plain refusal from the tool. The executor needs
-  the requesting user, which channel-aware tools don't receive today, so
-  thread it through from the listener and `/bot`.
-- **One scan per channel at a time.**
-- **Two tools, not one.** `read_channel` stays the quick-read tool and gains
-  paging and image links; `scan_channel_history` is the long, instruction-driven
-  one.
-- **Images:** for "collect moop's images" the scan collects attachment URLs and
-  **hosts each one as it's found** via `host_image_from_url` — Discord CDN URLs
-  expire in about a day (`publishing.md`), so hosting later is too late.
-
-**PRs, in order:**
-1. **`read_channel` upgrade.** `before`/`after` (message id or ISO date),
-   `author` and `has_attachments` filters, attachment URLs and `msg.jump_url`
-   in the output. Small and useful on its own.
-2. **Scan engine.** A `scan_store.py` in `bot/app/redis/`, a service in
-   `bot/domain/` that runs the page → extract → merge loop against an
-   injectable history source (so it's testable without Discord), and a runner
-   in the `cunningbot` process that owns the asyncio tasks, resumes `running`
-   jobs on startup, and honours the cancel flag. It has to live in the gateway
-   process: the worker containers exit after each tick.
-3. **Agent tool and UX.** `scan_channel_history` (owner-only, not in
-   `DEFAULT_TOOLS_TO_ADD` — enable it with `/agent tool` where wanted), the
-   status message with progress edits, "stop"/🛑 cancel, the final report or
-   page, a system-prompt bullet, and `/help`.
-4. **Images.** Hosting found images as the scan goes, and the daily-update page
-   for moop's images as the first real use.
-
-**Still to decide while building:** page size if 100 proves too big for the
-model; how results are keyed for dedup per kind of scan (the model can propose
-a key per item); whether an unfinished scan that's been idle for days expires.
+**Known from building it, unresolved:**
+- A resumed scan re-posts a status message but its 🛑 mapping is in memory only,
+  so a restart loses the reaction mapping for the *old* status message.
+- Page size 100 and the 5-failure threshold are untested against a real channel.
+- Nothing expires an unfinished scan that stalls; `scan:running` keeps it.
 
 ## Phase 4 — Temporary upload page and file catalog
 
@@ -489,3 +464,7 @@ people want to browse a server's pages without asking the bot.
 | — | Seven stale tests fixed; suite green, no more live image calls | #52 |
 | — | `/bot` one-shot agent command with channel history | #53 |
 | — | `search_news` over the 7-day story history (news search step 1) | #54 |
+| 3 | `read_channel` pages history, filters, and returns image URLs | #62 |
+| 3 | Channel scan engine: job store, page/extract/merge loop, resume, cancel | #64 |
+| 3 | `scan_channel_history` tool, owner gate, progress/stop/report UX | #65, #66 |
+| — | README, AGENTS.md, and the skill brought back in line with the code | #56 |
