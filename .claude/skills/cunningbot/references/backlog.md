@@ -3,7 +3,7 @@
 What's left to build on CunningBot, in rough priority order, with the context
 and decisions already made so nobody re-plans them.
 
-**Last verified against `main` and the Pi: 2026-09-20.** Anything below may have
+**Last verified against `main` and the Pi: 2026-09-21.** Anything below may have
 changed since — check before acting on a claim, and update the date when you do.
 
 ## Keeping this file honest
@@ -127,17 +127,14 @@ Largest security surface in the backlog. Plan it carefully.
 
 ---
 
-## Phase 5 — Suggested replies and scheduled prompts
+## Phase 5 — Suggested replies and scheduled prompts (PRs 2-3 left)
 
 *Planned with the user 2026-09-20.* Users create recurring agent prompts
 ("post a summary of this channel every day at 9am PT"), confirmed with buttons.
 The buttons are useful on their own, so they ship first.
 
 **PRs, in order:**
-1. **Suggested-reply buttons.** The `suggest_replies` tool, the button view,
-   the live-message record in Redis and re-attaching it on restart, and the
-   shared change that makes a click wait for the channel lock instead of being
-   dropped. The scheduler needs that change too.
+1. ~~**Suggested-reply buttons.**~~ Shipped in #68, deployed 2026-09-21.
 2. **Scheduler engine.** `schedule_store.py`, cron handling (a new dependency,
    e.g. `croniter`; check that it installs on the Pi's image), and the per-minute
    runner in the `cunningbot` process. The runner applies the hourly limit, the
@@ -149,39 +146,26 @@ The buttons are useful on their own, so they ship first.
    `cancel_scheduled_prompt`, `/schedule list|cancel|pause|resume`, a
    system-prompt bullet, and `/help` page 5.
 
-### Suggested-reply buttons (PR 1)
-*Requested 2026-09-18.*
-**The ask:** the agent can end a reply with buttons offering suggested next
-messages, and the user clicks one instead of typing it.
-**Discord supports it:** up to 25 buttons per message (5 rows of 5, labels up
-to 80 characters), or a select menu of up to 25 options. A click is an
-interaction that must be acknowledged within 3 s, so defer first, then work.
-**What exists:** trivia already posts buttons
-(`bot/app/commands/trivia/trivia_views.py:113`, `custom_id`s like
-`trivia_q:{batch}:{n}:{label}`), and `bot/main.py:69-91` re-attaches them with
-`bot.add_view(view, message_id=...)` after a restart. Follow that pattern.
-**Design (agreed with the user 2026-09-18):**
-- **An agent tool, `suggest_replies(options)`**, taking 2–5 short options. The
-  listener attaches them as buttons to the last chunk of the reply
-  (`split_message` in `agent_listener.py`). A tool fits the registry and makes
-  buttons opt-in per reply. Rejected: asking the model to format options in
-  its text and parsing them out.
-- **A click posts a visible message** like "**Nick** chose: *Summarize the
-  last week*", then runs the agent as if that were the user's message. The
-  agent builds context from `channel.history()`, and a bare interaction never
-  appears there. Without the message, the agent can't see the choice.
-- **Anyone in the channel can click**, not just the requester. It's a group
-  chat.
-- **One click disables the set**, so a choice can't fire twice.
-- **Buttons expire when the next agent reply is posted** in that channel, so
-  old suggestions don't pile up. Store the live message id per channel in
-  Redis. On restart, re-attach only those (see `main.py`).
-- **A click while a run is going waits for the lock** instead of being dropped
-  like a mid-run message (`if lock.locked(): return`). Same change the
-  scheduled-prompts item needs, so build it once.
-**Also:** a system-prompt bullet on when to offer suggestions (sparingly: real
-forks in the conversation, not every reply); `/help` page 5 entry;
-`DEFAULT_TOOLS_TO_ADD` plus the backfill in `add-agent-tool.md`.
+### Suggested-reply buttons (PR 1) — shipped
+#68, deployed and backfilled into all 17 registered channels on 2026-09-21.
+Built to the 2026-09-18 design: the `suggest_replies` tool (2-5 options),
+buttons on the reply's last chunk, anyone can click, the first click wins, the
+choice is echoed as a visible message, the next agent reply expires the set, and
+a click waits for the channel lock. `architecture.md` documents how it works.
+Where the build differs from the plan:
+- **No per-message re-attach on restart.** The buttons are a `DynamicItem`
+  registered at startup, and whether a set is live is a nonce in Redis
+  (`suggest:{guild}:{channel}`, 7-day TTL). So nothing is added to `main.py`.
+- **A click in a paused channel is refused** (ephemeral), matching how a
+  paused channel ignores mentions.
+- **Every agent entry point must wrap its run in `collect_suggestions()`** and
+  post through `send_agent_reply()`. The scheduler's runner in PR 2 has to do
+  this too, or the confirm buttons won't appear.
+
+**Not yet checked in Discord:** clicking through a set, a second click, and a
+click on buttons a newer reply replaced. Also whether the bot can take buttons
+off a `/bot` reply (an interaction follow-up) with a normal message edit. If
+it can't, those buttons stay visible but answer "expired".
 
 ### Scheduled prompts (PRs 2-3)
 *Requested 2026-09-18.*
@@ -212,7 +196,7 @@ A scheduled prompt is basically `/bot` on a timer.
   (`croniter` or similar is a new dependency). The agent turns "every day at
   9am PT" into cron. Before saving, it repeats the schedule back in plain words,
   e.g. "daily at 9:00 AM Pacific, next run tomorrow", with **[Confirm]**,
-  **[Change time]**, and **[Cancel]** buttons (suggested-reply buttons above),
+  **[Change time]**, and **[Cancel]** buttons (suggested-reply buttons, #68),
   so a wrong parse is caught before anything runs.
 - **Creating and managing:** agent tools `schedule_prompt`,
   `list_scheduled_prompts`, and `cancel_scheduled_prompt`, plus a `/schedule
@@ -220,10 +204,10 @@ A scheduled prompt is basically `/bot` on a timer.
   Add them to `/help` page 5.
 - **Output:** post the reply in the channel. If it's long, publish a page with
   `one_off=true` so each day's summary doesn't overwrite the last (#47).
-**Depends on:** suggested-reply buttons (PR 1), for the confirm step and the
-lock-waiting change. The other two dependencies have shipped: `read_channel`
-reads back by date (#62), so a daily summary can cover the last 24 hours, and
-tools can know who asked (`user_aware`, #65).
+**Depends on:** nothing left. All three dependencies have shipped:
+suggested-reply buttons and the click-waits-for-the-lock change (#68);
+`read_channel` reading back by date (#62), so a daily summary can cover the
+last 24 hours; and tools knowing who asked (`user_aware`, #65).
 
 **Decided 2026-09-20:**
 - **Anyone in the server can create a job, within caps.** Rejected for now:
@@ -249,7 +233,7 @@ tools can know who asked (`user_aware`, #65).
   of grace for an hourly job, 12 hours for a daily one. Past that, skip it.
   Either way, `next_run` moves to the first future occurrence, so at most one
   late run ever happens, never a replay.
-- **Suggested-reply buttons ship first**, and the confirm step uses them. v1
+- **Suggested-reply buttons ship first** (done, #68), and the confirm step uses them. v1
   does not fall back to a typed confirmation. A click reruns the agent as the
   person who clicked, so whoever confirms becomes the creator, and the caps
   count against them.
@@ -518,3 +502,5 @@ people want to browse a server's pages without asking the bot.
 | — | README, AGENTS.md, and the skill brought back in line with the code | #56 |
 | — | `search_news` and `framed_stats` enabled in registered channels (ops, confirmed 2026-09-20) | — |
 | 3 | Scan cancel and restart-resume tested in production (ops, 2026-09-20) | — |
+| 5 | Suggested-reply buttons: `suggest_replies` tool, click handling, expiry | #68 |
+| — | `suggest_replies` backfilled into all 17 registered channels (ops, 2026-09-21) | — |
