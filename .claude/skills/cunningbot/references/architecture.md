@@ -74,7 +74,9 @@ Cogs are discovered by scanning `bot/app/commands/` in `bot/main.py` — every
 9. `run_agent()` → OpenAI tool-calling loop, max **5** rounds
    (`MAX_TOOL_ROUNDS`). Tools that produce rich output (images) send to the
    channel themselves and return a text summary to the model.
-10. Final text is chunked by `split_message()` and sent.
+10. `send_agent_reply()` (`bot/app/suggested_replies.py`) chunks the text with
+    `split_message()`, sends it, and puts any suggested-reply buttons on the
+    last chunk (see below).
 
 Configuration is per channel via `/agent register|configure|status|pause|resume|
 unregister`, stored by `bot/app/redis/agent_store.py`.
@@ -89,6 +91,25 @@ fetches history with the same helper, appends the prompt, and calls `run_agent`
 with `interaction.channel`. The reply quotes the prompt's first line, since a
 slash invocation leaves no visible message, and sends with `@everyone` and role
 pings disabled.
+
+### Suggested-reply buttons
+
+The `suggest_replies` tool can't reach the reply message -- `run_agent` returns
+before it's sent -- so every entry point wraps its run in
+`collect_suggestions()` (`bot/domain/agent/suggestions.py`, a `ContextVar` box
+the tool fills) and passes the box to `send_agent_reply()`. **A new way of
+running the agent must do the same**, or the tool tells the model buttons
+can't be shown.
+
+A channel has one live set, recorded by `bot/app/redis/suggestion_store.py`
+under a nonce that is also in each button's custom_id. Any agent reply replaces
+the record and strips the old buttons. A click (`handle_click`) claims the set
+atomically (so only the first click counts), greys the buttons out, posts
+"**name** chose: *option*" so later history shows the choice, then **waits** for
+the channel lock -- unlike a mention, a click is never dropped -- and runs the
+agent with the choice as the clicker's message. The buttons are a
+`DynamicItem` registered at startup (`commands/agent/suggestion_buttons.py`), so
+clicks on messages sent before a restart still work without re-attaching views.
 
 `agent_runtime.py` sits outside `bot/app/commands/` on purpose: every module in
 a command directory is loaded as an extension, and discord.py re-executes an

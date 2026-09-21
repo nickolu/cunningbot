@@ -45,6 +45,9 @@ threads — and it answers. It can use tools:
   earlier
 - filing GitHub issues against this repo (off unless a channel enables it)
 
+It can also end a reply with buttons for likely next messages, which anyone in
+the channel can click instead of typing.
+
 `/agent register` lets the bot also join a channel's conversation on its own,
 with per-channel model, persona, response mode, cooldown, context window, and
 tool settings. `/bot prompt:` runs the agent once anywhere without registering.
