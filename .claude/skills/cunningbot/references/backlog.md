@@ -376,15 +376,25 @@ A scheduled prompt is basically `/bot` on a timer.
 lock-waiting change), and Phase 3 PR 1 (`read_channel` `after`/date filter). A "daily
 summary" has to read the last 24 hours, and `read_channel` stops at 50
 messages today. Busy channels would get a summary of the last hour or so.
+**Decided 2026-09-20:**
+- **Anyone in the server can create a job, within caps.** Rejected for now:
+  owner-only and `manage_messages`. The caps are the protection.
+- **A cap per server and a cap per user.** The numbers are arbitrary; start
+  with **10 jobs per server, 3 per user**, as named constants so they're easy
+  to change. The user cap costs nothing extra: a server holds at most 10 jobs,
+  so count them by `creator` on create. No per-user index is needed.
+  Paused jobs count against the caps; cancelled ones don't. Hitting a cap
+  gives a plain refusal that says which cap and how to free a slot
+  (`/schedule list` / `cancel`).
+- **The run acts as the creator.** Reuse `user_aware` from #65.
+- **Later, not v1: periodic reconfirmation.** Ask the creator every so often
+  (annually?) whether a job is still wanted, and pause it if they don't answer,
+  so abandoned jobs don't run forever. The last-run and creator fields make
+  this addable without a migration.
+
 **Decide in planning:**
-- **Who may create jobs.** A stored prompt runs unattended, forever, with the
-  channel's tools, so it's a lasting prompt-injection and cost vector. Options:
-  owner-only at first (like Phase 3's scans), `manage_messages`, or anyone with
-  a per-guild cap. The run needs a user to act as. Phase 3 is already
-  threading the requesting user into tool executors, so reuse that.
-- **Limits:** jobs per guild or channel, a minimum interval (at most hourly?),
-  and whether writing tools like `create_github_issue` are turned off inside
-  scheduled runs.
+- **Limits still open:** a minimum interval (at most hourly?), and whether
+  writing tools like `create_github_issue` are turned off inside scheduled runs.
 - **Missed runs** while the bot is down or mid-deploy: skip to the next run, or
   run once late if it's within a grace window. Never replay a backlog of runs.
 - **The per-channel lock.** `agent_listener.py` drops messages while a run
