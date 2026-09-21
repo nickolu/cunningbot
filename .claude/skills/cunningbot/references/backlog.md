@@ -21,12 +21,6 @@ changed since — check before acting on a claim, and update the date when you d
 
 ## Ops — small, unblocked, mostly on the Pi or in Discord
 
-### Backfill `search_news` and `framed_stats` into registered channels
-Both are in `DEFAULT_TOOLS_TO_ADD` and both are deployed (2026-09-19), but the
-backfill has not been run since, so the 17 registered channels have neither.
-Run it from `add-agent-tool.md`, dry run first. (`list_pages` / `read_page` were
-backfilled on 2026-09-17, so those should come back as already current.)
-
 ### Channel scans are on — what is left
 Working in production since 2026-09-20; two real scans finished cleanly (see
 Phase 3 for the numbers). Remaining:
@@ -37,8 +31,9 @@ Phase 3 for the numbers). Remaining:
 - The tool is enabled in the two channels that were tested. Any other channel
   needs `/agent tool scan_channel_history enable`. **Do not backfill it.**
 
-### Turn on GitHub issue filing — needs a token
-Shipped in #40, still inert. #49 passes `GITHUB_TOKEN` and `GITHUB_ISSUE_REPO`
+### Turn on GitHub issue filing — needs a token (deferred)
+**Deferred 2026-09-20:** the user isn't doing this for now. Don't raise it as a
+next step until they ask. Shipped in #40, still inert. #49 passes `GITHUB_TOKEN` and `GITHUB_ISSUE_REPO`
 to the `cunningbot` container (the only service that loads agent tools); before
 it, #43's switch away from a baked-in `.env` meant the keys never arrived.
 What's left is on the Pi: add a fine-grained PAT (repo `nickolu/cunningbot`,
@@ -46,8 +41,10 @@ Issues: read and write) and `GITHUB_ISSUE_REPO=nickolu/cunningbot` to `.env`,
 rebuild, then `/agent tool create_github_issue enable` in one channel.
 **Do not backfill it**; it's opt-in because it writes to a public repo.
 
-### Install the Pi auto-deploy timer
-PR #31 added it; the one-time `sudo` install was never run (still no timer on
+### Install the Pi auto-deploy timer (on hold)
+**On hold 2026-09-20** at the user's request, most likely until the droplet
+move (see *Proposed*) is decided. That move may replace the timer, so don't do
+both. PR #31 added it; the one-time `sudo` install was never run (still no timer on
 2026-09-16). The Pi's checkout also keeps accumulating merge commits from manual
 `git pull`, which makes `--ff-only` — what the timer uses — fail. Reset the
 checkout to `origin/main` first, then install.
@@ -101,9 +98,7 @@ minutes — worth re-measuring on one that big before promising it, since Discor
 throttles history requests harder than this sample showed.
 
 **Still unresolved:**
-- **Cancel and resume have never run in production.** Both test scans finished
-  in under 30 s, so the stop word, the 🛑 reaction, and restart-resume are only
-  covered by tests. Try them on a long scan before relying on them.
+- **Cancel and resume work in production** (tested by the user 2026-09-20).
 - A resumed scan re-posts a status message but its 🛑 mapping is in memory only,
   so a restart loses the reaction mapping for the *old* status message.
 - The 5-failure threshold is still untested against a real channel (neither scan
@@ -476,3 +471,5 @@ people want to browse a server's pages without asking the bot.
 | 3 | Channel scan engine: job store, page/extract/merge loop, resume, cancel | #64 |
 | 3 | `scan_channel_history` tool, owner gate, progress/stop/report UX | #65, #66 |
 | — | README, AGENTS.md, and the skill brought back in line with the code | #56 |
+| — | `search_news` and `framed_stats` enabled in registered channels (ops, confirmed 2026-09-20) | — |
+| 3 | Scan cancel and restart-resume tested in production (ops, 2026-09-20) | — |
