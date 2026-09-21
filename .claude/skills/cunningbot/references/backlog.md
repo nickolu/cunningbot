@@ -21,6 +21,15 @@ changed since — check before acting on a claim, and update the date when you d
 
 ## Ops — small, unblocked, mostly on the Pi or in Discord
 
+### After the scheduled-prompts deploy: backfill and try it
+PR 3 of Phase 5 adds `schedule_prompt`, `list_scheduled_prompts`, and
+`cancel_scheduled_prompt` to `DEFAULT_TOOLS_TO_ADD`. Deploy with `--build`,
+then run the backfill from `add-agent-tool.md` (dry run first). Then try the
+whole flow in Discord: ask for "a summary of this channel every day at <a time
+a few minutes from now>", click Confirm, and check the run posts under the
+"🗓️ Scheduled by" header. Then `/schedule list`, `pause`, `resume`, and
+`cancel`.
+
 ### Channel scans are on — what is left
 Working in production since 2026-09-20; two real scans finished cleanly (see
 Phase 3 for the numbers). Remaining:
@@ -124,147 +133,6 @@ can be recalled later by searching their metadata.
   (per-guild sorted set on Upstash, prune on read).
 
 Largest security surface in the backlog. Plan it carefully.
-
----
-
-## Phase 5 — Suggested replies and scheduled prompts (PR 3 left)
-
-*Planned with the user 2026-09-20.* Users create recurring agent prompts
-("post a summary of this channel every day at 9am PT"), confirmed with buttons.
-The buttons are useful on their own, so they ship first.
-
-**PRs, in order:**
-1. ~~**Suggested-reply buttons.**~~ Shipped in #68, deployed 2026-09-21.
-2. ~~**Scheduler engine.**~~ #70: the store,
-   `croniter` (a pure-Python wheel with pure-Python dependencies, so it
-   installs on the Pi's arm64 image), the per-minute runner, the caps, the
-   hourly limit, the missed-run window, auto-pause, and `scheduled_ok`. Users
-   can't reach any of it until PR 3.
-3. **Agent tools and UX.** `schedule_prompt` (with the plain-words read-back
-   and Confirm / Change time / Cancel buttons), `list_scheduled_prompts`,
-   `cancel_scheduled_prompt`, `/schedule list|cancel|pause|resume`, a
-   system-prompt bullet, and `/help` page 5.
-
-### Suggested-reply buttons (PR 1) — shipped
-#68, deployed and backfilled into all 17 registered channels on 2026-09-21.
-Built to the 2026-09-18 design: the `suggest_replies` tool (2-5 options),
-buttons on the reply's last chunk, anyone can click, the first click wins, the
-choice is echoed as a visible message, the next agent reply expires the set, and
-a click waits for the channel lock. `architecture.md` documents how it works.
-Where the build differs from the plan:
-- **No per-message re-attach on restart.** The buttons are a `DynamicItem`
-  registered at startup, and whether a set is live is a nonce in Redis
-  (`suggest:{guild}:{channel}`, 7-day TTL). So nothing is added to `main.py`.
-- **A click in a paused channel is refused** (ephemeral), matching how a
-  paused channel ignores mentions.
-- **Every agent entry point must wrap its run in `collect_suggestions()`** and
-  post through `send_agent_reply()`. The scheduler's runner in PR 2 has to do
-  this too, or the confirm buttons won't appear.
-
-**Not yet checked in Discord:** clicking through a set, a second click, and a
-click on buttons a newer reply replaced. Also whether the bot can take buttons
-off a `/bot` reply (an interaction follow-up) with a normal message edit. If
-it can't, those buttons stay visible but answer "expired".
-
-### Scheduled prompts (PRs 2-3)
-*Requested 2026-09-18.*
-**The ask:** "can you post a daily summary of this channel every day at 9am
-PT?" Users schedule any agent prompt to run on a recurring schedule in a
-channel.
-**What exists:** every schedule today is hardcoded per feature. Weather,
-trivia, and RSS are worker containers that loop in `docker-compose.yml`
-(`while true; do python -m bot.app.tasks.X; sleep N; done`) and check their own
-Redis config for "is it time?" (`is_time_to_post` in `weather_poster.py`
-handles IANA time zones with `zoneinfo`). Nothing lets a user schedule an
-agent run. The nearest thing is `/bot` (#53,
-`bot/app/commands/agent/bot_command.py`), which runs the agent once on demand.
-A scheduled prompt is basically `/bot` on a timer.
-**Shape:**
-- **The runner lives in the `cunningbot` process, not a new worker.** Only that
-  container loads agent tools, and it has the gateway connection that
-  `read_channel` and posting need. Use a `discord.ext.tasks` loop that ticks
-  every minute, reads due jobs from Redis, and calls `run_agent` with the
-  stored prompt as a one-message history. Phase 3's scan runner goes in the
-  same process for the same reason. Share the pattern.
-- **Storage:** a `schedule_store.py` in `bot/app/redis/` holds per-job hashes
-  (guild, channel, creator, prompt, schedule, tz, enabled, last run, last
-  error) and a sorted set of `next_run` timestamps. The tick pops the due
-  ones, so it doesn't scan every job.
-- **Schedule format:** store a cron expression plus an IANA zone (`0 9 * * *`,
-  `America/Los_Angeles`), and compute `next_run` in that zone so DST is handled
-  (`croniter` or similar is a new dependency). The agent turns "every day at
-  9am PT" into cron. Before saving, it repeats the schedule back in plain words,
-  e.g. "daily at 9:00 AM Pacific, next run tomorrow", with **[Confirm]**,
-  **[Change time]**, and **[Cancel]** buttons (suggested-reply buttons, #68),
-  so a wrong parse is caught before anything runs.
-- **Creating and managing:** agent tools `schedule_prompt`,
-  `list_scheduled_prompts`, and `cancel_scheduled_prompt`, plus a `/schedule
-  list|cancel|pause` slash command so people can manage jobs without the agent.
-  Add them to `/help` page 5.
-- **Output:** post the reply in the channel. If it's long, publish a page with
-  `one_off=true` so each day's summary doesn't overwrite the last (#47).
-**Depends on:** nothing left. All three dependencies have shipped:
-suggested-reply buttons and the click-waits-for-the-lock change (#68);
-`read_channel` reading back by date (#62), so a daily summary can cover the
-last 24 hours; and tools knowing who asked (`user_aware`, #65).
-
-**Decided 2026-09-20:**
-- **Anyone in the server can create a job, within caps.** Rejected for now:
-  owner-only and `manage_messages`. The caps are the protection.
-- **A cap per server and a cap per user.** The numbers are arbitrary; start
-  with **10 jobs per server, 3 per user**, as named constants so they're easy
-  to change. The user cap costs nothing extra: a server holds at most 10 jobs,
-  so count them by `creator` on create. No per-user index is needed.
-  Paused jobs count against the caps; cancelled ones don't. Hitting a cap
-  gives a plain refusal that says which cap and how to free a slot
-  (`/schedule list` / `cancel`).
-- **The run acts as the creator.** Reuse `user_aware` from #65.
-- **Hourly at most.** Reject a schedule whose runs come less than an hour
-  apart. Cron can space runs unevenly, so check the gaps between the next
-  several occurrences rather than parsing the expression.
-- **Tools that act outside the channel are off in scheduled runs**, for now:
-  `create_github_issue`, `scan_channel_history`, and the scheduling tools
-  themselves (a job must not create jobs). Add a flag on `AgentTool` (e.g.
-  `scheduled_ok`, default true) instead of a hardcoded list in the runner.
-  `publish_page` stays on: it's how long output gets posted.
-- **A missed run runs once late if it's within half its interval.** The
-  interval is the gap from the missed run to the next one after it: 30 minutes
-  of grace for an hourly job, 12 hours for a daily one. Past that, skip it.
-  Either way, `next_run` moves to the first future occurrence, so at most one
-  late run ever happens, never a replay.
-- **Suggested-reply buttons ship first** (done, #68), and the confirm step uses them. v1
-  does not fall back to a typed confirmation. A click reruns the agent as the
-  person who clicked, so whoever confirms becomes the creator, and the caps
-  count against them.
-- **Later, not v1: periodic reconfirmation.** Ask the creator every so often
-  (annually?) whether a job is still wanted, and pause it if they don't answer,
-  so abandoned jobs don't run forever. The last-run and creator fields make
-  this addable without a migration.
-
-**Decided while building PR 2 (2026-09-21):**
-- **Three failures in a row pause a job** (`MAX_CONSECUTIVE_FAILURES`). The
-  creator is told in the job's channel, or by DM if the channel is gone. A
-  creator who left the server counts as a failure. A skipped run (paused
-  channel, missed window, previous run still going) doesn't count.
-- **Paused channels skip; unregistered channels run** with the unregistered
-  defaults. This differs from the earlier suggestion to skip both: mentions
-  and `/bot` work in unregistered channels, so a job created there should too.
-- **Free-form prompts only** for v1.
-- **Prompts are capped at 1000 characters** (`MAX_PROMPT_CHARS`).
-- **Each run posts under a "🗓️ Scheduled by <creator>: <prompt>" header**, so
-  a channel can see where an unprompted post came from.
-- **The run's single message stamps the local date and time** ahead of the
-  prompt, so "the last 24 hours" means something to the model.
-- **A run still going when its next one comes due** skips the new run instead
-  of stacking a second one.
-
-**Decided for PR 3 (2026-09-21): when no zone is given, assume Pacific**
-(`America/Los_Angeles`) without asking. The read-back always names the zone
-("daily at 9:00 AM Pacific"), so a wrong assumption shows up at the Confirm
-step. Make it a named constant (`DEFAULT_SCHEDULE_TZ`).
-
-**Still to decide in PR 3:** how the agent turns "every weekday at 9am" into
-cron and reads it back in plain words.
 
 ---
 
@@ -446,6 +314,23 @@ they expire.
 
 ## Follow-ups
 
+### Scheduled prompts: what v1 left out
+Phase 5 shipped (#68, #70, and the scheduling tools PR). Not built on purpose:
+- **Periodic reconfirmation.** Ask a job's creator every so often (annually?)
+  whether it's still wanted, and pause it if they don't answer. `creator_id`
+  and `last_run_at` are already on the record, so it needs no migration.
+- **Posting to another channel.** A job runs in the channel it was confirmed
+  in. "Post it in #general" means asking from #general.
+- **Editing a job.** Change time means cancelling and drafting again.
+  `/schedule` has no edit command.
+- **A built-in "daily summary" job type.** Free-form prompts only for now.
+
+### Suggested-reply buttons: unchecked in Discord
+Not yet tried by hand: clicking through a set, a second click, and a
+click on buttons a newer reply replaced. Also whether the bot can take buttons
+off a `/bot` reply (an interaction follow-up) with a normal message edit. If
+it can't, those buttons stay visible but answer "expired".
+
 ### Confirm the unregistered-mention fix
 Mentioning the bot in an unregistered channel was long reported broken despite
 #36. #51 fixes the two likeliest causes without having confirmed either: a
@@ -520,4 +405,5 @@ people want to browse a server's pages without asking the bot.
 | 3 | Scan cancel and restart-resume tested in production (ops, 2026-09-20) | — |
 | 5 | Suggested-reply buttons: `suggest_replies` tool, click handling, expiry | #68 |
 | — | `suggest_replies` backfilled into all 17 registered channels (ops, 2026-09-21) | — |
-| 5 | Scheduled-prompt engine: store, cron/DST rules, per-minute runner, caps (not user-facing yet) | #70 |
+| 5 | Scheduled-prompt engine: store, cron/DST rules, per-minute runner, caps | #70 |
+| 5 | Scheduling tools, plain-words read-back with Confirm buttons, `/schedule` | #TBD |
