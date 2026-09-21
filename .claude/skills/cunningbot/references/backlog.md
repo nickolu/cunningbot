@@ -258,9 +258,13 @@ last 24 hours; and tools knowing who asked (`user_aware`, #65).
 - **A run still going when its next one comes due** skips the new run instead
   of stacking a second one.
 
-**Still to decide in PR 3:** how the agent turns "every weekday at 9am PT" into
-cron plus a zone, and reads it back in plain words. Also which zone to assume
-when the user doesn't say one.
+**Decided for PR 3 (2026-09-21): when no zone is given, assume Pacific**
+(`America/Los_Angeles`) without asking. The read-back always names the zone
+("daily at 9:00 AM Pacific"), so a wrong assumption shows up at the Confirm
+step. Make it a named constant (`DEFAULT_SCHEDULE_TZ`).
+
+**Still to decide in PR 3:** how the agent turns "every weekday at 9am" into
+cron and reads it back in plain words.
 
 ---
 
