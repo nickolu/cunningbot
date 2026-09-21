@@ -20,6 +20,7 @@ its state in Redis, and runs under Docker Compose on a Raspberry Pi.
 | **Edit Images** (right-click a message → Apps) | Edit every image in a message with a prompt. |
 | `/bot prompt:` | Ask the channel agent something once, in any channel — no setup needed. |
 | `/agent` | Set up the agent in a channel: `register`, `configure`, `tool`, `status`, `pause`, `resume`, `unregister`. |
+| `/schedule` | See and manage scheduled prompts: `list`, `cancel`, `pause`, `resume`. Create one by asking the agent ("post a summary here every day at 9am"). |
 | `/trivia`, `/answer` | Scheduled trivia with difficulty-weighted scoring, weekly and all-time leaderboards, and personal stats. |
 | `/news` | Add RSS feeds to a channel, posted directly or as AI summaries on a schedule, with filters and dedup. |
 | `/weather` | On-demand forecasts and history by US ZIP code, or a daily forecast post. |
@@ -46,7 +47,9 @@ threads — and it answers. It can use tools:
 - filing GitHub issues against this repo (off unless a channel enables it)
 
 It can also end a reply with buttons for likely next messages, which anyone in
-the channel can click instead of typing.
+the channel can click instead of typing, and run a prompt on a schedule
+("summarize this channel every weekday at 9am"), confirmed with buttons before
+it's saved.
 
 `/agent register` lets the bot also join a channel's conversation on its own,
 with per-channel model, persona, response mode, cooldown, context window, and

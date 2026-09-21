@@ -7,6 +7,7 @@ Key schema:
     schedule:{guild_id}:job:{job_id}   # JSON: the job record, fields below
     schedule:{guild_id}:jobs           # Set of the guild's job ids
     schedule:due                       # Sorted set: "{guild_id}:{job_id}" -> next run, epoch seconds
+    schedule:{guild_id}:draft:{channel_id}  # JSON: a schedule waiting for Confirm (TTL)
 
 Job record fields:
     job_id, guild_id, channel_id, creator_id, prompt,
@@ -22,6 +23,10 @@ Job record fields:
 Only active jobs are in `schedule:due`. The runner claims a due job with ZREM
 (`claim_due`), so if two processes ever ticked at once only one would run it,
 and puts it back with its next time once it has worked that out.
+
+A draft is what `schedule_prompt` read back and is waiting for someone to
+confirm: {prompt, cron, tz, requester_id, created_at}. One per channel, the
+latest wins, and it expires on its own after `DRAFT_TTL_SECONDS`.
 
 `schedule:due` is not guild-scoped for the same reason `scan:running` isn't:
 the tick needs every guild's due jobs in one read.
@@ -84,6 +89,29 @@ class ScheduleRedisStore:
             await self.redis.zrem(DUE_KEY, member)
         else:
             await self.redis.zadd(DUE_KEY, {member: next_run.timestamp()})
+
+    def _draft_key(self, guild_id: Any, channel_id: Any) -> str:
+        return f"schedule:{guild_id_to_str(guild_id)}:draft:{channel_id_to_str(channel_id)}"
+
+    async def save_draft(
+        self, guild_id: Any, channel_id: Any, draft: Dict[str, Any], ttl_seconds: int
+    ) -> None:
+        await self.redis.set(
+            self._draft_key(guild_id, channel_id), json.dumps(draft), ex=ttl_seconds
+        )
+
+    async def get_draft(self, guild_id: Any, channel_id: Any) -> Optional[Dict[str, Any]]:
+        data = await self.redis.get(self._draft_key(guild_id, channel_id))
+        if not data:
+            return None
+        try:
+            draft = json.loads(data)
+        except json.JSONDecodeError:
+            return None
+        return draft if isinstance(draft, dict) else None
+
+    async def clear_draft(self, guild_id: Any, channel_id: Any) -> None:
+        await self.redis.delete(self._draft_key(guild_id, channel_id))
 
     async def create_job(
         self,

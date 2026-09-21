@@ -34,6 +34,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 # Tools added since the earliest registrations. Extend when shipping a new one.
 DEFAULT_TOOLS_TO_ADD = [
     "list_pages", "read_page", "search_news", "framed_stats", "suggest_replies",
+    "schedule_prompt", "list_scheduled_prompts", "cancel_scheduled_prompt",
 ]
 
 KEY_PATTERN = "agent:*"

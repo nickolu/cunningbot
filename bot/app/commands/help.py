@@ -235,6 +235,18 @@ HELP_PAGES = [
         ),
         inline=False,
     ).add_field(
+        name="/schedule — Scheduled prompts",
+        value=(
+            "Ask the bot to do something on a schedule — \"post a summary of this channel "
+            "every weekday at 9am\" — and it reads the schedule back with Confirm / Change "
+            "time / Cancel buttons. Times are Pacific unless you say otherwise; at most hourly; "
+            "it posts in the channel you asked in. Up to 3 per person and 10 per server.\n"
+            "`/schedule list` — this server's scheduled prompts\n"
+            "`/schedule cancel` / `pause` / `resume` — for whoever set it up, or anyone who can "
+            "manage messages"
+        ),
+        inline=False,
+    ).add_field(
         name="/queue",
         value=(
             "Check the current task queue status: number of queued tasks, active tasks, "

@@ -9,6 +9,7 @@ from typing import Dict, List, Callable, Coroutine, Tuple
 
 from bot.domain.agent.tools.base import AgentTool
 from bot.domain.agent.tools import (
+    cancel_scheduled_prompt,
     create_github_issue,
     dice,
     edit_image,
@@ -16,10 +17,12 @@ from bot.domain.agent.tools import (
     host_image,
     image,
     list_pages,
+    list_scheduled_prompts,
     publish_page,
     read_channel,
     read_page,
     scan_channel_history,
+    schedule_prompt,
     search_gifs,
     search_news,
     suggest_replies,
@@ -46,6 +49,9 @@ _MODULES = (
     framed_stats,
     scan_channel_history,
     suggest_replies,
+    schedule_prompt,
+    list_scheduled_prompts,
+    cancel_scheduled_prompt,
 )
 
 TOOLS: Tuple[AgentTool, ...] = tuple(m.TOOL for m in _MODULES)

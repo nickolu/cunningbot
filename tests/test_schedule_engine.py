@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import discord
 import pytest
 
-from bot.app import schedule_runtime
+from bot.app import schedule_jobs, schedule_runtime
 from bot.app.agent_runtime import AGENT_CHANNEL_LOCKS, get_agent_channel_lock
 from bot.app.redis.schedule_store import (
     DUE_KEY,
@@ -26,11 +26,10 @@ from bot.app.redis.schedule_store import (
     ScheduleRedisStore,
     due_member,
 )
+from bot.app.schedule_jobs import create_scheduled_prompt, resume_scheduled_prompt
 from bot.app.schedule_runtime import (
     SCHEDULE_TASKS,
     SkipRun,
-    create_scheduled_prompt,
-    resume_scheduled_prompt,
     run_scheduled_job,
     scheduled_config,
     tick,
@@ -129,7 +128,7 @@ def redis() -> Any:
     fake = FakeRedis()
     client = SimpleNamespace(redis=fake)
     with patch("bot.app.redis.schedule_store.get_redis_client", return_value=client), \
-            patch.object(schedule_runtime, "get_redis_client", return_value=client):
+            patch("bot.app.schedule_jobs.get_redis_client", return_value=client):
         yield fake
 
 
@@ -253,10 +252,10 @@ class TestCreate:
     @pytest.mark.asyncio
     async def test_paused_jobs_count_and_cancelled_ones_dont(self, redis: FakeRedis) -> None:
         jobs = [await make_job() for _ in range(MAX_JOBS_PER_USER)]
-        await schedule_runtime.pause_scheduled_prompt(GUILD, jobs[0]["job_id"])
+        await schedule_jobs.pause_scheduled_prompt(GUILD, jobs[0]["job_id"])
         with pytest.raises(ScheduleError):
             await make_job()
-        assert await schedule_runtime.cancel_scheduled_prompt(GUILD, jobs[0]["job_id"])
+        assert await schedule_jobs.cancel_scheduled_prompt(GUILD, jobs[0]["job_id"])
         await make_job()
 
     @pytest.mark.asyncio
@@ -276,7 +275,7 @@ class TestCreate:
         job = await make_job()
         member = due_member(str(GUILD), job["job_id"])
 
-        await schedule_runtime.pause_scheduled_prompt(GUILD, job["job_id"])
+        await schedule_jobs.pause_scheduled_prompt(GUILD, job["job_id"])
         assert member not in redis.zsets[DUE_KEY]
 
         later = utc(2026, 9, 25, 20)

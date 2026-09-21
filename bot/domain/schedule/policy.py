@@ -16,3 +16,11 @@ MAX_CONSECUTIVE_FAILURES = 3
 
 # A prompt is replayed on every run; keep it to a paragraph.
 MAX_PROMPT_CHARS = 1000
+
+# The zone assumed when someone doesn't name one ("every day at 9am"). The
+# read-back always names the zone, so a wrong assumption shows up before
+# Confirm. Decided with the user 2026-09-21.
+DEFAULT_SCHEDULE_TZ = "America/Los_Angeles"
+
+# How long a drafted schedule waits for Confirm before it's forgotten.
+DRAFT_TTL_SECONDS = 15 * 60

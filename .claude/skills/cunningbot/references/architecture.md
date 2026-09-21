@@ -145,8 +145,23 @@ A user-created agent prompt that runs on a cron schedule. The pieces are:
 - `policy.py`: the caps and the failure limit;
 - `bot/app/redis/schedule_store.py`: jobs, plus a `schedule:due` sorted set of
   next-run times;
-- `bot/app/schedule_runtime.py`: the runner, and the create / pause / resume /
-  cancel calls.
+- `bot/app/schedule_runtime.py`: the runner;
+- `bot/app/schedule_jobs.py`: create / pause / resume / cancel and the caps.
+  These are split from the runner because the runner imports the agent, the
+  agent's registry imports the tools, and the tools need these calls;
+- `bot/domain/schedule/describe.py`: the plain-words read-back.
+
+**Creating a job takes two steps.** First, `schedule_prompt(step="draft")`
+checks the prompt, schedule, and caps and saves a per-channel draft (15-minute
+TTL). It returns the read-back ("weekdays at 9:00 AM (Pacific time)" plus the
+next three runs) and fills the suggestion box itself with Confirm / Change time
+/ Cancel. When someone clicks Confirm, the agent calls `step="confirm"`, which
+builds the job from the draft rather than from anything the model re-sends.
+Whoever confirms is the creator. The zone defaults to Pacific.
+
+`/schedule list|cancel|pause|resume` (`commands/schedule/`) manages jobs
+without the agent. Cancel, pause, and resume are for the creator or anyone
+with Manage Messages in that channel, and changes are announced publicly.
 
 `start_schedule_loop` (in `on_ready`) ticks every minute. For each due job, the
 tick does this:
