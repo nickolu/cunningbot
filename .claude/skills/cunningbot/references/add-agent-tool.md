@@ -174,7 +174,8 @@ for a user-aware tool that is not channel-aware. `run_agent` builds the call
 from `CHANNEL_AWARE_TOOLS` and `USER_AWARE_TOOLS`, and
 `tests/test_agent_tool_registry.py` fails if a flag and a signature disagree.
 
-`user` is `message.author` from the listener or `interaction.user` from `/bot`.
+`user` is `message.author` from the listener, `interaction.user` from `/bot`,
+or whoever clicked a suggested-reply button.
 It can be `None` if a future caller doesn't have one, so check before using it.
 Reach for it when a tool acts on someone's behalf or has to decide whether they
 are allowed to — `scan_channel_history` is owner-gated and needs the user for

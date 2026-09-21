@@ -39,29 +39,25 @@ from typing import Any, Dict, Optional, Pattern
 import discord
 from discord.ext import commands
 
-from bot.app.agent_runtime import AGENT_CHANNEL_LOCKS, fetch_agent_history
-from bot.app.redis.agent_store import DEFAULT_AGENT_CONFIG, AgentRedisStore
+from bot.app.agent_runtime import (
+    AGENT_CHANNEL_LOCKS,
+    UNREGISTERED_AGENT_CONFIG,
+    fetch_agent_history,
+    get_channel_agent_config,
+)
+from bot.app.redis.agent_store import AgentRedisStore
+from bot.app.suggested_replies import send_agent_reply
 from bot.domain.agent.agent_service import run_agent
-from bot.domain.agent.tools.registry import DEFAULT_ENABLED_TOOLS
 from bot.domain.agent.intent_classifier import Intent, classify_intent
+from bot.domain.agent.suggestions import collect_suggestions
 from bot.domain.agent.summon import build_summon_pattern, is_summoned_by_name
 from bot.api.discord.utils import flatten_discord_message
 from bot.api.openai.utils import sanitize_name
-from bot.utils import split_message
 from bot.app.utils.logger import get_logger
 
 logger = get_logger()
 
 ASK_CLARIFY_RESPONSE = "Did you want me to do something, or just chatting?"
-
-# Config used when the bot is summoned in a channel with no registration.
-# Strict mode: an unregistered channel only ever gets a reply when asked
-# directly, never off the intent classifier's judgement.
-UNREGISTERED_AGENT_CONFIG = {
-    **DEFAULT_AGENT_CONFIG,
-    "tools": list(DEFAULT_ENABLED_TOOLS),
-    "response_mode": "strict",
-}
 
 
 class AgentListenerCog(commands.Cog):
@@ -228,12 +224,7 @@ class AgentListenerCog(commands.Cog):
         self, guild_id: str, channel: discord.abc.GuildChannel
     ) -> Optional[Dict[str, Any]]:
         """Registration for the channel; a thread falls back to its parent's."""
-        config = await self.store.get_agent_config(guild_id, str(channel.id))
-        if config is None and isinstance(channel, discord.Thread):
-            config = await self.store.get_agent_config(
-                guild_id, str(channel.parent_id)
-            )
-        return config
+        return await get_channel_agent_config(self.store, guild_id, channel)
 
     @commands.Cog.listener("on_message")
     async def on_message(self, message: discord.Message) -> None:
@@ -306,20 +297,18 @@ class AgentListenerCog(commands.Cog):
                 history = await fetch_agent_history(channel, context_window)
 
                 # Run the agent loop
-                response = await run_agent(
-                    channel=channel,
-                    history=history,
-                    agent_config=config,
-                    guild_id=message.guild.id,
-                    # Tools that act for a person, or check whether they're
-                    # allowed to, need to know who asked.
-                    user=message.author,
-                )
+                with collect_suggestions() as suggestions:
+                    response = await run_agent(
+                        channel=channel,
+                        history=history,
+                        agent_config=config,
+                        guild_id=message.guild.id,
+                        # Tools that act for a person, or check whether they're
+                        # allowed to, need to know who asked.
+                        user=message.author,
+                    )
 
-            if response and response.strip():
-                chunks = split_message(response)
-                for chunk in chunks:
-                    await channel.send(chunk)
+            await send_agent_reply(channel, message.guild.id, response, suggestions)
 
             # Record this response for cooldown/rate tracking
             self._record_response(channel.id)

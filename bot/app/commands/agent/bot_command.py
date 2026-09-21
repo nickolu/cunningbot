@@ -11,13 +11,17 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from bot.app.agent_runtime import fetch_agent_history, get_agent_channel_lock
-from bot.app.commands.agent.agent_listener import UNREGISTERED_AGENT_CONFIG
+from bot.app.agent_runtime import (
+    UNREGISTERED_AGENT_CONFIG,
+    fetch_agent_history,
+    get_agent_channel_lock,
+)
 from bot.app.redis.agent_store import AgentRedisStore
+from bot.app.suggested_replies import send_agent_reply
 from bot.app.utils.logger import get_logger
 from bot.api.openai.utils import sanitize_name
 from bot.domain.agent.agent_service import run_agent
-from bot.utils import split_message
+from bot.domain.agent.suggestions import collect_suggestions
 
 logger = get_logger()
 
@@ -105,13 +109,14 @@ class BotCommandCog(commands.Cog):
                     "registered_config": config is not UNREGISTERED_AGENT_CONFIG,
                 })
                 # Tools that post rich output (images) send to `channel` directly.
-                response = await run_agent(
-                    channel=channel,
-                    history=history,
-                    agent_config=config,
-                    guild_id=interaction.guild.id,
-                    user=interaction.user,
-                )
+                with collect_suggestions() as suggestions:
+                    response = await run_agent(
+                        channel=channel,
+                        history=history,
+                        agent_config=config,
+                        guild_id=interaction.guild.id,
+                        user=interaction.user,
+                    )
             except Exception as e:
                 logger.error(f"/bot failed in channel {channel.id}: {e}", exc_info=True)
                 # Not ephemeral: the first followup replaces the public "thinking" message.
@@ -124,10 +129,19 @@ class BotCommandCog(commands.Cog):
             reply = quote_prompt(author, prompt)
             if response and response.strip():
                 reply += "\n\n" + response
-            for chunk in split_message(reply):
-                await interaction.followup.send(
-                    chunk, allowed_mentions=REPLY_ALLOWED_MENTIONS
+
+            async def send(chunk: str, view: Optional[discord.ui.View]) -> Any:
+                if view is None:
+                    return await interaction.followup.send(
+                        chunk, allowed_mentions=REPLY_ALLOWED_MENTIONS
+                    )
+                return await interaction.followup.send(
+                    chunk, allowed_mentions=REPLY_ALLOWED_MENTIONS, view=view
                 )
+
+            await send_agent_reply(
+                channel, interaction.guild.id, reply, suggestions, send=send
+            )
 
 
 async def setup(bot: commands.Bot) -> None:

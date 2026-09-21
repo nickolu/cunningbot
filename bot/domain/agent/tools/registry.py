@@ -22,6 +22,7 @@ from bot.domain.agent.tools import (
     scan_channel_history,
     search_gifs,
     search_news,
+    suggest_replies,
     weather,
     web_search,
 )
@@ -44,6 +45,7 @@ _MODULES = (
     search_news,
     framed_stats,
     scan_channel_history,
+    suggest_replies,
 )
 
 TOOLS: Tuple[AgentTool, ...] = tuple(m.TOOL for m in _MODULES)
