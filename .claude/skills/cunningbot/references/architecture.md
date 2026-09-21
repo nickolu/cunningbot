@@ -116,6 +116,27 @@ a command directory is loaded as an extension, and discord.py re-executes an
 extension's module on load, so module-level state there (like a lock dict) can
 exist twice.
 
+## Path C — a channel history scan
+
+`scan_channel_history` (owner-only, off by default) starts a background job
+instead of answering: the agent's 5 tool rounds can't page a whole channel.
+
+```
+tool → bot/app/scan_runtime.start_scan → asyncio.Task in the gateway process
+     → loop in bot/domain/scan/: fetch ~100 messages → UTILITY_MODEL extracts
+       this page's new items → dedup and save in bot/app/redis/scan_store.py
+     → bot/app/scan_ux.py edits the status message (≤ every 30s)
+     → on finish: report in-channel, or a published page when the list is long
+```
+
+The accumulated results never go back to the model, so each call is the same
+size however long the scan runs. Cancel ("stop", 🛑 from the requester) sets a
+Redis flag the loop checks between pages; the scan finishes its page and reports
+what it has. A job left `running` when the process dies is resumed from its
+saved cursor by `resume_running_jobs` in `on_ready`, with a fresh status message.
+
+Scans live in the gateway process because the worker containers exit each tick.
+
 ## Layer rules
 
 - `bot/api/<vendor>/` — knows the vendor's wire format, nothing about Discord or

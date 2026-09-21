@@ -3,7 +3,7 @@
 What's left to build on CunningBot, in rough priority order, with the context
 and decisions already made so nobody re-plans them.
 
-**Last verified against `main` and the Pi: 2026-09-17.** Anything below may have
+**Last verified against `main` and the Pi: 2026-09-20.** Anything below may have
 changed since — check before acting on a claim, and update the date when you do.
 
 ## Keeping this file honest
@@ -21,21 +21,19 @@ changed since — check before acting on a claim, and update the date when you d
 
 ## Ops — small, unblocked, mostly on the Pi or in Discord
 
-### After the next deploy: backfill `search_news` and `framed_stats`
-#54 adds `search_news` and the Framed PR adds `framed_stats` to
-`DEFAULT_TOOLS_TO_ADD`. Once deployed, run the backfill in `add-agent-tool.md`
-(dry run first) or registered channels won't get them. `list_pages` and
-`read_page` were backfilled into all 17 registered channels on 2026-09-17.
+### Channel scans are on — what is left
+Working in production since 2026-09-20; two real scans finished cleanly (see
+Phase 3 for the numbers). Remaining:
+- **`SCAN_ALLOWED_USER_IDS` is still unset, and that is fine.** The fallback
+  (`bot.is_owner`) resolves to the owner's account, so scans already work for
+  them. Set the variable only to allow somebody who is *not* the application
+  owner.
+- The tool is enabled in the two channels that were tested. Any other channel
+  needs `/agent tool scan_channel_history enable`. **Do not backfill it.**
 
-### After the Framed deploy: register and backfill
-The deploy must `--build` (new `framed-sync` service, new `bot/domain/framed`).
-Then an admin runs `/framed register` in the results channel and
-`/framed backfill`. Check the numbers with `/framed leaderboard period:All time`
-and `/framed status` (lists days whose posts the LLM couldn't read). Recap posts
-start the next morning.
-
-### Turn on GitHub issue filing — needs a token
-Shipped in #40, still inert. #49 passes `GITHUB_TOKEN` and `GITHUB_ISSUE_REPO`
+### Turn on GitHub issue filing — needs a token (deferred)
+**Deferred 2026-09-20:** the user isn't doing this for now. Don't raise it as a
+next step until they ask. Shipped in #40, still inert. #49 passes `GITHUB_TOKEN` and `GITHUB_ISSUE_REPO`
 to the `cunningbot` container (the only service that loads agent tools); before
 it, #43's switch away from a baked-in `.env` meant the keys never arrived.
 What's left is on the Pi: add a fine-grained PAT (repo `nickolu/cunningbot`,
@@ -43,89 +41,69 @@ Issues: read and write) and `GITHUB_ISSUE_REPO=nickolu/cunningbot` to `.env`,
 rebuild, then `/agent tool create_github_issue enable` in one channel.
 **Do not backfill it**; it's opt-in because it writes to a public repo.
 
-### Install the Pi auto-deploy timer
-PR #31 added it; the one-time `sudo` install was never run (still no timer on
+### Install the Pi auto-deploy timer (on hold)
+**On hold 2026-09-20** at the user's request, most likely until the droplet
+move (see *Proposed*) is decided. That move may replace the timer, so don't do
+both. PR #31 added it; the one-time `sudo` install was never run (still no timer on
 2026-09-16). The Pi's checkout also keeps accumulating merge commits from manual
 `git pull`, which makes `--ff-only` — what the timer uses — fail. Reset the
 checkout to `origin/main` first, then install.
 
 ---
 
-## Phase 3 — Scanning channel history
+## Phase 3 — Scanning channel history (PR 4 of 4 left)
 
 **The ask:** "parse ~500 messages in a channel and collect the images moop
-posted, to make daily-update pages", and more generally "look through the
-channel history to find restaurants". It fails because the bot can't reach them.
+posted, to make daily-update pages", and "look through the channel history to
+find restaurants". Design agreed 2026-09-17; PRs 1-3 shipped and deployed
+2026-09-19.
 
-**Why it fails today** (`bot/domain/agent/tools/read_channel.py`):
-- `limit` clamps to 50 and there's no `before`/`after` cursor, so nothing older
-  than the last 50 messages is reachable.
-- Attachments render as `[Attachments: filename]` — **the URLs are discarded**.
-  Even inside the 50-message window the images were unreachable.
-- Paging from the agent can't work anyway: `run_agent` stops after
-  `MAX_TOOL_ROUNDS = 5` tool rounds per reply.
+**What shipped**
+- **#62 — `read_channel`**: `before`/`after` (message id, link, or ISO date),
+  `author` and `has_attachments` filters, attachment URLs and message ids in
+  the output, up to 100 per call, and the cursor to continue from. A filtered
+  call scans up to 1000 messages before handing back a cursor.
+- **#64 — the engine**: `bot/app/redis/scan_store.py`, `bot/domain/scan/`
+  (loop + extractor, no discord.py), `bot/app/scan_runtime.py` (tasks, one scan
+  per channel, resume from `scan:running` in `on_ready`). One page (~100
+  messages) per model call; the accumulated list never goes back to the model;
+  results dedup in code. Cancel is a Redis flag checked between pages, so it
+  survives a restart. Five unreadable pages in a row fail the job; finished jobs
+  and results expire after 7 days.
+- **#65 (landed on main via #66) — the tool and UX**: `scan_channel_history`
+  (owner-gated by `SCAN_ALLOWED_USER_IDS`, else `bot.is_owner`;
+  `default_enabled=False`), status message with 30s progress edits, stop
+  word/🛑 from the requester, final report inline or as a page, resumed scans
+  posting a fresh status message. `AgentTool` gained `user_aware` so executors
+  can know who asked.
 
-**Design (agreed with the user 2026-09-17):**
+**PR 4 — images (not started).** Host each image a scan finds via
+`host_image_from_url` as it is found, not afterwards: Discord CDN URLs expire in
+about a day. Then the first real use, moop's images as daily-update pages
+(newest first). Decide: whether hosting is a property of the scan (every scan
+hosts what it finds) or of the instruction; how a day's images become one page
+section; and what a page looks like when a scan finds hundreds of images.
 
-- **No upper limit.** A scan pages until it reaches the start of the channel,
-  or a date/message the user gives. A whole channel can take minutes to hours.
-- **The loop lives inside one tool call, not in the agent's tool rounds.** The
-  agent calls `scan_channel_history(channel, instruction, ...)` once; the scan
-  pages on its own.
-- **Only one page is ever in context.** Per page (~100 messages, one Discord
-  history request): send the page and the instruction to `UTILITY_MODEL`, get
-  back only the *new* items as JSON (each with the message link it came from),
-  and merge them into the results **in code**, deduplicating on a normalized
-  key. The accumulated list is never sent back to the model, so every call is
-  the same size however long the list gets. The agent does a final pass over
-  the finished list (formatting, merging near-duplicates) when it reports.
-- **State lives in Redis**, as a scan job: guild, channel, requester,
-  instruction, cursor (oldest message id reached), status, counts, results.
-  A restart mid-scan resumes from the cursor instead of losing work.
-- **Runs in the background.** The agent replies right away ("scanning
-  #foodchat, I'll post when it's done") and releases the channel lock, so the
-  channel isn't blocked. The scan posts the result when it finishes: a message,
-  or a published page when the list is long.
-- **Progress:** the bot edits its status message periodically (e.g. every
-  30 s, not every page): "12,400 messages scanned, 37 restaurants so far".
-- **Cancelling:** "stop" or a 🛑 reaction from the requester ends the scan and
-  reports what was found so far. The job checks a cancel flag in Redis between
-  pages. This is job-level and simpler than the general *Interrupt the bot*
-  item, so build it here rather than waiting on that.
-- **Who can start one: only the bot owner at first.** Check with
-  `await bot.is_owner(user)` (the Discord application owner) — confirm that is
-  the user's account before relying on it; otherwise use an explicit user-id
-  allowlist. Non-owners get a plain refusal from the tool. The executor needs
-  the requesting user, which channel-aware tools don't receive today, so
-  thread it through from the listener and `/bot`.
-- **One scan per channel at a time.**
-- **Two tools, not one.** `read_channel` stays the quick-read tool and gains
-  paging and image links; `scan_channel_history` is the long, instruction-driven
-  one.
-- **Images:** for "collect moop's images" the scan collects attachment URLs and
-  **hosts each one as it's found** via `host_image_from_url` — Discord CDN URLs
-  expire in about a day (`publishing.md`), so hosting later is too late.
+**Measured in production 2026-09-20** (first two real scans, both `done`,
+`failed_pages: 0`):
 
-**PRs, in order:**
-1. **`read_channel` upgrade.** `before`/`after` (message id or ISO date),
-   `author` and `has_attachments` filters, attachment URLs and `msg.jump_url`
-   in the output. Small and useful on its own.
-2. **Scan engine.** A `scan_store.py` in `bot/app/redis/`, a service in
-   `bot/domain/` that runs the page → extract → merge loop against an
-   injectable history source (so it's testable without Discord), and a runner
-   in the `cunningbot` process that owns the asyncio tasks, resumes `running`
-   jobs on startup, and honours the cancel flag. It has to live in the gateway
-   process: the worker containers exit after each tick.
-3. **Agent tool and UX.** `scan_channel_history` (owner-only, not in
-   `DEFAULT_TOOLS_TO_ADD` — enable it with `/agent tool` where wanted), the
-   status message with progress edits, "stop"/🛑 cancel, the final report or
-   page, a system-prompt bullet, and `/help`.
-4. **Images.** Hosting found images as the scan goes, and the daily-update page
-   for moop's images as the first real use.
+| Scan | Messages | Pages | Items | Wall clock |
+|---|---|---|---|---|
+| "compile every idea/proposal discussed here" | 889 | 9 | 73 | 27 s |
+| "images/GIFs and mentions of /af" | 1080 | 11 | 41 | 23 s |
 
-**Still to decide while building:** page size if 100 proves too big for the
-model; how results are keyed for dedup per kind of scan (the model can propose
-a key per item); whether an unfinished scan that's been idle for days expires.
+So roughly **40 messages/second**, about 100 messages per page and per model
+call, with no unreadable pages. A 100k-message channel extrapolates to ~40
+minutes — worth re-measuring on one that big before promising it, since Discord
+throttles history requests harder than this sample showed.
+
+**Still unresolved:**
+- **Cancel and resume work in production** (tested by the user 2026-09-20).
+- A resumed scan re-posts a status message but its 🛑 mapping is in memory only,
+  so a restart loses the reaction mapping for the *old* status message.
+- The 5-failure threshold is still untested against a real channel (neither scan
+  had a single failed page).
+- Nothing expires an unfinished scan that stalls; `scan:running` keeps it.
 
 ## Phase 4 — Temporary upload page and file catalog
 
@@ -146,6 +124,147 @@ can be recalled later by searching their metadata.
   (per-guild sorted set on Upstash, prune on read).
 
 Largest security surface in the backlog. Plan it carefully.
+
+---
+
+## Phase 5 — Suggested replies and scheduled prompts
+
+*Planned with the user 2026-09-20.* Users create recurring agent prompts
+("post a summary of this channel every day at 9am PT"), confirmed with buttons.
+The buttons are useful on their own, so they ship first.
+
+**PRs, in order:**
+1. **Suggested-reply buttons.** The `suggest_replies` tool, the button view,
+   the live-message record in Redis and re-attaching it on restart, and the
+   shared change that makes a click wait for the channel lock instead of being
+   dropped. The scheduler needs that change too.
+2. **Scheduler engine.** `schedule_store.py`, cron handling (a new dependency,
+   e.g. `croniter`; check that it installs on the Pi's image), and the per-minute
+   runner in the `cunningbot` process. The runner applies the hourly limit, the
+   caps, the missed-run grace window, auto-pause on failure, and the
+   `scheduled_ok` tool filter. Test it against an injected clock and agent,
+   without Discord.
+3. **Agent tools and UX.** `schedule_prompt` (with the plain-words read-back
+   and Confirm / Change time / Cancel buttons), `list_scheduled_prompts`,
+   `cancel_scheduled_prompt`, `/schedule list|cancel|pause|resume`, a
+   system-prompt bullet, and `/help` page 5.
+
+### Suggested-reply buttons (PR 1)
+*Requested 2026-09-18.*
+**The ask:** the agent can end a reply with buttons offering suggested next
+messages, and the user clicks one instead of typing it.
+**Discord supports it:** up to 25 buttons per message (5 rows of 5, labels up
+to 80 characters), or a select menu of up to 25 options. A click is an
+interaction that must be acknowledged within 3 s, so defer first, then work.
+**What exists:** trivia already posts buttons
+(`bot/app/commands/trivia/trivia_views.py:113`, `custom_id`s like
+`trivia_q:{batch}:{n}:{label}`), and `bot/main.py:69-91` re-attaches them with
+`bot.add_view(view, message_id=...)` after a restart. Follow that pattern.
+**Design (agreed with the user 2026-09-18):**
+- **An agent tool, `suggest_replies(options)`**, taking 2–5 short options. The
+  listener attaches them as buttons to the last chunk of the reply
+  (`split_message` in `agent_listener.py`). A tool fits the registry and makes
+  buttons opt-in per reply. Rejected: asking the model to format options in
+  its text and parsing them out.
+- **A click posts a visible message** like "**Nick** chose: *Summarize the
+  last week*", then runs the agent as if that were the user's message. The
+  agent builds context from `channel.history()`, and a bare interaction never
+  appears there. Without the message, the agent can't see the choice.
+- **Anyone in the channel can click**, not just the requester. It's a group
+  chat.
+- **One click disables the set**, so a choice can't fire twice.
+- **Buttons expire when the next agent reply is posted** in that channel, so
+  old suggestions don't pile up. Store the live message id per channel in
+  Redis. On restart, re-attach only those (see `main.py`).
+- **A click while a run is going waits for the lock** instead of being dropped
+  like a mid-run message (`if lock.locked(): return`). Same change the
+  scheduled-prompts item needs, so build it once.
+**Also:** a system-prompt bullet on when to offer suggestions (sparingly: real
+forks in the conversation, not every reply); `/help` page 5 entry;
+`DEFAULT_TOOLS_TO_ADD` plus the backfill in `add-agent-tool.md`.
+
+### Scheduled prompts (PRs 2-3)
+*Requested 2026-09-18.*
+**The ask:** "can you post a daily summary of this channel every day at 9am
+PT?" Users schedule any agent prompt to run on a recurring schedule in a
+channel.
+**What exists:** every schedule today is hardcoded per feature. Weather,
+trivia, and RSS are worker containers that loop in `docker-compose.yml`
+(`while true; do python -m bot.app.tasks.X; sleep N; done`) and check their own
+Redis config for "is it time?" (`is_time_to_post` in `weather_poster.py`
+handles IANA time zones with `zoneinfo`). Nothing lets a user schedule an
+agent run. The nearest thing is `/bot` (#53,
+`bot/app/commands/agent/bot_command.py`), which runs the agent once on demand.
+A scheduled prompt is basically `/bot` on a timer.
+**Shape:**
+- **The runner lives in the `cunningbot` process, not a new worker.** Only that
+  container loads agent tools, and it has the gateway connection that
+  `read_channel` and posting need. Use a `discord.ext.tasks` loop that ticks
+  every minute, reads due jobs from Redis, and calls `run_agent` with the
+  stored prompt as a one-message history. Phase 3's scan runner goes in the
+  same process for the same reason. Share the pattern.
+- **Storage:** a `schedule_store.py` in `bot/app/redis/` holds per-job hashes
+  (guild, channel, creator, prompt, schedule, tz, enabled, last run, last
+  error) and a sorted set of `next_run` timestamps. The tick pops the due
+  ones, so it doesn't scan every job.
+- **Schedule format:** store a cron expression plus an IANA zone (`0 9 * * *`,
+  `America/Los_Angeles`), and compute `next_run` in that zone so DST is handled
+  (`croniter` or similar is a new dependency). The agent turns "every day at
+  9am PT" into cron. Before saving, it repeats the schedule back in plain words,
+  e.g. "daily at 9:00 AM Pacific, next run tomorrow", with **[Confirm]**,
+  **[Change time]**, and **[Cancel]** buttons (suggested-reply buttons above),
+  so a wrong parse is caught before anything runs.
+- **Creating and managing:** agent tools `schedule_prompt`,
+  `list_scheduled_prompts`, and `cancel_scheduled_prompt`, plus a `/schedule
+  list|cancel|pause` slash command so people can manage jobs without the agent.
+  Add them to `/help` page 5.
+- **Output:** post the reply in the channel. If it's long, publish a page with
+  `one_off=true` so each day's summary doesn't overwrite the last (#47).
+**Depends on:** suggested-reply buttons (PR 1), for the confirm step and the
+lock-waiting change. The other two dependencies have shipped: `read_channel`
+reads back by date (#62), so a daily summary can cover the last 24 hours, and
+tools can know who asked (`user_aware`, #65).
+
+**Decided 2026-09-20:**
+- **Anyone in the server can create a job, within caps.** Rejected for now:
+  owner-only and `manage_messages`. The caps are the protection.
+- **A cap per server and a cap per user.** The numbers are arbitrary; start
+  with **10 jobs per server, 3 per user**, as named constants so they're easy
+  to change. The user cap costs nothing extra: a server holds at most 10 jobs,
+  so count them by `creator` on create. No per-user index is needed.
+  Paused jobs count against the caps; cancelled ones don't. Hitting a cap
+  gives a plain refusal that says which cap and how to free a slot
+  (`/schedule list` / `cancel`).
+- **The run acts as the creator.** Reuse `user_aware` from #65.
+- **Hourly at most.** Reject a schedule whose runs come less than an hour
+  apart. Cron can space runs unevenly, so check the gaps between the next
+  several occurrences rather than parsing the expression.
+- **Tools that act outside the channel are off in scheduled runs**, for now:
+  `create_github_issue`, `scan_channel_history`, and the scheduling tools
+  themselves (a job must not create jobs). Add a flag on `AgentTool` (e.g.
+  `scheduled_ok`, default true) instead of a hardcoded list in the runner.
+  `publish_page` stays on: it's how long output gets posted.
+- **A missed run runs once late if it's within half its interval.** The
+  interval is the gap from the missed run to the next one after it: 30 minutes
+  of grace for an hourly job, 12 hours for a daily one. Past that, skip it.
+  Either way, `next_run` moves to the first future occurrence, so at most one
+  late run ever happens, never a replay.
+- **Suggested-reply buttons ship first**, and the confirm step uses them. v1
+  does not fall back to a typed confirmation. A click reruns the agent as the
+  person who clicked, so whoever confirms becomes the creator, and the caps
+  count against them.
+- **Later, not v1: periodic reconfirmation.** Ask the creator every so often
+  (annually?) whether a job is still wanted, and pause it if they don't answer,
+  so abandoned jobs don't run forever. The last-run and creator fields make
+  this addable without a migration.
+
+**Still to decide while building:**
+- **Failure handling:** auto-pause a job after N failures in a row (deleted
+  channel, lost permissions) and tell the creator, rather than retrying
+  forever. Suggest N = 3. Unregistered or paused channels skip the run.
+- **Generic vs. canned.** Should "daily channel summary" be a built-in job type
+  with a fixed prompt, or only free-form prompts? Suggest free-form only for
+  v1. It covers the ask, and a canned type can come later.
 
 ---
 
@@ -323,102 +442,6 @@ overlapping "Bot fails" pages in guild `844003671334977607` were merged into
 `bot-fails-wishlist-a126d3329c649ae0`, `didnt-work-list`) are still live until
 they expire.
 
-### Suggested-reply buttons
-*Requested 2026-09-18. Build before scheduled prompts, which uses it.*
-**The ask:** the agent can end a reply with buttons offering suggested next
-messages, and the user clicks one instead of typing it.
-**Discord supports it:** up to 25 buttons per message (5 rows of 5, labels up
-to 80 characters), or a select menu of up to 25 options. A click is an
-interaction that must be acknowledged within 3 s, so defer first, then work.
-**What exists:** trivia already posts buttons
-(`bot/app/commands/trivia/trivia_views.py:113`, `custom_id`s like
-`trivia_q:{batch}:{n}:{label}`), and `bot/main.py:69-91` re-attaches them with
-`bot.add_view(view, message_id=...)` after a restart. Follow that pattern.
-**Design (agreed with the user 2026-09-18):**
-- **An agent tool, `suggest_replies(options)`**, taking 2–5 short options. The
-  listener attaches them as buttons to the last chunk of the reply
-  (`split_message` in `agent_listener.py`). A tool fits the registry and makes
-  buttons opt-in per reply. Rejected: asking the model to format options in
-  its text and parsing them out.
-- **A click posts a visible message** like "**Nick** chose: *Summarize the
-  last week*", then runs the agent as if that were the user's message. The
-  agent builds context from `channel.history()`, and a bare interaction never
-  appears there. Without the message, the agent can't see the choice.
-- **Anyone in the channel can click**, not just the requester. It's a group
-  chat.
-- **One click disables the set**, so a choice can't fire twice.
-- **Buttons expire when the next agent reply is posted** in that channel, so
-  old suggestions don't pile up. Store the live message id per channel in
-  Redis. On restart, re-attach only those (see `main.py`).
-- **A click while a run is going waits for the lock** instead of being dropped
-  like a mid-run message (`if lock.locked(): return`). Same change the
-  scheduled-prompts item needs, so build it once.
-**Also:** a system-prompt bullet on when to offer suggestions (sparingly: real
-forks in the conversation, not every reply); `/help` page 5 entry;
-`DEFAULT_TOOLS_TO_ADD` plus the backfill in `add-agent-tool.md`.
-
-### Scheduled prompts (user-defined cron jobs)
-*Requested 2026-09-18.*
-**The ask:** "can you post a daily summary of this channel every day at 9am
-PT?" Users schedule any agent prompt to run on a recurring schedule in a
-channel.
-**What exists:** every schedule today is hardcoded per feature. Weather,
-trivia, and RSS are worker containers that loop in `docker-compose.yml`
-(`while true; do python -m bot.app.tasks.X; sleep N; done`) and check their own
-Redis config for "is it time?" (`is_time_to_post` in `weather_poster.py`
-handles IANA time zones with `zoneinfo`). Nothing lets a user schedule an
-agent run. The nearest thing is `/bot` (#53,
-`bot/app/commands/agent/bot_command.py`), which runs the agent once on demand.
-A scheduled prompt is basically `/bot` on a timer.
-**Shape:**
-- **The runner lives in the `cunningbot` process, not a new worker.** Only that
-  container loads agent tools, and it has the gateway connection that
-  `read_channel` and posting need. Use a `discord.ext.tasks` loop that ticks
-  every minute, reads due jobs from Redis, and calls `run_agent` with the
-  stored prompt as a one-message history. Phase 3's scan runner goes in the
-  same process for the same reason. Share the pattern.
-- **Storage:** a `schedule_store.py` in `bot/app/redis/` holds per-job hashes
-  (guild, channel, creator, prompt, schedule, tz, enabled, last run, last
-  error) and a sorted set of `next_run` timestamps. The tick pops the due
-  ones, so it doesn't scan every job.
-- **Schedule format:** store a cron expression plus an IANA zone (`0 9 * * *`,
-  `America/Los_Angeles`), and compute `next_run` in that zone so DST is handled
-  (`croniter` or similar is a new dependency). The agent turns "every day at
-  9am PT" into cron. Before saving, it repeats the schedule back in plain words,
-  e.g. "daily at 9:00 AM Pacific, next run tomorrow", with **[Confirm]**,
-  **[Change time]**, and **[Cancel]** buttons (suggested-reply buttons above),
-  so a wrong parse is caught before anything runs.
-- **Creating and managing:** agent tools `schedule_prompt`,
-  `list_scheduled_prompts`, and `cancel_scheduled_prompt`, plus a `/schedule
-  list|cancel|pause` slash command so people can manage jobs without the agent.
-  Add them to `/help` page 5.
-- **Output:** post the reply in the channel. If it's long, publish a page with
-  `one_off=true` so each day's summary doesn't overwrite the last (#47).
-**Depends on:** suggested-reply buttons (for the confirm step and the
-lock-waiting change), and Phase 3 PR 1 (`read_channel` `after`/date filter). A "daily
-summary" has to read the last 24 hours, and `read_channel` stops at 50
-messages today. Busy channels would get a summary of the last hour or so.
-**Decide in planning:**
-- **Who may create jobs.** A stored prompt runs unattended, forever, with the
-  channel's tools, so it's a lasting prompt-injection and cost vector. Options:
-  owner-only at first (like Phase 3's scans), `manage_messages`, or anyone with
-  a per-guild cap. The run needs a user to act as. Phase 3 is already
-  threading the requesting user into tool executors, so reuse that.
-- **Limits:** jobs per guild or channel, a minimum interval (at most hourly?),
-  and whether writing tools like `create_github_issue` are turned off inside
-  scheduled runs.
-- **Missed runs** while the bot is down or mid-deploy: skip to the next run, or
-  run once late if it's within a grace window. Never replay a backlog of runs.
-- **The per-channel lock.** `agent_listener.py` drops messages while a run
-  holds the lock (`if lock.locked(): return`). A scheduled run should wait for
-  the lock, not be dropped. See *Interrupt the bot*.
-- **Failure handling:** auto-pause a job after N failures in a row (deleted
-  channel, lost permissions) and tell the creator, rather than retrying
-  forever. Unregistered or paused channels should skip the run.
-- **Generic vs. canned.** Should "daily channel summary" be a built-in job type
-  with a fixed prompt, or only free-form prompts? Free-form covers it. A canned
-  type would be more predictable.
-
 ---
 
 ## Follow-ups
@@ -489,3 +512,9 @@ people want to browse a server's pages without asking the bot.
 | — | Seven stale tests fixed; suite green, no more live image calls | #52 |
 | — | `/bot` one-shot agent command with channel history | #53 |
 | — | `search_news` over the 7-day story history (news search step 1) | #54 |
+| 3 | `read_channel` pages history, filters, and returns image URLs | #62 |
+| 3 | Channel scan engine: job store, page/extract/merge loop, resume, cancel | #64 |
+| 3 | `scan_channel_history` tool, owner gate, progress/stop/report UX | #65, #66 |
+| — | README, AGENTS.md, and the skill brought back in line with the code | #56 |
+| — | `search_news` and `framed_stats` enabled in registered channels (ops, confirmed 2026-09-20) | — |
+| 3 | Scan cancel and restart-resume tested in production (ops, 2026-09-20) | — |
