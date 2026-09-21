@@ -35,6 +35,14 @@ reasons on some tools:
 
 Match the two for anything new.
 
+### Scheduled runs (`scheduled_ok`)
+
+A scheduled prompt runs unattended, and it only offers tools with
+`scheduled_ok=True`, which is the default. Set `scheduled_ok=False` for a tool
+that acts outside the channel, needs someone to say yes first, or starts more
+work on its own: `create_github_issue`, `scan_channel_history`, and the
+scheduling tools, so a job can't create jobs.
+
 ### Reaching existing channels
 
 `default_enabled=True` (the default) puts a tool in `DEFAULT_ENABLED_TOOLS`,

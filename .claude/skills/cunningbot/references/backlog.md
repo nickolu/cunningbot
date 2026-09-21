@@ -127,7 +127,7 @@ Largest security surface in the backlog. Plan it carefully.
 
 ---
 
-## Phase 5 — Suggested replies and scheduled prompts (PRs 2-3 left)
+## Phase 5 — Suggested replies and scheduled prompts (PR 3 left)
 
 *Planned with the user 2026-09-20.* Users create recurring agent prompts
 ("post a summary of this channel every day at 9am PT"), confirmed with buttons.
@@ -135,12 +135,11 @@ The buttons are useful on their own, so they ship first.
 
 **PRs, in order:**
 1. ~~**Suggested-reply buttons.**~~ Shipped in #68, deployed 2026-09-21.
-2. **Scheduler engine.** `schedule_store.py`, cron handling (a new dependency,
-   e.g. `croniter`; check that it installs on the Pi's image), and the per-minute
-   runner in the `cunningbot` process. The runner applies the hourly limit, the
-   caps, the missed-run grace window, auto-pause on failure, and the
-   `scheduled_ok` tool filter. Test it against an injected clock and agent,
-   without Discord.
+2. ~~**Scheduler engine.**~~ #70: the store,
+   `croniter` (a pure-Python wheel with pure-Python dependencies, so it
+   installs on the Pi's arm64 image), the per-minute runner, the caps, the
+   hourly limit, the missed-run window, auto-pause, and `scheduled_ok`. Users
+   can't reach any of it until PR 3.
 3. **Agent tools and UX.** `schedule_prompt` (with the plain-words read-back
    and Confirm / Change time / Cancel buttons), `list_scheduled_prompts`,
    `cancel_scheduled_prompt`, `/schedule list|cancel|pause|resume`, a
@@ -242,13 +241,30 @@ last 24 hours; and tools knowing who asked (`user_aware`, #65).
   so abandoned jobs don't run forever. The last-run and creator fields make
   this addable without a migration.
 
-**Still to decide while building:**
-- **Failure handling:** auto-pause a job after N failures in a row (deleted
-  channel, lost permissions) and tell the creator, rather than retrying
-  forever. Suggest N = 3. Unregistered or paused channels skip the run.
-- **Generic vs. canned.** Should "daily channel summary" be a built-in job type
-  with a fixed prompt, or only free-form prompts? Suggest free-form only for
-  v1. It covers the ask, and a canned type can come later.
+**Decided while building PR 2 (2026-09-21):**
+- **Three failures in a row pause a job** (`MAX_CONSECUTIVE_FAILURES`). The
+  creator is told in the job's channel, or by DM if the channel is gone. A
+  creator who left the server counts as a failure. A skipped run (paused
+  channel, missed window, previous run still going) doesn't count.
+- **Paused channels skip; unregistered channels run** with the unregistered
+  defaults. This differs from the earlier suggestion to skip both: mentions
+  and `/bot` work in unregistered channels, so a job created there should too.
+- **Free-form prompts only** for v1.
+- **Prompts are capped at 1000 characters** (`MAX_PROMPT_CHARS`).
+- **Each run posts under a "🗓️ Scheduled by <creator>: <prompt>" header**, so
+  a channel can see where an unprompted post came from.
+- **The run's single message stamps the local date and time** ahead of the
+  prompt, so "the last 24 hours" means something to the model.
+- **A run still going when its next one comes due** skips the new run instead
+  of stacking a second one.
+
+**Decided for PR 3 (2026-09-21): when no zone is given, assume Pacific**
+(`America/Los_Angeles`) without asking. The read-back always names the zone
+("daily at 9:00 AM Pacific"), so a wrong assumption shows up at the Confirm
+step. Make it a named constant (`DEFAULT_SCHEDULE_TZ`).
+
+**Still to decide in PR 3:** how the agent turns "every weekday at 9am" into
+cron and reads it back in plain words.
 
 ---
 
@@ -504,3 +520,4 @@ people want to browse a server's pages without asking the bot.
 | 3 | Scan cancel and restart-resume tested in production (ops, 2026-09-20) | — |
 | 5 | Suggested-reply buttons: `suggest_replies` tool, click handling, expiry | #68 |
 | — | `suggest_replies` backfilled into all 17 registered channels (ops, 2026-09-21) | — |
+| 5 | Scheduled-prompt engine: store, cron/DST rules, per-minute runner, caps (not user-facing yet) | #70 |

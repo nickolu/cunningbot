@@ -137,6 +137,40 @@ saved cursor by `resume_running_jobs` in `on_ready`, with a fresh status message
 
 Scans live in the gateway process because the worker containers exit each tick.
 
+### Scheduled prompts
+
+A user-created agent prompt that runs on a cron schedule. The pieces are:
+- `bot/domain/schedule/cron.py`: schedule maths, the hourly limit, and the
+  missed-run rule;
+- `policy.py`: the caps and the failure limit;
+- `bot/app/redis/schedule_store.py`: jobs, plus a `schedule:due` sorted set of
+  next-run times;
+- `bot/app/schedule_runtime.py`: the runner, and the create / pause / resume /
+  cancel calls.
+
+`start_schedule_loop` (in `on_ready`) ticks every minute. For each due job, the
+tick does this:
+1. Claims the job (`ZREM`).
+2. Moves it to its next run *before* running it, so a crash can't replay it.
+3. Starts the run as a background task.
+
+A run missed while the bot was down happens once, late, if it's within half its
+interval, and is skipped otherwise.
+
+A run does this:
+1. Waits for the channel's agent lock. It is never dropped.
+2. Runs the agent as the job's creator, with a one-message history (the prompt,
+   stamped with the local time) and only the tools marked `scheduled_ok`.
+3. Posts through `send_agent_reply` under a "🗓️ Scheduled by" header.
+
+A paused channel skips the run; that doesn't count as a failure. Three failures
+in a row (a deleted channel, lost access, a creator who left) pause the job and
+tell its creator in the channel, or by DM.
+
+Schedules are computed on naive local wall-clock times with the zone attached
+afterwards: **croniter given an aware datetime gets DST wrong**, putting "9am
+daily" an hour off on the day the clocks change.
+
 ## Layer rules
 
 - `bot/api/<vendor>/` — knows the vendor's wire format, nothing about Discord or
