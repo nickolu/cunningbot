@@ -35,6 +35,7 @@ between them.
 | `bot/app/commands/<feature>/` | discord.py Cogs (slash commands) | Thin — parse, call domain, format embed |
 | `bot/app/agent_runtime.py`, `suggested_replies.py` | History fetch, per-channel locks, and reply posting (with suggested-reply buttons) shared by the agent listener, `/bot`, and button clicks | Shared cog state lives outside `commands/` |
 | `bot/app/scan_*.py` | Channel history scans: `scan_runtime.py` (tasks, paging), `scan_ux.py` (status message, report), `scan_access.py` (who may start one) | Same rule — never inside `commands/` |
+| `bot/app/schedule_runtime.py` | Scheduled prompts: the per-minute runner, create/pause/resume/cancel, caps | Same rule; schedule maths in `bot/domain/schedule/` |
 | `bot/app/tasks/` | Standalone worker scripts run on a loop | Each is a `python -m` entry point, not a cog |
 | `bot/app/redis/*_store.py` | One store class per feature; owns its key schema | All persistence goes through a store |
 | `bot/app/utils/` | logger, zip lookup, feed fetch | |

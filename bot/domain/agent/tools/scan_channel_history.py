@@ -221,4 +221,6 @@ TOOL = AgentTool(
     channel_aware=True,
     user_aware=True,
     default_enabled=False,
+    # A scan starts hours of background work; a scheduled run shouldn't.
+    scheduled_ok=False,
 )

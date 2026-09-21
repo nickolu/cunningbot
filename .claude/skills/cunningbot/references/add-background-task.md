@@ -1,6 +1,11 @@
 # Adding a scheduled / recurring task
 
-There is no in-process scheduler. A recurring job is a **standalone script** in
+This is for recurring work the *bot* does on its own. For an agent prompt that
+a *user* wants run on a schedule, use scheduled prompts
+(`bot/app/schedule_runtime.py`; see `architecture.md`). Don't write a worker
+for it.
+
+There is no in-process scheduler for feature tasks. A recurring job is a **standalone script** in
 `bot/app/tasks/` plus a **container** in `docker-compose.yml` that re-runs it on
 a sleep loop. Each tick is a fresh process: connect, do the work, exit.
 

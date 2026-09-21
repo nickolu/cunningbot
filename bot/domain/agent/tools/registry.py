@@ -81,6 +81,9 @@ CHANNEL_AWARE_TOOLS = {t.function_name for t in TOOLS if t.channel_aware}
 # run, after the channel if the tool is channel-aware as well.
 USER_AWARE_TOOLS = {t.function_name for t in TOOLS if t.user_aware}
 
+# Config keys a scheduled prompt's run may use, if the channel has them on.
+SCHEDULED_OK_TOOLS = {t.config_key for t in TOOLS if t.scheduled_ok}
+
 # Config keys a newly registered channel agent starts with.
 DEFAULT_ENABLED_TOOLS: List[str] = [t.config_key for t in TOOLS if t.default_enabled]
 

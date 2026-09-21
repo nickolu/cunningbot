@@ -36,6 +36,11 @@ class AgentTool:
     needs when it acts on someone's behalf or has to decide whether they are
     allowed to (``scan_channel_history``). It is None when the caller could not
     identify one, so a tool that requires it has to handle that.
+
+    ``scheduled_ok`` says whether the tool is offered in a scheduled prompt's
+    unattended run. Off for tools that act outside the channel or start more
+    work on their own (``create_github_issue``, ``scan_channel_history``, and
+    the scheduling tools, so a job can't create jobs).
     """
 
     config_key: str
@@ -44,6 +49,7 @@ class AgentTool:
     channel_aware: bool = False
     user_aware: bool = False
     default_enabled: bool = True
+    scheduled_ok: bool = True
 
     @property
     def function_name(self) -> str:

@@ -134,6 +134,13 @@ async def on_ready() -> None:
     except Exception as e:
         logger.error(f"Failed to resume channel scans: {e}")
 
+    # Start running scheduled prompts; see bot/app/schedule_runtime.py.
+    try:
+        from bot.app.schedule_runtime import start_schedule_loop
+        start_schedule_loop(bot)
+    except Exception as e:
+        logger.error(f"Failed to start the scheduled prompt loop: {e}")
+
     # Initialize task queue
     from bot.app.task_queue import get_task_queue
     task_queue = get_task_queue()
