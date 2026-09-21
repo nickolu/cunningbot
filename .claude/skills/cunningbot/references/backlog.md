@@ -315,7 +315,7 @@ they expire.
 ## Follow-ups
 
 ### Scheduled prompts: what v1 left out
-Phase 5 shipped (#68, #70, and the scheduling tools PR). Not built on purpose:
+Phase 5 shipped (#68, #70, #71). Not built on purpose:
 - **Periodic reconfirmation.** Ask a job's creator every so often (annually?)
   whether it's still wanted, and pause it if they don't answer. `creator_id`
   and `last_run_at` are already on the record, so it needs no migration.
@@ -406,4 +406,4 @@ people want to browse a server's pages without asking the bot.
 | 5 | Suggested-reply buttons: `suggest_replies` tool, click handling, expiry | #68 |
 | — | `suggest_replies` backfilled into all 17 registered channels (ops, 2026-09-21) | — |
 | 5 | Scheduled-prompt engine: store, cron/DST rules, per-minute runner, caps | #70 |
-| 5 | Scheduling tools, plain-words read-back with Confirm buttons, `/schedule` | #TBD |
+| 5 | Scheduling tools, plain-words read-back with Confirm buttons, `/schedule` | #71 |
