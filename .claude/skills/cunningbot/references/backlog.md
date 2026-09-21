@@ -127,7 +127,7 @@ Largest security surface in the backlog. Plan it carefully.
 
 ---
 
-## Phase 5 — Suggested replies and scheduled prompts (PRs 2-3 left)
+## Phase 5 — Suggested replies and scheduled prompts (PR 3 left)
 
 *Planned with the user 2026-09-20.* Users create recurring agent prompts
 ("post a summary of this channel every day at 9am PT"), confirmed with buttons.
@@ -135,7 +135,7 @@ The buttons are useful on their own, so they ship first.
 
 **PRs, in order:**
 1. ~~**Suggested-reply buttons.**~~ Shipped in #68, deployed 2026-09-21.
-2. ~~**Scheduler engine.**~~ Built on branch `scheduler-engine`: the store,
+2. ~~**Scheduler engine.**~~ #70: the store,
    `croniter` (a pure-Python wheel with pure-Python dependencies, so it
    installs on the Pi's arm64 image), the per-minute runner, the caps, the
    hourly limit, the missed-run window, auto-pause, and `scheduled_ok`. Users
@@ -516,3 +516,4 @@ people want to browse a server's pages without asking the bot.
 | 3 | Scan cancel and restart-resume tested in production (ops, 2026-09-20) | — |
 | 5 | Suggested-reply buttons: `suggest_replies` tool, click handling, expiry | #68 |
 | — | `suggest_replies` backfilled into all 17 registered channels (ops, 2026-09-21) | — |
+| 5 | Scheduled-prompt engine: store, cron/DST rules, per-minute runner, caps (not user-facing yet) | #70 |
