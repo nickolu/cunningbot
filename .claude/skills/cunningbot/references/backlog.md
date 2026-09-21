@@ -3,7 +3,7 @@
 What's left to build on CunningBot, in rough priority order, with the context
 and decisions already made so nobody re-plans them.
 
-**Last verified against `main` and the Pi: 2026-09-19.** Anything below may have
+**Last verified against `main` and the Pi: 2026-09-20.** Anything below may have
 changed since — check before acting on a claim, and update the date when you do.
 
 ## Keeping this file honest
@@ -27,24 +27,15 @@ backfill has not been run since, so the 17 registered channels have neither.
 Run it from `add-agent-tool.md`, dry run first. (`list_pages` / `read_page` were
 backfilled on 2026-09-17, so those should come back as already current.)
 
-### Turn on channel scans
-Deployed 2026-09-19 (#62, #64, #65 via #66) but unusable as shipped, by design:
-1. `SCAN_ALLOWED_USER_IDS` is **not set** on the Pi, so only the Discord
-   application owner can start a scan. Set it to the owner's user id (it is in
-   `.env.example`, deliberately without a value -- the repo is public) and
-   recreate the `cunningbot` container.
-2. `scan_channel_history` is `default_enabled=False` and **not** in
-   `DEFAULT_TOOLS_TO_ADD`. Enable it per channel with
-   `/agent tool scan_channel_history enable`. **Do not backfill it.**
-Then try a real scan (`#foodchat`, "every restaurant anyone recommended") and
-watch the status message, the stop word, and the final report.
-
-### After the Framed deploy: register and backfill
-The deploy must `--build` (new `framed-sync` service, new `bot/domain/framed`).
-Then an admin runs `/framed register` in the results channel and
-`/framed backfill`. Check the numbers with `/framed leaderboard period:All time`
-and `/framed status` (lists days whose posts the LLM couldn't read). Recap posts
-start the next morning.
+### Channel scans are on — what is left
+Working in production since 2026-09-20; two real scans finished cleanly (see
+Phase 3 for the numbers). Remaining:
+- **`SCAN_ALLOWED_USER_IDS` is still unset, and that is fine.** The fallback
+  (`bot.is_owner`) resolves to the owner's account, so scans already work for
+  them. Set the variable only to allow somebody who is *not* the application
+  owner.
+- The tool is enabled in the two channels that were tested. Any other channel
+  needs `/agent tool scan_channel_history enable`. **Do not backfill it.**
 
 ### Turn on GitHub issue filing — needs a token
 Shipped in #40, still inert. #49 passes `GITHUB_TOKEN` and `GITHUB_ISSUE_REPO`
@@ -96,10 +87,27 @@ about a day. Then the first real use, moop's images as daily-update pages
 hosts what it finds) or of the instruction; how a day's images become one page
 section; and what a page looks like when a scan finds hundreds of images.
 
-**Known from building it, unresolved:**
+**Measured in production 2026-09-20** (first two real scans, both `done`,
+`failed_pages: 0`):
+
+| Scan | Messages | Pages | Items | Wall clock |
+|---|---|---|---|---|
+| "compile every idea/proposal discussed here" | 889 | 9 | 73 | 27 s |
+| "images/GIFs and mentions of /af" | 1080 | 11 | 41 | 23 s |
+
+So roughly **40 messages/second**, about 100 messages per page and per model
+call, with no unreadable pages. A 100k-message channel extrapolates to ~40
+minutes — worth re-measuring on one that big before promising it, since Discord
+throttles history requests harder than this sample showed.
+
+**Still unresolved:**
+- **Cancel and resume have never run in production.** Both test scans finished
+  in under 30 s, so the stop word, the 🛑 reaction, and restart-resume are only
+  covered by tests. Try them on a long scan before relying on them.
 - A resumed scan re-posts a status message but its 🛑 mapping is in memory only,
   so a restart loses the reaction mapping for the *old* status message.
-- Page size 100 and the 5-failure threshold are untested against a real channel.
+- The 5-failure threshold is still untested against a real channel (neither scan
+  had a single failed page).
 - Nothing expires an unfinished scan that stalls; `scan:running` keeps it.
 
 ## Phase 4 — Temporary upload page and file catalog
