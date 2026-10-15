@@ -3,7 +3,7 @@
 What's left to build on CunningBot, in rough priority order, with the context
 and decisions already made so nobody re-plans them.
 
-**Last verified against `main` and the Pi: 2026-09-21.** Anything below may have
+**Last verified against `main` and the Pi: 2026-10-14.** Anything below may have
 changed since — check before acting on a claim, and update the date when you do.
 
 ## Keeping this file honest
@@ -21,14 +21,13 @@ changed since — check before acting on a claim, and update the date when you d
 
 ## Ops — small, unblocked, mostly on the Pi or in Discord
 
-### After the scheduled-prompts deploy: backfill and try it
-PR 3 of Phase 5 adds `schedule_prompt`, `list_scheduled_prompts`, and
-`cancel_scheduled_prompt` to `DEFAULT_TOOLS_TO_ADD`. Deploy with `--build`,
-then run the backfill from `add-agent-tool.md` (dry run first). Then try the
-whole flow in Discord: ask for "a summary of this channel every day at <a time
-a few minutes from now>", click Confirm, and check the run posts under the
-"🗓️ Scheduled by" header. Then `/schedule list`, `pause`, `resume`, and
-`cancel`.
+### A scheduled prompt has been skipping silently since 2026-09-25
+Job `dcf1b70eb24d` (daily 7am summary, guild `844003671334977607`, channel
+`844003671334977610`) succeeded three times, then the agent was paused in that
+channel. Since 2026-09-25 every run has skipped and **nobody has been told** --
+the job still reads as `active` in `/schedule list`, with a next run. Either
+resume the agent there (`/agent resume`) or cancel the job
+(`/schedule cancel`). The design gap behind it is in *Follow-ups*.
 
 ### Channel scans are on — what is left
 Working in production since 2026-09-20; two real scans finished cleanly (see
@@ -315,7 +314,11 @@ they expire.
 ## Follow-ups
 
 ### Scheduled prompts: what v1 left out
-Phase 5 shipped (#68, #70, #71). Not built on purpose:
+Phase 5 shipped (#68, #70, #71). **Working in production**, confirmed by the
+user 2026-10-14: 5 jobs created since 2026-09-22 (2 live, 3 cancelled), 17
+successful runs in the last 15 days, no failures and no auto-pauses; a daily
+5pm news roundup has run 21 times without an error. 8 suggestion buttons
+clicked. Not built on purpose:
 - **Periodic reconfirmation.** Ask a job's creator every so often (annually?)
   whether it's still wanted, and pause it if they don't answer. `creator_id`
   and `last_run_at` are already on the record, so it needs no migration.
@@ -325,11 +328,22 @@ Phase 5 shipped (#68, #70, #71). Not built on purpose:
   `/schedule` has no edit command.
 - **A built-in "daily summary" job type.** Free-form prompts only for now.
 
-### Suggested-reply buttons: unchecked in Discord
-Not yet tried by hand: clicking through a set, a second click, and a
-click on buttons a newer reply replaced. Also whether the bot can take buttons
-off a `/bot` reply (an interaction follow-up) with a normal message edit. If
-it can't, those buttons stay visible but answer "expired".
+### A paused channel makes a scheduled job skip forever, silently
+By design a paused channel skips the run and that isn't a failure, so the
+failure counter never trips and the job never pauses itself or says anything.
+Live example in *Ops* above: a daily job has skipped every day since
+2026-09-25 and still looks healthy in `/schedule list`.
+**Shape:** count consecutive skips the way failures are counted and, after N
+(3?), tell the creator and pause the job -- or leave the job running but say
+something once, the first time. Either way `/schedule list` should show "last
+run skipped: the bot is paused in that channel" rather than only a next run.
+
+### Suggested-reply buttons: one thing still unobserved
+Whether the bot can take buttons off a `/bot` reply (an interaction follow-up)
+with a normal message edit. In 25 days of production no
+`suggestions_remove_failed` has been logged, but no `/bot` reply is known to
+have carried buttons either, so it is untested rather than proven. If it can't,
+those buttons stay visible but answer "expired".
 
 ### Confirm the unregistered-mention fix
 Mentioning the bot in an unregistered channel was long reported broken despite
@@ -407,3 +421,5 @@ people want to browse a server's pages without asking the bot.
 | — | `suggest_replies` backfilled into all 17 registered channels (ops, 2026-09-21) | — |
 | 5 | Scheduled-prompt engine: store, cron/DST rules, per-minute runner, caps | #70 |
 | 5 | Scheduling tools, plain-words read-back with Confirm buttons, `/schedule` | #71 |
+| 5 | Scheduling tools backfilled into all 17 registered channels (ops, 2026-09-21) | — |
+| 5 | Suggested replies and scheduled prompts confirmed working in production (ops, 2026-10-14) | — |
