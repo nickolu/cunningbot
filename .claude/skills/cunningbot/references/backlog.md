@@ -30,7 +30,7 @@ resume the agent there (`/agent resume`) or cancel the job
 (`/schedule cancel`). The design gap behind it is in *Follow-ups*.
 
 ### Turn on user uploads — Firebase project, Vercel env, deploy, backfill
-Phase 4 shipped in #77 (web) and the bot PR, both **undeployed**, and the
+Phase 4 shipped in #77 (web) and #78 (bot), both **undeployed**, and the
 bucket does not exist yet. Until it does, `/files upload` and `request_upload`
 answer "not set up yet" and everything else is unaffected. In order:
 1. **Create a separate Firebase project** (not cometcave's), enable Storage,
@@ -328,7 +328,7 @@ clicked. Not built on purpose:
 - **A built-in "daily summary" job type.** Free-form prompts only for now.
 
 ### User uploads: what v1 left out
-Phase 4 shipped as #77 (web) plus the bot PR; see the *Ops* item for turning it
+Phase 4 shipped as #77 (web) and #78 (bot); see the *Ops* item for turning it
 on. Decisions made while building, so nobody re-plans them:
 - **Catalog on Upstash, not Firestore** (`guild-files:<guild_id>` sorted set,
   prune on read, same as the page index). One metadata store on one vendor;
@@ -448,4 +448,4 @@ people want to browse a server's pages without asking the bot.
 | 5 | Scheduling tools backfilled into all 17 registered channels (ops, 2026-09-21) | — |
 | 5 | Suggested replies and scheduled prompts confirmed working in production (ops, 2026-10-14) | — |
 | 4 | Upload sessions, upload page, signed PUTs to Firebase Storage, `/f/` downloads, file catalog (web) | #77 |
-| 4 | `request_upload` / `search_files` tools, `/files upload|list|delete`, upload watcher (bot) | BOT_PR |
+| 4 | `request_upload` / `search_files` tools, `/files upload|list|delete`, upload watcher (bot) | #78 |
