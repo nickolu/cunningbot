@@ -115,21 +115,64 @@ throttles history requests harder than this sample showed.
 
 ## Phase 4 — Temporary upload page and file catalog
 
-**The ask:** the bot shares a page with an upload form that posts to blob
-storage, with a short TTL and limits on what can be uploaded, and uploaded files
-can be recalled later by searching their metadata.
+**The ask:** the bot shares a page with an upload form, with a short TTL and
+limits on what can be uploaded, and uploaded files can be recalled later by
+searching their metadata.
+
+**Decided 2026-11-01: files live in Firebase Storage, not Vercel Blob.** The
+bucket is a Google Cloud Storage bucket, which fixes the two things Blob could
+not: lifecycle rules delete objects after N days natively (no cron, no catalog
+sweep), and signed upload URLs pin the content type and a content-length range,
+so the bucket itself rejects oversized or wrong-type uploads. The browser PUTs
+straight to the signed URL, so there is no 4 MB cap and no Firebase client SDK
+on the page. Use a **separate Firebase project** from cometcave.com so a rules
+mistake on one side cannot touch the other. The cometcave repo
+(`../cometcave.com`, `src/lib/api/auth.ts`, `src/lib/firebase/server.ts`) is a
+pattern reference only -- it is Next.js/TypeScript, the bot's `web/` is plain
+JavaScript functions, so nothing is shared.
+
+**Decided 2026-11-01: no login on the upload page.** Authorization is a
+capability link. The bot mints an upload *session* (guild, channel, requester,
+max files, max bytes, allowed types, 10-15 min TTL) and posts the link,
+ephemerally when it came from a slash command. The page is a file picker; the
+server checks the session before handing out a signed URL and stamps the
+catalog entry with the requester's Discord id. The Discord user is the identity
+we care about and the bot already knows it; Firebase Auth (even cometcave's
+silent anonymous-first sign-in) would add a step without proving anything new.
+**Rejected:** Firebase Auth on the page; hosting the page on cometcave.com
+(least new infra, but puts a Discord utility inside a games site with a brand
+pact and ties the bot to that repo's deploys). Revisit Firebase Auth only if a
+second ask arrives: a persistent files page where people log in and manage
+their own uploads over time.
 
 **Constraints already found:**
 - **Can't ride on `/p/`.** Page CSP is `default-src 'none'; ... form-action 'none'`
   (`web/api/_lib.js`), deliberately, so a prompt-injected page can do nothing.
-  An upload form needs its own route with its own CSP. Don't loosen the shared one.
+  The upload page needs its own route with its own CSP (one first-party script,
+  `connect-src` to the bucket). Don't loosen the shared one.
 - **Needs a different auth model.** `web/api/upload.js` takes the bot's master
-  `PUBLISH_TOKEN` — unusable from a public form. Use a short-lived, per-page
-  upload token instead.
-- `upload.js` is also image-only and 4 MB (Vercel's 4.5 MB body cap). Larger
-  files need client-side upload direct to Blob.
-- The file catalog is a sibling of the Phase 2 page index — reuse that pattern
-  (per-guild sorted set on Upstash, prune on read).
+  `PUBLISH_TOKEN` — unusable from a public form. The session above replaces it
+  for user uploads; `upload.js` stays as-is for the bot's own `host_image`.
+- **A service account is a new secret.** Whichever side mints signed URLs (the
+  Vercel functions, probably) needs Firebase Admin credentials. If the bot
+  container needs them too, add a compose `environment:` entry -- a key missing
+  there never reaches the container (#43). `GOOGLE_API_KEY` for Gemini is an
+  API key, not a service account, and cannot be reused.
+- **Leaked-link risk is accepted**, bounded by the short TTL, the file-count
+  cap, and ephemeral posting: worst case is someone in the server uploading a
+  few extra files for fifteen minutes.
+
+**Decide in planning:**
+- **Catalog store.** Firestore gives metadata queries (uploader, type, date,
+  tag) for free and matches where the files live; Upstash matches the Phase 2
+  page index pattern and keeps the bot on one vendor. Overlaps with the news
+  archive storage question and the droplet move -- decide together.
+- **TTL tiers.** One lifecycle rule per prefix (e.g. `drops/7d/`, `drops/30d/`)
+  is cheap; pick the tiers users can ask for.
+- **Where sessions live.** Upstash with TTL (natural expiry, revocable, counts
+  uses) unless the catalog moves to Firestore, in which case sessions can too.
+- **Who can mint a session.** Any channel member via the agent, or
+  `manage_messages` via a slash command.
 
 Largest security surface in the backlog. Plan it carefully.
 
