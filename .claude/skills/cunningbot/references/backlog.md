@@ -3,7 +3,7 @@
 What's left to build on CunningBot, in rough priority order, with the context
 and decisions already made so nobody re-plans them.
 
-**Last verified against `main` and the Pi: 2026-09-17.** Anything below may have
+**Last verified against `main` and the Pi: 2026-10-14.** Anything below may have
 changed since — check before acting on a claim, and update the date when you do.
 
 ## Keeping this file honest
@@ -21,21 +21,27 @@ changed since — check before acting on a claim, and update the date when you d
 
 ## Ops — small, unblocked, mostly on the Pi or in Discord
 
-### After the next deploy: backfill `search_news` and `framed_stats`
-#54 adds `search_news` and the Framed PR adds `framed_stats` to
-`DEFAULT_TOOLS_TO_ADD`. Once deployed, run the backfill in `add-agent-tool.md`
-(dry run first) or registered channels won't get them. `list_pages` and
-`read_page` were backfilled into all 17 registered channels on 2026-09-17.
+### A scheduled prompt has been skipping silently since 2026-09-25
+Job `dcf1b70eb24d` (daily 7am summary, guild `844003671334977607`, channel
+`844003671334977610`) succeeded three times, then the agent was paused in that
+channel. Since 2026-09-25 every run has skipped and **nobody has been told** --
+the job still reads as `active` in `/schedule list`, with a next run. Either
+resume the agent there (`/agent resume`) or cancel the job
+(`/schedule cancel`). The design gap behind it is in *Follow-ups*.
 
-### After the Framed deploy: register and backfill
-The deploy must `--build` (new `framed-sync` service, new `bot/domain/framed`).
-Then an admin runs `/framed register` in the results channel and
-`/framed backfill`. Check the numbers with `/framed leaderboard period:All time`
-and `/framed status` (lists days whose posts the LLM couldn't read). Recap posts
-start the next morning.
+### Channel scans are on — what is left
+Working in production since 2026-09-20; two real scans finished cleanly (see
+Phase 3 for the numbers). Remaining:
+- **`SCAN_ALLOWED_USER_IDS` is still unset, and that is fine.** The fallback
+  (`bot.is_owner`) resolves to the owner's account, so scans already work for
+  them. Set the variable only to allow somebody who is *not* the application
+  owner.
+- The tool is enabled in the two channels that were tested. Any other channel
+  needs `/agent tool scan_channel_history enable`. **Do not backfill it.**
 
-### Turn on GitHub issue filing — needs a token
-Shipped in #40, still inert. #49 passes `GITHUB_TOKEN` and `GITHUB_ISSUE_REPO`
+### Turn on GitHub issue filing — needs a token (deferred)
+**Deferred 2026-09-20:** the user isn't doing this for now. Don't raise it as a
+next step until they ask. Shipped in #40, still inert. #49 passes `GITHUB_TOKEN` and `GITHUB_ISSUE_REPO`
 to the `cunningbot` container (the only service that loads agent tools); before
 it, #43's switch away from a baked-in `.env` meant the keys never arrived.
 What's left is on the Pi: add a fine-grained PAT (repo `nickolu/cunningbot`,
@@ -43,37 +49,69 @@ Issues: read and write) and `GITHUB_ISSUE_REPO=nickolu/cunningbot` to `.env`,
 rebuild, then `/agent tool create_github_issue enable` in one channel.
 **Do not backfill it**; it's opt-in because it writes to a public repo.
 
-### Install the Pi auto-deploy timer
-PR #31 added it; the one-time `sudo` install was never run (still no timer on
+### Install the Pi auto-deploy timer (on hold)
+**On hold 2026-09-20** at the user's request, most likely until the droplet
+move (see *Proposed*) is decided. That move may replace the timer, so don't do
+both. PR #31 added it; the one-time `sudo` install was never run (still no timer on
 2026-09-16). The Pi's checkout also keeps accumulating merge commits from manual
 `git pull`, which makes `--ff-only` — what the timer uses — fail. Reset the
 checkout to `origin/main` first, then install.
 
 ---
 
-## Phase 3 — Channel history and media backfill
+## Phase 3 — Scanning channel history (PR 4 of 4 left)
 
 **The ask:** "parse ~500 messages in a channel and collect the images moop
-posted, to make daily-update pages." Failed because the bot can't reach them.
+posted, to make daily-update pages", and "look through the channel history to
+find restaurants". Design agreed 2026-09-17; PRs 1-3 shipped and deployed
+2026-09-19.
 
-**Why it fails today** (`bot/domain/agent/tools/read_channel.py`):
-- `limit` clamps to 50 and there's no `before`/`after` cursor, so nothing older
-  than the last 50 messages is reachable.
-- Attachments render as `[Attachments: filename]` — **the URLs are discarded**.
-  Even inside the 50-message window the images were unreachable.
+**What shipped**
+- **#62 — `read_channel`**: `before`/`after` (message id, link, or ISO date),
+  `author` and `has_attachments` filters, attachment URLs and message ids in
+  the output, up to 100 per call, and the cursor to continue from. A filtered
+  call scans up to 1000 messages before handing back a cursor.
+- **#64 — the engine**: `bot/app/redis/scan_store.py`, `bot/domain/scan/`
+  (loop + extractor, no discord.py), `bot/app/scan_runtime.py` (tasks, one scan
+  per channel, resume from `scan:running` in `on_ready`). One page (~100
+  messages) per model call; the accumulated list never goes back to the model;
+  results dedup in code. Cancel is a Redis flag checked between pages, so it
+  survives a restart. Five unreadable pages in a row fail the job; finished jobs
+  and results expire after 7 days.
+- **#65 (landed on main via #66) — the tool and UX**: `scan_channel_history`
+  (owner-gated by `SCAN_ALLOWED_USER_IDS`, else `bot.is_owner`;
+  `default_enabled=False`), status message with 30s progress edits, stop
+  word/🛑 from the requester, final report inline or as a page, resumed scans
+  posting a fresh status message. `AgentTool` gained `user_aware` so executors
+  can know who asked.
 
-**Shape:**
-- `before`/`after` (message id or ISO date) and internal pagination past 50.
-- Filters: `author`, `has_attachments`.
-- Emit attachment URLs and `msg.jump_url`.
-- **Bulk hosting is part of this, not a follow-up.** Discord CDN URLs expire in
-  ~a day (`publishing.md`), so collected images die before the page is read.
-  Chain to `host_image_from_url`.
+**PR 4 — images (not started).** Host each image a scan finds via
+`host_image_from_url` as it is found, not afterwards: Discord CDN URLs expire in
+about a day. Then the first real use, moop's images as daily-update pages
+(newest first). Decide: whether hosting is a property of the scan (every scan
+hosts what it finds) or of the instruction; how a day's images become one page
+section; and what a page looks like when a scan finds hundreds of images.
 
-**Open questions for planning:** a hard ceiling on messages per call (the agent
-gets 5 tool rounds per message); whether this is one tool with filters or a
-separate `collect_channel_media` tool; what a 500-message result does to the
-model's context — probably summarize or return only matches, never raw history.
+**Measured in production 2026-09-20** (first two real scans, both `done`,
+`failed_pages: 0`):
+
+| Scan | Messages | Pages | Items | Wall clock |
+|---|---|---|---|---|
+| "compile every idea/proposal discussed here" | 889 | 9 | 73 | 27 s |
+| "images/GIFs and mentions of /af" | 1080 | 11 | 41 | 23 s |
+
+So roughly **40 messages/second**, about 100 messages per page and per model
+call, with no unreadable pages. A 100k-message channel extrapolates to ~40
+minutes — worth re-measuring on one that big before promising it, since Discord
+throttles history requests harder than this sample showed.
+
+**Still unresolved:**
+- **Cancel and resume work in production** (tested by the user 2026-09-20).
+- A resumed scan re-posts a status message but its 🛑 mapping is in memory only,
+  so a restart loses the reaction mapping for the *old* status message.
+- The 5-failure threshold is still untested against a real channel (neither scan
+  had a single failed page).
+- Nothing expires an unfinished scan that stalls; `scan:running` keeps it.
 
 ## Phase 4 — Temporary upload page and file catalog
 
@@ -275,6 +313,38 @@ they expire.
 
 ## Follow-ups
 
+### Scheduled prompts: what v1 left out
+Phase 5 shipped (#68, #70, #71). **Working in production**, confirmed by the
+user 2026-10-14: 5 jobs created since 2026-09-22 (2 live, 3 cancelled), 17
+successful runs in the last 15 days, no failures and no auto-pauses; a daily
+5pm news roundup has run 21 times without an error. 8 suggestion buttons
+clicked. Not built on purpose:
+- **Periodic reconfirmation.** Ask a job's creator every so often (annually?)
+  whether it's still wanted, and pause it if they don't answer. `creator_id`
+  and `last_run_at` are already on the record, so it needs no migration.
+- **Posting to another channel.** A job runs in the channel it was confirmed
+  in. "Post it in #general" means asking from #general.
+- **Editing a job.** Change time means cancelling and drafting again.
+  `/schedule` has no edit command.
+- **A built-in "daily summary" job type.** Free-form prompts only for now.
+
+### A paused channel makes a scheduled job skip forever, silently
+By design a paused channel skips the run and that isn't a failure, so the
+failure counter never trips and the job never pauses itself or says anything.
+Live example in *Ops* above: a daily job has skipped every day since
+2026-09-25 and still looks healthy in `/schedule list`.
+**Shape:** count consecutive skips the way failures are counted and, after N
+(3?), tell the creator and pause the job -- or leave the job running but say
+something once, the first time. Either way `/schedule list` should show "last
+run skipped: the bot is paused in that channel" rather than only a next run.
+
+### Suggested-reply buttons: one thing still unobserved
+Whether the bot can take buttons off a `/bot` reply (an interaction follow-up)
+with a normal message edit. In 25 days of production no
+`suggestions_remove_failed` has been logged, but no `/bot` reply is known to
+have carried buttons either, so it is untested rather than proven. If it can't,
+those buttons stay visible but answer "expired".
+
 ### Confirm the unregistered-mention fix
 Mentioning the bot in an unregistered channel was long reported broken despite
 #36. #51 fixes the two likeliest causes without having confirmed either: a
@@ -341,3 +411,15 @@ people want to browse a server's pages without asking the bot.
 | — | Seven stale tests fixed; suite green, no more live image calls | #52 |
 | — | `/bot` one-shot agent command with channel history | #53 |
 | — | `search_news` over the 7-day story history (news search step 1) | #54 |
+| 3 | `read_channel` pages history, filters, and returns image URLs | #62 |
+| 3 | Channel scan engine: job store, page/extract/merge loop, resume, cancel | #64 |
+| 3 | `scan_channel_history` tool, owner gate, progress/stop/report UX | #65, #66 |
+| — | README, AGENTS.md, and the skill brought back in line with the code | #56 |
+| — | `search_news` and `framed_stats` enabled in registered channels (ops, confirmed 2026-09-20) | — |
+| 3 | Scan cancel and restart-resume tested in production (ops, 2026-09-20) | — |
+| 5 | Suggested-reply buttons: `suggest_replies` tool, click handling, expiry | #68 |
+| — | `suggest_replies` backfilled into all 17 registered channels (ops, 2026-09-21) | — |
+| 5 | Scheduled-prompt engine: store, cron/DST rules, per-minute runner, caps | #70 |
+| 5 | Scheduling tools, plain-words read-back with Confirm buttons, `/schedule` | #71 |
+| 5 | Scheduling tools backfilled into all 17 registered channels (ops, 2026-09-21) | — |
+| 5 | Suggested replies and scheduled prompts confirmed working in production (ops, 2026-10-14) | — |

@@ -74,7 +74,9 @@ Cogs are discovered by scanning `bot/app/commands/` in `bot/main.py` — every
 9. `run_agent()` → OpenAI tool-calling loop, max **5** rounds
    (`MAX_TOOL_ROUNDS`). Tools that produce rich output (images) send to the
    channel themselves and return a text summary to the model.
-10. Final text is chunked by `split_message()` and sent.
+10. `send_agent_reply()` (`bot/app/suggested_replies.py`) chunks the text with
+    `split_message()`, sends it, and puts any suggested-reply buttons on the
+    last chunk (see below).
 
 Configuration is per channel via `/agent register|configure|status|pause|resume|
 unregister`, stored by `bot/app/redis/agent_store.py`.
@@ -90,10 +92,99 @@ with `interaction.channel`. The reply quotes the prompt's first line, since a
 slash invocation leaves no visible message, and sends with `@everyone` and role
 pings disabled.
 
+### Suggested-reply buttons
+
+The `suggest_replies` tool can't reach the reply message -- `run_agent` returns
+before it's sent -- so every entry point wraps its run in
+`collect_suggestions()` (`bot/domain/agent/suggestions.py`, a `ContextVar` box
+the tool fills) and passes the box to `send_agent_reply()`. **A new way of
+running the agent must do the same**, or the tool tells the model buttons
+can't be shown.
+
+A channel has one live set, recorded by `bot/app/redis/suggestion_store.py`
+under a nonce that is also in each button's custom_id. Any agent reply replaces
+the record and strips the old buttons. A click (`handle_click`) claims the set
+atomically (so only the first click counts), greys the buttons out, posts
+"**name** chose: *option*" so later history shows the choice, then **waits** for
+the channel lock -- unlike a mention, a click is never dropped -- and runs the
+agent with the choice as the clicker's message. The buttons are a
+`DynamicItem` registered at startup (`commands/agent/suggestion_buttons.py`), so
+clicks on messages sent before a restart still work without re-attaching views.
+
 `agent_runtime.py` sits outside `bot/app/commands/` on purpose: every module in
 a command directory is loaded as an extension, and discord.py re-executes an
 extension's module on load, so module-level state there (like a lock dict) can
 exist twice.
+
+## Path C — a channel history scan
+
+`scan_channel_history` (owner-only, off by default) starts a background job
+instead of answering: the agent's 5 tool rounds can't page a whole channel.
+
+```
+tool → bot/app/scan_runtime.start_scan → asyncio.Task in the gateway process
+     → loop in bot/domain/scan/: fetch ~100 messages → UTILITY_MODEL extracts
+       this page's new items → dedup and save in bot/app/redis/scan_store.py
+     → bot/app/scan_ux.py edits the status message (≤ every 30s)
+     → on finish: report in-channel, or a published page when the list is long
+```
+
+The accumulated results never go back to the model, so each call is the same
+size however long the scan runs. Cancel ("stop", 🛑 from the requester) sets a
+Redis flag the loop checks between pages; the scan finishes its page and reports
+what it has. A job left `running` when the process dies is resumed from its
+saved cursor by `resume_running_jobs` in `on_ready`, with a fresh status message.
+
+Scans live in the gateway process because the worker containers exit each tick.
+
+### Scheduled prompts
+
+A user-created agent prompt that runs on a cron schedule. The pieces are:
+- `bot/domain/schedule/cron.py`: schedule maths, the hourly limit, and the
+  missed-run rule;
+- `policy.py`: the caps and the failure limit;
+- `bot/app/redis/schedule_store.py`: jobs, plus a `schedule:due` sorted set of
+  next-run times;
+- `bot/app/schedule_runtime.py`: the runner;
+- `bot/app/schedule_jobs.py`: create / pause / resume / cancel and the caps.
+  These are split from the runner because the runner imports the agent, the
+  agent's registry imports the tools, and the tools need these calls;
+- `bot/domain/schedule/describe.py`: the plain-words read-back.
+
+**Creating a job takes two steps.** First, `schedule_prompt(step="draft")`
+checks the prompt, schedule, and caps and saves a per-channel draft (15-minute
+TTL). It returns the read-back ("weekdays at 9:00 AM (Pacific time)" plus the
+next three runs) and fills the suggestion box itself with Confirm / Change time
+/ Cancel. When someone clicks Confirm, the agent calls `step="confirm"`, which
+builds the job from the draft rather than from anything the model re-sends.
+Whoever confirms is the creator. The zone defaults to Pacific.
+
+`/schedule list|cancel|pause|resume` (`commands/schedule/`) manages jobs
+without the agent. Cancel, pause, and resume are for the creator or anyone
+with Manage Messages in that channel, and changes are announced publicly.
+
+`start_schedule_loop` (in `on_ready`) ticks every minute. For each due job, the
+tick does this:
+1. Claims the job (`ZREM`).
+2. Moves it to its next run *before* running it, so a crash can't replay it.
+3. Starts the run as a background task.
+
+A run missed while the bot was down happens once, late, if it's within half its
+interval, and is skipped otherwise.
+
+A run does this:
+1. Waits for the channel's agent lock. It is never dropped.
+2. Runs the agent as the job's creator, with a one-message history (the prompt,
+   stamped with the local time) and only the tools marked `scheduled_ok`.
+3. Posts through `send_agent_reply` under a "🗓️ Scheduled by" header.
+
+A paused channel skips the run; that doesn't count as a failure. Three failures
+in a row (a deleted channel, lost access, a creator who left) pause the job and
+tell its creator in the channel, or by DM.
+
+Schedules are computed on naive local wall-clock times with the zone attached
+afterwards: **croniter given an aware datetime gets DST wrong**, putting "9am
+daily" an hour off on the day the clocks change.
 
 ## Layer rules
 

@@ -35,6 +35,14 @@ reasons on some tools:
 
 Match the two for anything new.
 
+### Scheduled runs (`scheduled_ok`)
+
+A scheduled prompt runs unattended, and it only offers tools with
+`scheduled_ok=True`, which is the default. Set `scheduled_ok=False` for a tool
+that acts outside the channel, needs someone to say yes first, or starts more
+work on its own: `create_github_issue`, `scan_channel_history`, and the
+scheduling tools, so a job can't create jobs.
+
 ### Reaching existing channels
 
 `default_enabled=True` (the default) puts a tool in `DEFAULT_ENABLED_TOOLS`,
@@ -156,6 +164,31 @@ registration.
 Executors get a `discord.TextChannel`, not a guild id. Use
 `channel.guild.id` → `guild_id_to_str()`. Non-channel-aware tools cannot scope
 to a guild at all — if a tool touches per-server state, it must be channel-aware.
+
+## Getting the user who asked (`user_aware`)
+
+`user_aware=True` adds the requesting user as a third argument, after the
+channel:
+
+```python
+async def execute_scan_channel_history(
+    arguments: Dict[str, Any], channel: discord.TextChannel, user: Any
+) -> str:
+```
+
+The order is fixed and follows the flags: `(arguments)`,
+`(arguments, channel)`, `(arguments, channel, user)`, or `(arguments, user)`
+for a user-aware tool that is not channel-aware. `run_agent` builds the call
+from `CHANNEL_AWARE_TOOLS` and `USER_AWARE_TOOLS`, and
+`tests/test_agent_tool_registry.py` fails if a flag and a signature disagree.
+
+`user` is `message.author` from the listener, `interaction.user` from `/bot`,
+or whoever clicked a suggested-reply button.
+It can be `None` if a future caller doesn't have one, so check before using it.
+Reach for it when a tool acts on someone's behalf or has to decide whether they
+are allowed to — `scan_channel_history` is owner-gated and needs the user for
+`bot.is_owner`. Do **not** use it to address someone in the returned string;
+that is the model's job.
 
 ## Testing
 

@@ -9,6 +9,7 @@ from typing import Dict, List, Callable, Coroutine, Tuple
 
 from bot.domain.agent.tools.base import AgentTool
 from bot.domain.agent.tools import (
+    cancel_scheduled_prompt,
     create_github_issue,
     dice,
     edit_image,
@@ -16,11 +17,15 @@ from bot.domain.agent.tools import (
     host_image,
     image,
     list_pages,
+    list_scheduled_prompts,
     publish_page,
     read_channel,
     read_page,
+    scan_channel_history,
+    schedule_prompt,
     search_gifs,
     search_news,
+    suggest_replies,
     weather,
     web_search,
 )
@@ -42,6 +47,11 @@ _MODULES = (
     read_page,
     search_news,
     framed_stats,
+    scan_channel_history,
+    suggest_replies,
+    schedule_prompt,
+    list_scheduled_prompts,
+    cancel_scheduled_prompt,
 )
 
 TOOLS: Tuple[AgentTool, ...] = tuple(m.TOOL for m in _MODULES)
@@ -72,6 +82,13 @@ TOOL_EXECUTORS: Dict[str, Callable[..., Coroutine]] = {
 
 # Function names whose executor takes the Discord channel as a second argument.
 CHANNEL_AWARE_TOOLS = {t.function_name for t in TOOLS if t.channel_aware}
+
+# Function names whose executor also takes the user whose message started the
+# run, after the channel if the tool is channel-aware as well.
+USER_AWARE_TOOLS = {t.function_name for t in TOOLS if t.user_aware}
+
+# Config keys a scheduled prompt's run may use, if the channel has them on.
+SCHEDULED_OK_TOOLS = {t.config_key for t in TOOLS if t.scheduled_ok}
 
 # Config keys a newly registered channel agent starts with.
 DEFAULT_ENABLED_TOOLS: List[str] = [t.config_key for t in TOOLS if t.default_enabled]

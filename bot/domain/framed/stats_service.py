@@ -14,8 +14,8 @@ from bot.domain.framed.puzzle import (
     points_for, puzzle_for_date,
 )
 from bot.domain.framed.stats import (
-    HeadToHead, LeaderboardRow, PlayerStats, Scores, daily_ranking,
-    filter_period, leaderboard,
+    HeadToHead, LeaderboardRow, PlayerStats, Scope, Scores, daily_ranking,
+    filter_period, leaderboard, player_stats,
 )
 from bot.domain.framed.sync_service import MAX_LLM_ATTEMPTS, pending_days
 
@@ -35,6 +35,22 @@ class FramedData:
     as_of: date                           # the last finished day that's been read
     pending: List[date] = field(default_factory=list)
     unreadable: List[date] = field(default_factory=list)
+
+    @property
+    def group_started(self) -> Optional[date]:
+        """The first day anyone posted. Days before it count against nobody."""
+        return min(self.scores) if self.scores else None
+
+    def scope(self, start: Optional[date], end: Optional[date]) -> Scope:
+        """The days a player is judged on for a period; see stats.Scope.
+
+        A period keeps its own start, so joining midway through a year still
+        counts the whole year. All time has no start, so each player is judged
+        from their own first result.
+        """
+        if start is not None and self.group_started is not None:
+            start = max(start, self.group_started)
+        return start, min(end or self.as_of, self.as_of)
 
     def name(self, user_id: str) -> str:
         return self.names.get(user_id) or "Unknown player"
@@ -168,10 +184,10 @@ def format_leaderboard(
     lines = []
     for row in rows[:limit]:
         lines.append(
-            "**%d.** %s — **%d pts** · %d played · %.1f/game · %d win%s · %d%% solved" % (
-                row.rank, data.name(row.user_id), row.points, row.played,
-                row.points_per_game, row.wins, "" if row.wins == 1 else "s",
-                round(100 * row.solved / row.played) if row.played else 0,
+            "**%d.** %s — **%d pts** · %d%% solved · %d of %d days · %.2f pts/day · %d win%s" % (
+                row.rank, data.name(row.user_id), row.points,
+                round(100 * row.solve_rate), row.played, row.days or row.played,
+                row.points_per_day, row.wins, "" if row.wins == 1 else "s",
             )
         )
     if len(rows) > limit:
@@ -183,24 +199,35 @@ def leaderboard_for(
     data: FramedData, period: str, year: Optional[int] = None
 ) -> Tuple[str, List[LeaderboardRow]]:
     start, end, label = resolve_period(period, data.latest_day, year)
-    return label, leaderboard(filter_period(data.scores, start, end))
+    rows = leaderboard(filter_period(data.scores, start, end), data.scope(start, end))
+    return label, rows
+
+
+def stats_for(data: FramedData, user_id: str, period: str = "all",
+              year: Optional[int] = None) -> PlayerStats:
+    start, end, _ = resolve_period(period, data.latest_day, year)
+    return player_stats(
+        filter_period(data.scores, start, end), user_id, data.as_of,
+        data.scope(start, end),
+    )
 
 
 def format_player(data: FramedData, stats: PlayerStats) -> str:
     if not stats.played:
         return "No results yet."
-    lifetime = {r.user_id: r for r in leaderboard(data.scores)}
+    lifetime = {r.user_id: r for r in leaderboard(data.scores, data.scope(None, None))}
     _, year_rows = leaderboard_for(data, "year")
     year_rank = next((r.rank for r in year_rows if r.user_id == stats.user_id), None)
     avg = stats.average_guesses
     lines = [
-        "**Played:** %d (first %s, last %s)" % (
-            stats.played, stats.first_played, stats.last_played),
-        "**Points:** %d · %.2f per game" % (stats.points, stats.points_per_game),
-        "**Average guess (solved):** %s · **Solved:** %d%% · **Perfect 1s:** %d" % (
-            "%.2f" % avg if avg is not None else "—",
-            round(100 * stats.solve_rate), stats.perfect),
-        "**Daily wins:** %d" % stats.wins,
+        "**Solved:** %d%% of the %d days since %s" % (
+            round(100 * stats.solve_rate), stats.days, stats.first_played),
+        "**Posted:** %d days (%d%%) · **missed:** %d · **no post:** %d" % (
+            stats.played, round(100 * stats.play_rate), stats.missed, stats.absent),
+        "**Points:** %d · %.2f per day" % (stats.points, stats.points_per_day),
+        "**Average guess when solved:** %s · **Perfect 1s:** %d" % (
+            "%.2f" % avg if avg is not None else "—", stats.perfect),
+        "**Daily wins:** %d · **last played:** %s" % (stats.wins, stats.last_played),
         "**Rank:** #%d all-time · %s this year" % (
             lifetime[stats.user_id].rank,
             "#%d" % year_rank if year_rank else "unranked"),
@@ -217,13 +244,15 @@ def format_player(data: FramedData, stats: PlayerStats) -> str:
 
 
 def distribution_chart(stats: PlayerStats, width: int = 20) -> str:
-    biggest = max(stats.distribution.values()) or 1
-    rows = []
-    for score in list(range(1, MAX_GUESSES + 1)) + [FAIL]:
-        count = stats.distribution.get(score, 0)
-        bar = "█" * max(1 if count else 0, round(width * count / biggest))
-        rows.append("%s │%s %d" % (format_score(score), bar, count))
-    return "\n".join(rows)
+    """Scores 1-6, posted misses, then days with no post (also misses)."""
+    counts = [(format_score(s), stats.distribution.get(s, 0))
+              for s in list(range(1, MAX_GUESSES + 1)) + [FAIL]]
+    counts.append(("–", stats.absent))
+    biggest = max(c for _, c in counts) or 1
+    return "\n".join(
+        "%s │%s %d" % (label, "█" * max(1 if count else 0, round(width * count / biggest)), count)
+        for label, count in counts
+    )
 
 
 def format_head_to_head(data: FramedData, a: str, b: str, h2h: HeadToHead) -> str:

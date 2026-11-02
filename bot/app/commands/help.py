@@ -166,8 +166,9 @@ HELP_PAGES = [
     ).add_field(
         name="/framed — Framed movie game stats",
         value=(
-            "Tracks results posted in a registered channel (share text, `3`, `X`, or plain words "
-            "like `nada`). Each day is read after midnight Pacific; points are 1→6 … 6→1, miss→0.\n"
+            "Tracks results posted in a registered channel (share text, `3`, `X`, `F`, or words "
+            "like `nada`). Each day is read after midnight Pacific; points are 1→6 … 6→1, miss→0. "
+            "A day you don't post counts as a miss, so solve rates are out of every day.\n"
             "`/framed stats [player]` — points, averages, wins, streaks, score chart\n"
             "`/framed leaderboard [period] [year]` — rankings by total points\n"
             "`/framed day [puzzle or date]` — one day's ranking\n"
@@ -210,10 +211,15 @@ HELP_PAGES = [
             "Say the bot's name, @mention it, or reply to it in **any** channel and it "
             "answers, using its tools (weather, images, GIFs, web search, searching this "
             "server's news feeds, dice, publishing and updating web pages, and filing "
-            "GitHub issues where enabled).\n"
+            "GitHub issues where enabled). It may end a reply with buttons for likely "
+            "next messages; anyone can click one.\n"
             "`/agent register` — let it also join in on its own when a conversation calls for it\n"
             "`/agent configure` — model, persona, response mode, cooldown, context window\n"
             "`/agent tool <name> <enable|disable>` — turn one tool on or off here\n"
+            "`scan_channel_history` — owner-only, off by default: scans a channel's whole "
+            "history for something (every restaurant mentioned, every image someone posted) "
+            "in the background and posts the results when it's done. Say `stop` or react 🛑 "
+            "to stop it. Turn it on with `/agent tool`.\n"
             "`/agent status` — show this channel's settings\n"
             "`/agent pause` / `/agent resume` — silence it here (paused channels ignore summons too)\n"
             "`/agent unregister` — remove the registration"
@@ -226,6 +232,18 @@ HELP_PAGES = [
             "It reads recent messages for context, can use its tools, and quotes your prompt "
             "in the reply. In a registered channel it uses that channel's model, persona, and "
             "tools; works in paused channels too."
+        ),
+        inline=False,
+    ).add_field(
+        name="/schedule — Scheduled prompts",
+        value=(
+            "Ask the bot to do something on a schedule — \"post a summary of this channel "
+            "every weekday at 9am\" — and it reads the schedule back with Confirm / Change "
+            "time / Cancel buttons. Times are Pacific unless you say otherwise; at most hourly; "
+            "it posts in the channel you asked in. Up to 3 per person and 10 per server.\n"
+            "`/schedule list` — this server's scheduled prompts\n"
+            "`/schedule cancel` / `pause` / `resume` — for whoever set it up, or anyone who can "
+            "manage messages"
         ),
         inline=False,
     ).add_field(

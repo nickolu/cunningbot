@@ -33,7 +33,9 @@ between them.
 | `bot/api/<vendor>/` | Outbound clients (openai, google, perplexity, openmeteo, opentdb, animation_factory) | No discord.py, no business logic |
 | `bot/domain/<feature>/` | Business logic and services | No discord.py imports, no Redis keys inline |
 | `bot/app/commands/<feature>/` | discord.py Cogs (slash commands) | Thin — parse, call domain, format embed |
-| `bot/app/agent_runtime.py` | History fetch and per-channel locks shared by the agent listener and `/bot` | Shared cog state lives outside `commands/` |
+| `bot/app/agent_runtime.py`, `suggested_replies.py` | History fetch, per-channel locks, and reply posting (with suggested-reply buttons) shared by the agent listener, `/bot`, and button clicks | Shared cog state lives outside `commands/` |
+| `bot/app/scan_*.py` | Channel history scans: `scan_runtime.py` (tasks, paging), `scan_ux.py` (status message, report), `scan_access.py` (who may start one) | Same rule — never inside `commands/` |
+| `bot/app/schedule_runtime.py`, `schedule_jobs.py` | Scheduled prompts: the per-minute runner; create/pause/resume/cancel and caps (split out so tools can import it without a cycle) | Same rule; schedule maths and plain-words read-back in `bot/domain/schedule/` |
 | `bot/app/tasks/` | Standalone worker scripts run on a loop | Each is a `python -m` entry point, not a cog |
 | `bot/app/redis/*_store.py` | One store class per feature; owns its key schema | All persistence goes through a store |
 | `bot/app/utils/` | logger, zip lookup, feed fetch | |
@@ -72,7 +74,7 @@ between them.
 ## Verify before shipping
 
 ```bash
-python3 -m pytest tests/          # ~290 tests, ~3s; needs OPENAI_API_KEY set (see backlog)
+python3 -m pytest tests/          # ~450 tests, ~5s; needs OPENAI_API_KEY set (see backlog)
 python3 -m pytest tests/test_trivia_points.py -q   # single file
 ```
 

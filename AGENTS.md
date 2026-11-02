@@ -28,7 +28,7 @@ The pages are currently organized as:
 - **Page 2** — `/trivia` group, `/answer`, Submit Answer context menu
 - **Page 3** — `/news` group, `/weather` group
 - **Page 4** — `/poll`, `/poll-results`, `/roll`, `/af`, `/r`, `/persona`
-- **Page 5** — `/bot-updates`, `/agent`, `/bot`, `/queue`, `/help`
+- **Page 5** — `/bot-updates`, `/agent`, `/bot`, `/schedule`, `/queue`, `/help`
 
 The `/agent` entry also lists the agent's tools in plain words — update it when
 you add a user-visible agent tool.

@@ -17,6 +17,7 @@ from bot.domain.agent.tools.registry import (
     TOOL_EXECUTORS,
     TOOL_SCHEMAS,
     TOOLS,
+    USER_AWARE_TOOLS,
     get_tool_schemas_for_config,
 )
 
@@ -37,16 +38,17 @@ def test_schema_shape_matches_openai_function_calling():
 
 @pytest.mark.parametrize("tool", TOOLS, ids=lambda t: t.config_key)
 def test_executor_signature_matches_channel_awareness(tool):
-    """A channel-aware tool takes (arguments, channel); others take (arguments)."""
+    """The flags and the signature agree: (arguments[, channel][, user])."""
     params = list(inspect.signature(tool.executor).parameters)
     assert inspect.iscoroutinefunction(tool.executor)
-    assert params[0] == "arguments"
+    expected = ["arguments"]
     if tool.channel_aware:
-        assert params[1:2] == ["channel"], tool.config_key
-        assert tool.function_name in CHANNEL_AWARE_TOOLS
-    else:
-        assert params == ["arguments"], tool.config_key
-        assert tool.function_name not in CHANNEL_AWARE_TOOLS
+        expected.append("channel")
+    if tool.user_aware:
+        expected.append("user")
+    assert params == expected, tool.config_key
+    assert (tool.function_name in CHANNEL_AWARE_TOOLS) is tool.channel_aware
+    assert (tool.function_name in USER_AWARE_TOOLS) is tool.user_aware
 
 
 def test_lookups_are_derived_from_the_same_tools():

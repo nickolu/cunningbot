@@ -96,4 +96,6 @@ TOOL = AgentTool(
     # so it should be a deliberate per-channel choice rather than something
     # every registered agent -- and every unregistered channel -- can do.
     default_enabled=False,
+    # Nobody is there to say yes to filing it during a scheduled run.
+    scheduled_ok=False,
 )

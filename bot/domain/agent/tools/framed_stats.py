@@ -23,8 +23,9 @@ SCHEMA: dict = {
             "Look up this server's results for Framed, the daily movie-guessing "
             "game (framed.wtf): rankings, one player's stats and streaks, one "
             "day's results, or a head-to-head record. Points: a 1 is 6 points, "
-            "a 6 is 1, a miss is 0. Results are read after each day ends, so "
-            "today's aren't included yet."
+            "a 6 is 1, a miss is 0. A day someone didn't post counts as a miss "
+            "too, so solve rates are out of every day in the period. Results "
+            "are read after each day ends, so today's aren't included yet."
         ),
         "parameters": {
             "type": "object",
@@ -75,7 +76,7 @@ async def execute_framed_stats(
         from bot.app.redis.framed_store import FramedRedisStore
         from bot.app.redis.serialization import guild_id_to_str
         from bot.domain.framed import stats_service
-        from bot.domain.framed.stats import head_to_head, player_stats
+        from bot.domain.framed.stats import head_to_head
 
         data = await stats_service.load(FramedRedisStore(), guild_id_to_str(guild.id))
     except Exception as e:
@@ -92,7 +93,7 @@ async def execute_framed_stats(
         if action == "player":
             text = "Framed stats for %s:\n%s" % (
                 data.name(uid),
-                stats_service.format_player(data, player_stats(data.scores, uid, data.as_of)),
+                stats_service.format_player(data, stats_service.stats_for(data, uid)),
             )
         else:
             other, error = _resolve(data, str(arguments.get("other_player") or ""))
