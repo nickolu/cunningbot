@@ -209,17 +209,16 @@ HELP_PAGES = [
         name="/agent — Channel AI agent",
         value=(
             "Say the bot's name, @mention it, or reply to it in **any** channel and it "
-            "answers, using its tools (weather, images, GIFs, web search, searching this "
-            "server's news feeds, dice, publishing and updating web pages, and filing "
+            "answers, using its tools (weather, images, GIFs, web search, this server's "
+            "news feeds, dice, publishing web pages, upload links and uploaded files, and "
             "GitHub issues where enabled). It may end a reply with buttons for likely "
             "next messages; anyone can click one.\n"
             "`/agent register` — let it also join in on its own when a conversation calls for it\n"
             "`/agent configure` — model, persona, response mode, cooldown, context window\n"
             "`/agent tool <name> <enable|disable>` — turn one tool on or off here\n"
             "`scan_channel_history` — owner-only, off by default: scans a channel's whole "
-            "history for something (every restaurant mentioned, every image someone posted) "
-            "in the background and posts the results when it's done. Say `stop` or react 🛑 "
-            "to stop it. Turn it on with `/agent tool`.\n"
+            "history for something in the background and posts the results when done. "
+            "Say `stop` or react 🛑 to stop it.\n"
             "`/agent status` — show this channel's settings\n"
             "`/agent pause` / `/agent resume` — silence it here (paused channels ignore summons too)\n"
             "`/agent unregister` — remove the registration"
@@ -243,6 +242,19 @@ HELP_PAGES = [
             "it posts in the channel you asked in. Up to 3 per person and 10 per server.\n"
             "`/schedule list` — this server's scheduled prompts\n"
             "`/schedule cancel` / `pause` / `resume` — for whoever set it up, or anyone who can "
+            "manage messages"
+        ),
+        inline=False,
+    ).add_field(
+        name="/files — Send the bot files",
+        value=(
+            "`/files upload [label] [kind] [max_files] [keep]` — opens an upload link only you "
+            "can see. Anyone with the link can upload for 15 minutes (up to 25 files, 25 MB each, "
+            "images only or anything, kept 1/7/30 days); when it closes the bot posts what came "
+            "through it here. Or just ask: \"can I send you some photos?\"\n"
+            "`/files list [query]` — what's been uploaded for this server, searchable by name, "
+            "note, label, or uploader. The bot can find them too: \"find the receipt Sam uploaded\"\n"
+            "`/files delete <file>` — remove one, for whoever opened its link or anyone who can "
             "manage messages"
         ),
         inline=False,

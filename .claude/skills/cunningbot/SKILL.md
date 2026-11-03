@@ -35,6 +35,7 @@ between them.
 | `bot/app/commands/<feature>/` | discord.py Cogs (slash commands) | Thin — parse, call domain, format embed |
 | `bot/app/agent_runtime.py`, `suggested_replies.py` | History fetch, per-channel locks, and reply posting (with suggested-reply buttons) shared by the agent listener, `/bot`, and button clicks | Shared cog state lives outside `commands/` |
 | `bot/app/scan_*.py` | Channel history scans: `scan_runtime.py` (tasks, paging), `scan_ux.py` (status message, report), `scan_access.py` (who may start one) | Same rule — never inside `commands/` |
+| `bot/app/upload_watch.py` | Watches an upload link and posts what came through it | Same rule; limits and formatting in `bot/domain/files/` |
 | `bot/app/schedule_runtime.py`, `schedule_jobs.py` | Scheduled prompts: the per-minute runner; create/pause/resume/cancel and caps (split out so tools can import it without a cycle) | Same rule; schedule maths and plain-words read-back in `bot/domain/schedule/` |
 | `bot/app/tasks/` | Standalone worker scripts run on a loop | Each is a `python -m` entry point, not a cog |
 | `bot/app/redis/*_store.py` | One store class per feature; owns its key schema | All persistence goes through a store |
@@ -66,7 +67,7 @@ between them.
 | New agent capability (`@CunningBot do X`) | `references/add-agent-tool.md` |
 | Recurring / scheduled post | `references/add-background-task.md` |
 | New persisted state | `references/redis-stores.md` |
-| Publishing content as a web page | `references/publishing.md` |
+| Publishing content as a web page, or taking files from users | `references/publishing.md` |
 | Shipping it | `references/deploy.md` |
 | How a message becomes a response | `references/architecture.md` |
 | Deciding what to build next, or planning a phase | `references/backlog.md` |

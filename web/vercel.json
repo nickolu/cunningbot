@@ -1,5 +1,7 @@
 {
   "rewrites": [
-    { "source": "/p/:id", "destination": "/api/page?id=:id" }
+    { "source": "/p/:id", "destination": "/api/page?id=:id" },
+    { "source": "/u/:id", "destination": "/api/upload-page?id=:id" },
+    { "source": "/f/:id", "destination": "/api/file?id=:id" }
   ]
 }

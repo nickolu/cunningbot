@@ -21,8 +21,10 @@ from bot.domain.agent.tools import (
     publish_page,
     read_channel,
     read_page,
+    request_upload,
     scan_channel_history,
     schedule_prompt,
+    search_files,
     search_gifs,
     search_news,
     suggest_replies,
@@ -52,6 +54,8 @@ _MODULES = (
     schedule_prompt,
     list_scheduled_prompts,
     cancel_scheduled_prompt,
+    request_upload,
+    search_files,
 )
 
 TOOLS: Tuple[AgentTool, ...] = tuple(m.TOOL for m in _MODULES)

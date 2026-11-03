@@ -122,6 +122,36 @@ rotating `PAGES_ID_SECRET` orphans every previously shared link.
   and has no external assets. Change styling there so every page stays consistent.
 - 512 KB limit per page; default TTL 30 days, 365 max.
 
+## User uploads (files *to* the bot)
+
+The other direction: someone wants to give the bot files. Discord attachments
+expire, so the bot opens an **upload session** on the pages service and hands
+back a link (`/u/<sid>`); the page takes files for fifteen minutes with no
+login; files land in a private Firebase Storage bucket with a stable download
+URL (`/f/<id>`) and a per-guild catalog the bot can search.
+
+| Where | What |
+|---|---|
+| `bot/domain/files/file_service.py` | `open_upload_link`, `search_files`, `delete_file`, `describe_file` -- the one entry point |
+| `bot/api/pages/client.py` | `create_upload_session`, `get_upload_session`, `list_files`, `delete_file`; raises `UploadsNotConfigured` when the service has no bucket |
+| `bot/app/upload_watch.py` | Polls a session and posts one summary in the channel when the link closes or fills |
+| `bot/domain/agent/tools/request_upload.py`, `search_files.py` | The agent-facing tools |
+| `bot/app/commands/files/files.py` | `/files upload`, `/files list`, `/files delete` |
+| `web/api/upload-*.js`, `file.js`, `files.js`, `public/upload-page.js` | The service side; setup in `web/README.md` |
+
+Rules of thumb:
+- **An uploaded image can go on a page by its `/f/` URL.** It is already
+  stable; do not `host_image` it again.
+- Keep-time is a tier (1, 7, 30 days) because each is a lifecycle rule on the
+  bucket. `clamp_ttl` rounds *up* to the next tier; adding a tier means adding
+  a rule.
+- Delete stays a slash command (opener or `manage_messages`). Don't add an
+  agent tool for it without revisiting the prompt-injection argument in the
+  backlog.
+- Everything degrades: no `PAGES_*` env, no bucket (`UploadsNotConfigured`),
+  or an old `web/` deploy (`PagesNotDeployed`) each produce a plain sentence,
+  never an exception in channel.
+
 ## Configuration
 
 `PAGES_BASE_URL`, `PAGES_PUBLISH_TOKEN`, `PAGES_ID_SECRET` on the bot (see

@@ -3,7 +3,7 @@
 What's left to build on CunningBot, in rough priority order, with the context
 and decisions already made so nobody re-plans them.
 
-**Last verified against `main` and the Pi: 2026-10-14.** Anything below may have
+**Last verified against `main`: 2026-11-01 (the Pi: 2026-10-14).** Anything below may have
 changed since — check before acting on a claim, and update the date when you do.
 
 ## Keeping this file honest
@@ -28,6 +28,25 @@ channel. Since 2026-09-25 every run has skipped and **nobody has been told** --
 the job still reads as `active` in `/schedule list`, with a next run. Either
 resume the agent there (`/agent resume`) or cancel the job
 (`/schedule cancel`). The design gap behind it is in *Follow-ups*.
+
+### Turn on user uploads — Firebase project, Vercel env, deploy, backfill
+Phase 4 shipped in #77 (web) and #78 (bot), both **undeployed**, and the
+bucket does not exist yet. Until it does, `/files upload` and `request_upload`
+answer "not set up yet" and everything else is unaffected. In order:
+1. **Create a separate Firebase project** (not cometcave's), enable Storage,
+   make a service account with Storage Object Admin, download its JSON key.
+   Apply the CORS and lifecycle JSON from `web/README.md` step 5 with
+   `gcloud storage buckets update`. The lifecycle rules *are* the file TTL --
+   without them nothing in the bucket ever expires.
+2. **Vercel env:** `GCS_BUCKET`, `GCS_SERVICE_ACCOUNT` (key JSON or its base64).
+   Then `vercel --prod` from `web/`. The bot needs no new secret: it only
+   talks to the pages service.
+3. **Deploy the Pi** as usual, then **backfill** `request_upload` and
+   `search_files` into registered channels (both are in `DEFAULT_TOOLS_TO_ADD`;
+   `--dry-run` first).
+4. **Smoke test:** `/files upload` in a channel, upload a PNG and a PDF, open
+   both `/f/` links, confirm the bot's summary posts when the link closes, then
+   `/files list` and "find the PDF I uploaded" through the agent.
 
 ### Channel scans are on — what is left
 Working in production since 2026-09-20; two real scans finished cleanly (see
@@ -112,26 +131,6 @@ throttles history requests harder than this sample showed.
 - The 5-failure threshold is still untested against a real channel (neither scan
   had a single failed page).
 - Nothing expires an unfinished scan that stalls; `scan:running` keeps it.
-
-## Phase 4 — Temporary upload page and file catalog
-
-**The ask:** the bot shares a page with an upload form that posts to blob
-storage, with a short TTL and limits on what can be uploaded, and uploaded files
-can be recalled later by searching their metadata.
-
-**Constraints already found:**
-- **Can't ride on `/p/`.** Page CSP is `default-src 'none'; ... form-action 'none'`
-  (`web/api/_lib.js`), deliberately, so a prompt-injected page can do nothing.
-  An upload form needs its own route with its own CSP. Don't loosen the shared one.
-- **Needs a different auth model.** `web/api/upload.js` takes the bot's master
-  `PUBLISH_TOKEN` — unusable from a public form. Use a short-lived, per-page
-  upload token instead.
-- `upload.js` is also image-only and 4 MB (Vercel's 4.5 MB body cap). Larger
-  files need client-side upload direct to Blob.
-- The file catalog is a sibling of the Phase 2 page index — reuse that pattern
-  (per-guild sorted set on Upstash, prune on read).
-
-Largest security surface in the backlog. Plan it carefully.
 
 ---
 
@@ -328,6 +327,31 @@ clicked. Not built on purpose:
   `/schedule` has no edit command.
 - **A built-in "daily summary" job type.** Free-form prompts only for now.
 
+### User uploads: what v1 left out
+Phase 4 shipped as #77 (web) and #78 (bot); see the *Ops* item for turning it
+on. Decisions made while building, so nobody re-plans them:
+- **Catalog on Upstash, not Firestore** (`guild-files:<guild_id>` sorted set,
+  prune on read, same as the page index). One metadata store on one vendor;
+  Firestore would mean a second SDK on Vercel and a second place to prune.
+  Revisit if word-match search over a few hundred files stops being enough.
+- **Delete is a slash command only** (`/files delete`, for the link's opener or
+  `manage_messages`). No agent tool on purpose: channel text can prompt-inject
+  the agent, and deleting is the one irreversible action here.
+- **The bot learns about uploads by polling.** `bot/app/upload_watch.py` polls
+  the session every 15 s and posts one summary when the link closes or fills.
+  A restart loses the watcher (in-memory); the files are still in the catalog.
+  Nothing is posted if nothing was uploaded.
+Not built:
+- Closing a link early, or reopening one. Ask for a new link.
+- Per-user quotas or a per-guild storage cap. Limits are per link only
+  (25 files, 25 MB each by default; the service caps at 25 and 100 MB).
+- Uploading *from* Discord (attach a file to a message and have the bot keep
+  it). Would reuse the catalog; the bot would fetch the attachment and PUT it
+  itself via a signed URL, so it needs a bot-side route or the service to proxy.
+- GCS lifecycle `age` is whole days from object creation, so a "1 day" file
+  may live up to ~48 h in the bucket; its catalog record (and so its `/f/`
+  link) expires on time.
+
 ### A paused channel makes a scheduled job skip forever, silently
 By design a paused channel skips the run and that isn't a failure, so the
 failure counter never trips and the job never pauses itself or says anything.
@@ -423,3 +447,5 @@ people want to browse a server's pages without asking the bot.
 | 5 | Scheduling tools, plain-words read-back with Confirm buttons, `/schedule` | #71 |
 | 5 | Scheduling tools backfilled into all 17 registered channels (ops, 2026-09-21) | — |
 | 5 | Suggested replies and scheduled prompts confirmed working in production (ops, 2026-10-14) | — |
+| 4 | Upload sessions, upload page, signed PUTs to Firebase Storage, `/f/` downloads, file catalog (web) | #77 |
+| 4 | `request_upload` / `search_files` tools, `/files upload|list|delete`, upload watcher (bot) | #78 |
