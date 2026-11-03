@@ -344,7 +344,7 @@ on. Decisions made while building, so nobody re-plans them:
 Not built:
 - Closing a link early, or reopening one. Ask for a new link.
 - Per-user quotas or a per-guild storage cap. Limits are per link only
-  (25 files, 25 MB each by default; the service caps at 25 and 100 MB).
+  (25 files, 100 MB each by default; the service caps at 25 files and 100 MB).
 - Uploading *from* Discord (attach a file to a message and have the bot keep
   it). Would reuse the catalog; the bot would fetch the attachment and PUT it
   itself via a signed URL, so it needs a bot-side route or the service to proxy.

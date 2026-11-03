@@ -26,7 +26,7 @@ export const DOWNLOAD_URL_SECONDS = 10 * 60;
 
 export const DEFAULT_MAX_FILES = 10;
 export const MAX_FILES_CAP = 25;
-export const DEFAULT_MAX_BYTES = 25 * 1024 * 1024;
+export const DEFAULT_MAX_BYTES = 100 * 1024 * 1024;
 export const MAX_BYTES_CAP = 100 * 1024 * 1024;
 export const MAX_NOTE_CHARS = 200;
 export const MAX_LABEL_CHARS = 120;

@@ -249,7 +249,7 @@ HELP_PAGES = [
         name="/files — Send the bot files",
         value=(
             "`/files upload [label] [kind] [max_files] [keep]` — opens an upload link only you "
-            "can see. Anyone with the link can upload for 15 minutes (up to 25 files, 25 MB each, "
+            "can see. Anyone with the link can upload for 15 minutes (up to 25 files, 100 MB each, "
             "images only or anything, kept 1/7/30 days); when it closes the bot posts what came "
             "through it here. Or just ask: \"can I send you some photos?\"\n"
             "`/files list [query]` — what's been uploaded for this server, searchable by name, "
