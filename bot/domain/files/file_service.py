@@ -34,8 +34,8 @@ KINDS: Tuple[str, ...] = (KIND_IMAGES, KIND_ANY)
 
 DEFAULT_MAX_FILES = 10
 MAX_FILES_CAP = 25
-DEFAULT_MAX_BYTES = 100 * 1024 * 1024
-MAX_BYTES_CAP = 100 * 1024 * 1024
+DEFAULT_MAX_BYTES = 500 * 1024 * 1024
+MAX_BYTES_CAP = 500 * 1024 * 1024
 
 #: An upload link stays open this long. Mirrors SESSION_OPEN_SECONDS in
 #: ``web/api/_files_lib.js``; the service's ``expires_at`` is authoritative.
