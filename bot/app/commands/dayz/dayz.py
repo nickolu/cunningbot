@@ -246,19 +246,38 @@ class DayzCog(commands.Cog):
     # ------------------------------------------------------------------- unwatch
 
     @server.command(name="unwatch", description="Stop updating a channel's name")
-    @app_commands.describe(channel="The channel being renamed")
+    @app_commands.describe(
+        channel="The channel being renamed",
+        restore_name="Rename the channel back to what it was called before the watch (default yes)",
+    )
     @app_commands.checks.has_permissions(manage_guild=True)
-    async def unwatch(self, interaction: discord.Interaction, channel: WATCHABLE_CHANNEL) -> None:
+    async def unwatch(
+        self,
+        interaction: discord.Interaction,
+        channel: WATCHABLE_CHANNEL,
+        restore_name: bool = True,
+    ) -> None:
         await interaction.response.defer(ephemeral=True)
         guild_id = guild_id_to_str(interaction.guild_id)
-        removed = await self.store.delete_watch(guild_id, channel_id_to_str(channel.id))
-        if not removed:
+        channel_id = channel_id_to_str(channel.id)
+        watch = await self.store.get_watch(guild_id, channel_id)
+        if not watch:
             await interaction.followup.send(f"{channel.mention} isn't watching anything.", ephemeral=True)
             return
-        await interaction.followup.send(
-            f"Stopped updating {channel.mention}. Its name stays as it is; rename it as you like.",
-            ephemeral=True,
-        )
+        await self.store.delete_watch(guild_id, channel_id)
+
+        original = (watch.get("original_name") or "").strip()
+        msg = f"Stopped updating {channel.mention}."
+        if restore_name and original and original != channel.name:
+            try:
+                await channel.edit(name=original, reason="DayZ watch removed")
+                msg += f" Renamed it back to **{original}**."
+            except discord.HTTPException as exc:
+                logger.warning(f"/dayz server unwatch: could not restore name of {channel_id}: {exc}")
+                msg += f" Couldn't rename it back to **{original}** ({exc.text or exc}); rename it by hand."
+        else:
+            msg += " Its name stays as it is."
+        await interaction.followup.send(msg, ephemeral=True)
 
     # --------------------------------------------------------------- error hook
 

@@ -364,13 +364,37 @@ class TestWatchCommand:
         assert "Manage Channels" in _sent(inter)
 
     @pytest.mark.asyncio
-    async def test_unwatch(self):
+    async def test_unwatch_restores_original_name(self):
         cog, store = _cog()
-        store.delete_watch.return_value = True
+        store.get_watch.return_value = {"server": "chernarus", "original_name": "General"}
+        inter = _interaction()
+        channel = _voice_channel(name="🟢 Chernarus 32/95 · 3:45pm")
+        channel.edit = AsyncMock()
+        await cog.unwatch.callback(cog, inter, channel)
+        store.delete_watch.assert_awaited_once_with("1", "55")
+        channel.edit.assert_awaited_once()
+        assert channel.edit.call_args.kwargs["name"] == "General"
+        assert "Renamed it back to **General**" in _sent(inter)
+
+    @pytest.mark.asyncio
+    async def test_unwatch_can_keep_current_name(self):
+        cog, store = _cog()
+        store.get_watch.return_value = {"server": "chernarus", "original_name": "General"}
+        inter = _interaction()
+        channel = _voice_channel(name="🟢 Chernarus 32/95 · 3:45pm")
+        channel.edit = AsyncMock()
+        await cog.unwatch.callback(cog, inter, channel, False)
+        channel.edit.assert_not_called()
+        assert "name stays" in _sent(inter)
+
+    @pytest.mark.asyncio
+    async def test_unwatch_nothing_to_remove(self):
+        cog, store = _cog()
+        store.get_watch.return_value = None
         inter = _interaction()
         await cog.unwatch.callback(cog, inter, _voice_channel())
-        store.delete_watch.assert_awaited_once_with("1", "55")
-        assert "Stopped updating" in _sent(inter)
+        store.delete_watch.assert_not_called()
+        assert "isn't watching anything" in _sent(inter)
 
 
 class TestUnregisterCommand:

@@ -148,7 +148,7 @@ HELP_PAGES = [
             "e.g. `🟢 Chernarus 32/95 · 3:45pm`, refreshed about every 6 minutes. "
             "Use a voice channel so capitals and spaces survive. Optional: a text channel for "
             "online/offline notices, a name template, a timezone\n"
-            "`/dayz server unwatch` — stop updating a channel\n\n"
+            "`/dayz server unwatch` — stop updating a channel and give it its old name back\n\n"
             "The agent can answer \"how many people are on the DayZ server?\" too."
         ),
         inline=False,
