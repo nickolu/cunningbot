@@ -225,12 +225,22 @@ class DayzCog(commands.Cog):
             me = await channel.guild.fetch_member(self.bot.user.id)
         except (discord.HTTPException, AttributeError) as exc:
             logger.warning(f"/dayz server watch: could not fetch own member: {exc}")
-        if me is not None and not channel.permissions_for(me).manage_channels:
-            await interaction.followup.send(
-                f"I can't rename {channel.mention} — I need **Manage Channels** on that channel "
-                "(channel settings → Permissions → add the bot's role).", ephemeral=True
-            )
-            return
+        if me is not None:
+            perms = channel.permissions_for(me)
+            if not perms.manage_channels:
+                if isinstance(channel, (discord.VoiceChannel, discord.StageChannel)) and not perms.connect:
+                    msg = (
+                        f"I can't rename {channel.mention}: Discord takes **Manage Channels** away on a "
+                        "voice channel from anyone who can't **Connect** to it. In the channel's "
+                        "permissions, allow **Connect** for my role as well (I never actually join)."
+                    )
+                else:
+                    msg = (
+                        f"I can't rename {channel.mention} — I need **Manage Channels** on that channel "
+                        "(channel settings → Permissions → add the bot's role)."
+                    )
+                await interaction.followup.send(msg, ephemeral=True)
+                return
 
         watch = svc.new_watch_record(
             key, template, timezone, channel_id_to_str(notify.id) if notify else None

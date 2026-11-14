@@ -303,7 +303,7 @@ class TestInfoCommand:
         assert "No DayZ servers are registered" in _sent(inter)
 
 
-def _voice_channel(cid=55, name="General", can_manage=True, fetch_fails=False):
+def _voice_channel(cid=55, name="General", can_manage=True, fetch_fails=False, can_connect=True):
     ch = MagicMock(spec=discord.VoiceChannel)
     ch.id = cid
     ch.name = name
@@ -313,7 +313,7 @@ def _voice_channel(cid=55, name="General", can_manage=True, fetch_fails=False):
         side_effect=discord.HTTPException(MagicMock(status=500), "boom") if fetch_fails else None,
         return_value=SimpleNamespace(id=1),
     )
-    ch.permissions_for.return_value = SimpleNamespace(manage_channels=can_manage)
+    ch.permissions_for.return_value = SimpleNamespace(manage_channels=can_manage, connect=can_connect)
     ch.edit = AsyncMock()
     return ch
 
@@ -433,6 +433,17 @@ class TestWatchCommand:
         await cog.watch.callback(cog, inter, "Chernarus", _voice_channel(can_manage=False), None, None, None)
         store.save_watch.assert_not_called()
         assert "Manage Channels" in _sent(inter)
+
+    @pytest.mark.asyncio
+    async def test_voice_channel_without_connect_explains_the_rule(self):
+        cog, store = _cog()
+        store.get_server.return_value = dict(SERVER)
+        store.get_watch.return_value = None
+        inter = _interaction()
+        channel = _voice_channel(can_manage=False, can_connect=False)
+        await cog.watch.callback(cog, inter, "Chernarus", channel, None, None, None)
+        store.save_watch.assert_not_called()
+        assert "allow **Connect**" in _sent(inter)
 
     @pytest.mark.asyncio
     async def test_unwatch_restores_original_name(self):
