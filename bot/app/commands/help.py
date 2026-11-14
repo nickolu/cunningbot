@@ -146,7 +146,7 @@ HELP_PAGES = [
             "`/dayz server unregister` — remove a server and any channel watching it\n"
             "`/dayz server watch` — keep a channel's name updated with a server's status, "
             "e.g. `🟢 Chernarus 32/95 · 3:45pm`, refreshed about every 6 minutes. "
-            "Use a voice channel so capitals and spaces survive. Optional: a text channel for "
+            "Use a voice channel so capitals and spaces survive; give the bot's role View Channel, Connect and Manage Channels on it. Optional: a text channel for "
             "online/offline notices, a name template, a timezone\n"
             "`/dayz server unwatch` — stop updating a channel and give it its old name back\n\n"
             "The agent can answer \"how many people are on the DayZ server?\" too."
