@@ -11,6 +11,7 @@ from bot.domain.agent.tools.base import AgentTool
 from bot.domain.agent.tools import (
     cancel_scheduled_prompt,
     create_github_issue,
+    dayz_status,
     dice,
     edit_image,
     framed_stats,
@@ -56,6 +57,7 @@ _MODULES = (
     cancel_scheduled_prompt,
     request_upload,
     search_files,
+    dayz_status,
 )
 
 TOOLS: Tuple[AgentTool, ...] = tuple(m.TOOL for m in _MODULES)
