@@ -217,10 +217,18 @@ class DayzCog(commands.Cog):
             await interaction.followup.send(f"Unknown timezone `{timezone}`.", ephemeral=True)
             return
 
-        perms = channel.permissions_for(channel.guild.me)
-        if not perms.manage_channels:
+        # The gateway runs without the members intent, so the cached copy of
+        # the bot's own member can have stale roles. Ask Discord for it fresh;
+        # if that fails, skip the pre-check and let the rename below decide.
+        me = None
+        try:
+            me = await channel.guild.fetch_member(self.bot.user.id)
+        except (discord.HTTPException, AttributeError) as exc:
+            logger.warning(f"/dayz server watch: could not fetch own member: {exc}")
+        if me is not None and not channel.permissions_for(me).manage_channels:
             await interaction.followup.send(
-                f"I can't rename {channel.mention} — I need **Manage Channels** there.", ephemeral=True
+                f"I can't rename {channel.mention} — I need **Manage Channels** on that channel "
+                "(channel settings → Permissions → add the bot's role).", ephemeral=True
             )
             return
 
@@ -228,12 +236,27 @@ class DayzCog(commands.Cog):
             key, template, timezone, channel_id_to_str(notify.id) if notify else None
         )
         watch["original_name"] = channel.name
+
+        # Rename right away so the result is visible now, not at the next tick.
+        first_result = await self._apply_first_rename(channel, record, watch)
+        if first_result == "forbidden":
+            await interaction.followup.send(
+                f"Discord refused to let me rename {channel.mention}. I need **Manage Channels** "
+                "on that channel. Nothing was saved.", ephemeral=True
+            )
+            return
         await self.store.save_watch(guild_id, channel_id, watch)
 
         lines = [
             f"{channel.mention} will track **{record['name']}**, refreshed about every 6 minutes.",
             f"Template: `{template}`",
         ]
+        if first_result == "renamed":
+            lines.append(f"Renamed it to **{watch['last_name']}** just now.")
+        elif first_result == "no_reply":
+            lines.append("The server didn't answer just now; the name updates at the next tick.")
+        else:
+            lines.append("The rename didn't go through just now; the worker retries at the next tick.")
         if notify:
             lines.append(f"Online/offline notices go to {notify.mention}.")
         if isinstance(channel, discord.TextChannel):
@@ -242,6 +265,34 @@ class DayzCog(commands.Cog):
                 "A voice channel keeps the name as rendered."
             )
         await interaction.followup.send("\n".join(lines), ephemeral=True)
+
+    async def _apply_first_rename(
+        self, channel: discord.abc.GuildChannel, record: Dict, watch: Dict
+    ) -> str:
+        """Query the server once and rename the channel now.
+
+        Returns "renamed", "forbidden", "no_reply", or "failed". Updates `watch`
+        in place so the worker sees the state the channel is actually in.
+        """
+        try:
+            info = await query_server_info(record["host"], int(record["query_port"]))
+        except Exception as exc:
+            logger.info(f"/dayz server watch: first query of {record['name']} failed: {exc}")
+            return "no_reply"
+        now = dt.datetime.now(svc.resolve_timezone(watch.get("timezone")))
+        new_name = svc.render_online_name(watch["template"], record["name"], info, now)
+        try:
+            await channel.edit(name=new_name, reason="DayZ server status")
+        except discord.Forbidden:
+            return "forbidden"
+        except discord.HTTPException as exc:
+            logger.warning(f"/dayz server watch: first rename of {channel.id} failed: {exc}")
+            return "failed"
+        watch.update(
+            state=svc.STATE_ONLINE, failures=0, last_name=new_name,
+            last_players=info.players, last_checked_at=now.isoformat(),
+        )
+        return "renamed"
 
     # ------------------------------------------------------------------- unwatch
 

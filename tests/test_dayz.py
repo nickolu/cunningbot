@@ -163,6 +163,8 @@ class TestService:
 
 # --------------------------------------------------------------------------- cog
 
+SERVER = {"name": "Chernarus", "host": "h", "game_port": 2502, "query_port": 27015}
+
 
 def _interaction(guild_id=1, user_id=7):
     inter = AsyncMock(spec=discord.Interaction)
@@ -301,40 +303,109 @@ class TestInfoCommand:
         assert "No DayZ servers are registered" in _sent(inter)
 
 
-def _voice_channel(cid=55, name="General", can_manage=True):
+def _voice_channel(cid=55, name="General", can_manage=True, fetch_fails=False):
     ch = MagicMock(spec=discord.VoiceChannel)
     ch.id = cid
     ch.name = name
     ch.mention = f"<#{cid}>"
     ch.guild = MagicMock()
+    ch.guild.fetch_member = AsyncMock(
+        side_effect=discord.HTTPException(MagicMock(status=500), "boom") if fetch_fails else None,
+        return_value=SimpleNamespace(id=1),
+    )
     ch.permissions_for.return_value = SimpleNamespace(manage_channels=can_manage)
+    ch.edit = AsyncMock()
     return ch
+
+
+def _forbidden():
+    return discord.Forbidden(MagicMock(status=403), {"code": 50013, "message": "Missing Permissions"})
 
 
 class TestWatchCommand:
     @pytest.mark.asyncio
     async def test_saves_watch_with_defaults(self):
         cog, store = _cog()
-        store.get_server.return_value = {"name": "Chernarus"}
+        store.get_server.return_value = dict(SERVER)
         store.get_watch.return_value = None
         inter = _interaction()
         notify = MagicMock(spec=discord.TextChannel)
         notify.id = 99
         notify.mention = "<#99>"
-        await cog.watch.callback(cog, inter, "Chernarus", _voice_channel(), notify, None, None)
+        channel = _voice_channel()
+        with patch("bot.app.commands.dayz.dayz.query_server_info", AsyncMock(return_value=_info())):
+            await cog.watch.callback(cog, inter, "Chernarus", channel, notify, None, None)
         guild_id, channel_id, watch = store.save_watch.call_args.args
         assert (guild_id, channel_id) == ("1", "55")
         assert watch["server"] == "chernarus"
         assert watch["template"] == svc.DEFAULT_TEMPLATE
         assert watch["timezone"] == svc.DEFAULT_TIMEZONE
         assert watch["notify_channel_id"] == "99"
-        assert watch["state"] == svc.STATE_UNKNOWN
         assert watch["original_name"] == "General"
+        # First rename happens immediately and the watch reflects it
+        new_name = channel.edit.call_args.kwargs["name"]
+        assert new_name.startswith("🟢 Chernarus 32/95 · ")
+        assert watch["state"] == svc.STATE_ONLINE
+        assert watch["last_name"] == new_name
+        assert "Renamed it to" in _sent(inter)
+
+    @pytest.mark.asyncio
+    async def test_permission_check_uses_fresh_member_not_cache(self):
+        cog, store = _cog()
+        store.get_server.return_value = dict(SERVER)
+        store.get_watch.return_value = None
+        inter = _interaction()
+        channel = _voice_channel()
+        with patch("bot.app.commands.dayz.dayz.query_server_info", AsyncMock(return_value=_info())):
+            await cog.watch.callback(cog, inter, "Chernarus", channel, None, None, None)
+        channel.guild.fetch_member.assert_awaited_once()
+        fetched = channel.guild.fetch_member.return_value
+        channel.permissions_for.assert_called_once_with(fetched)
+
+    @pytest.mark.asyncio
+    async def test_fetch_failure_falls_through_to_rename_attempt(self):
+        cog, store = _cog()
+        store.get_server.return_value = dict(SERVER)
+        store.get_watch.return_value = None
+        inter = _interaction()
+        channel = _voice_channel(can_manage=False, fetch_fails=True)
+        with patch("bot.app.commands.dayz.dayz.query_server_info", AsyncMock(return_value=_info())):
+            await cog.watch.callback(cog, inter, "Chernarus", channel, None, None, None)
+        channel.permissions_for.assert_not_called()
+        channel.edit.assert_awaited_once()
+        store.save_watch.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_forbidden_rename_saves_nothing(self):
+        cog, store = _cog()
+        store.get_server.return_value = dict(SERVER)
+        store.get_watch.return_value = None
+        inter = _interaction()
+        channel = _voice_channel()
+        channel.edit = AsyncMock(side_effect=_forbidden())
+        with patch("bot.app.commands.dayz.dayz.query_server_info", AsyncMock(return_value=_info())):
+            await cog.watch.callback(cog, inter, "Chernarus", channel, None, None, None)
+        store.save_watch.assert_not_called()
+        assert "Discord refused" in _sent(inter)
+
+    @pytest.mark.asyncio
+    async def test_no_reply_still_saves_watch(self):
+        cog, store = _cog()
+        store.get_server.return_value = dict(SERVER)
+        store.get_watch.return_value = None
+        inter = _interaction()
+        channel = _voice_channel()
+        with patch("bot.app.commands.dayz.dayz.query_server_info", AsyncMock(side_effect=A2SError("timeout"))):
+            await cog.watch.callback(cog, inter, "Chernarus", channel, None, None, None)
+        channel.edit.assert_not_called()
+        watch = store.save_watch.call_args.args[2]
+        assert watch["state"] == svc.STATE_UNKNOWN
+        assert "didn't answer" in _sent(inter)
 
     @pytest.mark.asyncio
     async def test_one_server_per_channel(self):
         cog, store = _cog()
-        store.get_server.return_value = {"name": "Chernarus"}
+        store.get_server.return_value = dict(SERVER)
         store.get_watch.return_value = {"server": "livonia"}
         inter = _interaction()
         await cog.watch.callback(cog, inter, "Chernarus", _voice_channel(), None, None, None)
@@ -344,7 +415,7 @@ class TestWatchCommand:
     @pytest.mark.asyncio
     async def test_rejects_bad_template_and_timezone(self):
         cog, store = _cog()
-        store.get_server.return_value = {"name": "Chernarus"}
+        store.get_server.return_value = dict(SERVER)
         store.get_watch.return_value = None
         inter = _interaction()
         await cog.watch.callback(cog, inter, "Chernarus", _voice_channel(), None, "{bogus}", None)
@@ -356,7 +427,7 @@ class TestWatchCommand:
     @pytest.mark.asyncio
     async def test_requires_manage_channels_on_target(self):
         cog, store = _cog()
-        store.get_server.return_value = {"name": "Chernarus"}
+        store.get_server.return_value = dict(SERVER)
         store.get_watch.return_value = None
         inter = _interaction()
         await cog.watch.callback(cog, inter, "Chernarus", _voice_channel(can_manage=False), None, None, None)
@@ -426,9 +497,6 @@ def _worker_channel(name="General"):
     ch.edit = AsyncMock()
     ch.send = AsyncMock()
     return ch
-
-
-SERVER = {"name": "Chernarus", "host": "h", "game_port": 2502, "query_port": 27015}
 
 
 class TestWorker:
