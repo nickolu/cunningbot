@@ -22,6 +22,9 @@ from bot.domain.dayz import dayz_service as svc
 logger = get_logger()
 
 EMBED_COLOR = 0x4E7A3A  # DayZ olive
+# Discord allows two channel renames per ten minutes. On a 429 discord.py sleeps
+# out the penalty (minutes); an interaction must not block on that.
+RENAME_TIMEOUT = 8.0
 WATCHABLE_CHANNEL = Union[discord.VoiceChannel, discord.TextChannel, discord.StageChannel]
 
 
@@ -265,6 +268,11 @@ class DayzCog(commands.Cog):
             lines.append(f"Renamed it to **{watch['last_name']}** just now.")
         elif first_result == "no_reply":
             lines.append("The server didn't answer just now; the name updates at the next tick.")
+        elif first_result == "rate_limited":
+            lines.append(
+                "Discord is rate-limiting renames of that channel (two per ten minutes), so the "
+                "name will change at the next tick instead."
+            )
         else:
             lines.append("The rename didn't go through just now; the worker retries at the next tick.")
         if notify:
@@ -281,8 +289,8 @@ class DayzCog(commands.Cog):
     ) -> str:
         """Query the server once and rename the channel now.
 
-        Returns "renamed", "forbidden", "no_reply", or "failed". Updates `watch`
-        in place so the worker sees the state the channel is actually in.
+        Returns "renamed", "forbidden", "no_reply", "rate_limited", or "failed".
+        Updates `watch` in place so the worker sees the state the channel is in.
         """
         try:
             info = await query_server_info(record["host"], int(record["query_port"]))
@@ -292,7 +300,12 @@ class DayzCog(commands.Cog):
         now = dt.datetime.now(svc.resolve_timezone(watch.get("timezone")))
         new_name = svc.render_online_name(watch["template"], record["name"], info, now)
         try:
-            await channel.edit(name=new_name, reason="DayZ server status")
+            await asyncio.wait_for(
+                channel.edit(name=new_name, reason="DayZ server status"), RENAME_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"/dayz server watch: rename of {channel.id} rate limited; leaving it to the worker")
+            return "rate_limited"
         except discord.Forbidden:
             return "forbidden"
         except discord.HTTPException as exc:
@@ -331,8 +344,15 @@ class DayzCog(commands.Cog):
         msg = f"Stopped updating {channel.mention}."
         if restore_name and original and original != channel.name:
             try:
-                await channel.edit(name=original, reason="DayZ watch removed")
+                await asyncio.wait_for(
+                    channel.edit(name=original, reason="DayZ watch removed"), RENAME_TIMEOUT
+                )
                 msg += f" Renamed it back to **{original}**."
+            except asyncio.TimeoutError:
+                msg += (
+                    f" Discord is rate-limiting renames of that channel (two per ten minutes), so I "
+                    f"couldn't rename it back to **{original}** right now; rename it by hand or wait a few minutes."
+                )
             except discord.HTTPException as exc:
                 logger.warning(f"/dayz server unwatch: could not restore name of {channel_id}: {exc}")
                 msg += f" Couldn't rename it back to **{original}** ({exc.text or exc}); rename it by hand."

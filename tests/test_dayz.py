@@ -389,6 +389,46 @@ class TestWatchCommand:
         assert "Discord refused" in _sent(inter)
 
     @pytest.mark.asyncio
+    async def test_rate_limited_rename_saves_watch_and_returns_promptly(self):
+        from bot.app.commands.dayz import dayz as mod
+
+        cog, store = _cog()
+        store.get_server.return_value = dict(SERVER)
+        store.get_watch.return_value = None
+        inter = _interaction()
+        channel = _voice_channel()
+
+        async def never_finishes(**kwargs):
+            await asyncio.sleep(60)
+
+        channel.edit = AsyncMock(side_effect=never_finishes)
+        with patch("bot.app.commands.dayz.dayz.query_server_info", AsyncMock(return_value=_info())), \
+             patch.object(mod, "RENAME_TIMEOUT", 0.05):
+            await cog.watch.callback(cog, inter, "Chernarus", channel, None, None, None)
+        watch = store.save_watch.call_args.args[2]
+        assert watch["state"] == svc.STATE_UNKNOWN
+        assert watch["last_name"] is None
+        assert "rate-limiting" in _sent(inter)
+
+    @pytest.mark.asyncio
+    async def test_unwatch_rate_limited_restore_still_removes_watch(self):
+        from bot.app.commands.dayz import dayz as mod
+
+        cog, store = _cog()
+        store.get_watch.return_value = {"server": "chernarus", "original_name": "General"}
+        inter = _interaction()
+        channel = _voice_channel(name="🟢 Chernarus 32/95 · 3:45pm")
+
+        async def never_finishes(**kwargs):
+            await asyncio.sleep(60)
+
+        channel.edit = AsyncMock(side_effect=never_finishes)
+        with patch.object(mod, "RENAME_TIMEOUT", 0.05):
+            await cog.unwatch.callback(cog, inter, channel)
+        store.delete_watch.assert_awaited_once_with("1", "55")
+        assert "rate-limiting" in _sent(inter)
+
+    @pytest.mark.asyncio
     async def test_no_reply_still_saves_watch(self):
         cog, store = _cog()
         store.get_server.return_value = dict(SERVER)
