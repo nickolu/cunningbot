@@ -100,7 +100,7 @@ HELP_PAGES = [
 
     # Page 3 — News & Weather
     discord.Embed(
-        title="CunningBot Help (3/5) — News & Weather",
+        title="CunningBot Help (3/5) — News, Weather & DayZ",
         color=discord.Color.green(),
     ).add_field(
         name="/news — RSS feed management",
@@ -133,6 +133,23 @@ HELP_PAGES = [
             "`/weather unschedule` — remove the weather schedule from this channel\n\n"
             "Forecasts include an AI-generated TV-meteorologist intro. "
             "A **Show Details** button expands the full hourly/daily table."
+        ),
+        inline=False,
+    ).add_field(
+        name="/dayz — DayZ server monitoring",
+        value=(
+            "**User:**\n"
+            "`/dayz server info` — live player count, map and version for every registered server "
+            "(or just those matching a name)\n\n"
+            "**Admin (Manage Server):**\n"
+            "`/dayz server register` — add a server by `IP:PORT`; the Steam query port is found automatically\n"
+            "`/dayz server unregister` — remove a server and any channel watching it\n"
+            "`/dayz server watch` — keep a channel's name updated with a server's status, "
+            "e.g. `🟢 Chernarus 32/95 · 3:45pm`, refreshed about every 6 minutes. "
+            "Use a voice channel so capitals and spaces survive. Optional: a text channel for "
+            "online/offline notices, a name template, a timezone\n"
+            "`/dayz server unwatch` — stop updating a channel and give it its old name back\n\n"
+            "The agent can answer \"how many people are on the DayZ server?\" too."
         ),
         inline=False,
     ),
@@ -210,7 +227,7 @@ HELP_PAGES = [
         value=(
             "Say the bot's name, @mention it, or reply to it in **any** channel and it "
             "answers, using its tools (weather, images, GIFs, web search, this server's "
-            "news feeds, dice, publishing web pages, upload links and uploaded files, and "
+            "news feeds, dice, DayZ server status, publishing web pages, upload links and uploaded files, and "
             "GitHub issues where enabled). It may end a reply with buttons for likely "
             "next messages; anyone can click one.\n"
             "`/agent register` — let it also join in on its own when a conversation calls for it\n"
