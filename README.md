@@ -24,6 +24,7 @@ its state in Redis, and runs under Docker Compose on a Raspberry Pi.
 | `/trivia`, `/answer` | Scheduled trivia with difficulty-weighted scoring, weekly and all-time leaderboards, and personal stats. |
 | `/news` | Add RSS feeds to a channel, posted directly or as AI summaries on a schedule, with filters and dedup. |
 | `/dayz` | Monitor DayZ servers: live player counts on demand, a channel whose name tracks a server's status, and online/offline notices. |
+| `/calendar` | A shared server calendar with no external account: `upcoming`, `add`, `remove`, `status`. `enable` lets the bot quietly add plans people mention in chat (it reacts 📅; react ❌ to undo). |
 | `/weather` | On-demand forecasts and history by US ZIP code, or a daily forecast post. |
 | `/framed` | Track daily [Framed](https://framed.wtf) results from a registered channel: leaderboards by points, player stats and streaks, daily rankings, head-to-head, a morning recap, and backfill from channel history. |
 | `/poll`, `/poll-results` | Emoji-reaction polls with up to 10 options. |

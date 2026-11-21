@@ -9,6 +9,8 @@ from typing import Dict, List, Callable, Coroutine, Tuple
 
 from bot.domain.agent.tools.base import AgentTool
 from bot.domain.agent.tools import (
+    add_calendar_event,
+    calendar_events,
     cancel_scheduled_prompt,
     create_github_issue,
     dayz_status,
@@ -58,6 +60,8 @@ _MODULES = (
     request_upload,
     search_files,
     dayz_status,
+    calendar_events,
+    add_calendar_event,
 )
 
 TOOLS: Tuple[AgentTool, ...] = tuple(m.TOOL for m in _MODULES)
