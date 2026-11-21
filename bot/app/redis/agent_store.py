@@ -26,7 +26,7 @@ DEFAULT_AGENT_CONFIG = {
     "context_window": 30,
     "cooldown_seconds": 5,
     "max_responses_per_minute": 10,
-    "response_mode": "smart",  # "smart", "strict", or "always"
+    "response_mode": "strict",  # "strict" (summons only) or "always"; a stored "smart" acts as "strict"
 }
 
 

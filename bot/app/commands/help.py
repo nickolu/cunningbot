@@ -244,18 +244,18 @@ HELP_PAGES = [
         name="/agent — Channel AI agent",
         value=(
             "Say the bot's name, @mention it, or reply to it in **any** channel and it "
-            "answers, using its tools (weather, images, GIFs, web search, this server's "
-            "news feeds, dice, DayZ server status, the server calendar, publishing web pages, upload links and uploaded files, and "
-            "GitHub issues where enabled). It may end a reply with buttons for likely "
-            "next messages; anyone can click one.\n"
-            "`/agent register` — let it also join in on its own when a conversation calls for it\n"
-            "`/agent configure` — model, persona, response mode, cooldown, context window\n"
+            "answers, using its tools (weather, images, GIFs, web search, news feeds, dice, "
+            "DayZ status, the calendar, web pages, uploads, and GitHub issues where enabled). "
+            "It may end a reply with buttons for likely next messages; anyone can click one.\n"
+            "`/agent register` — give this channel its own settings (model, persona, tools)\n"
+            "`/agent configure` — model, persona, cooldown, context window; `response_mode` "
+            "`always` makes it join every message (default `strict`: only when addressed)\n"
             "`/agent tool <name> <enable|disable>` — turn one tool on or off here\n"
             "`scan_channel_history` — owner-only, off by default: scans a channel's whole "
-            "history for something in the background and posts the results when done. "
-            "Say `stop` or react 🛑 to stop it.\n"
+            "history in the background and posts the results. Say `stop` or react 🛑 to stop it.\n"
             "`/agent status` — show this channel's settings\n"
-            "`/agent pause` / `/agent resume` — silence it here (paused channels ignore summons too)\n"
+            "`/agent pause` / `/agent resume` — no unprompted replies or scheduled prompts here; "
+            "it still answers when addressed\n"
             "`/agent unregister` — remove the registration"
         ),
         inline=False,
