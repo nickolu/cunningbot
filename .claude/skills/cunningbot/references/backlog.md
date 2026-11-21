@@ -399,7 +399,7 @@ and grep `logs/` for `agent_summoned_unregistered`:
 - **Event but no reply:** most likely the bot lacks Read Message History there.
   `channel.history()` raises Forbidden inside `_handle_agent_response`, which
   only logs `Agent error in channel ...` and posts nothing.
-A registered-but-paused channel stays silent by design and looks unregistered.
+A registered-but-paused channel now answers summons too (changed 2026-11-21), so this no longer applies.
 
 ### `-pro` and `-codex` models need the Responses API
 `gpt-5.5-pro` and `gpt-5.3-codex` are in the account's `/v1/models` listing but

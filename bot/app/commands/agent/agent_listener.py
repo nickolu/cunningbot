@@ -1,17 +1,21 @@
 """on_message listener that drives the channel agent.
 
-This cog listens to every message in the guild and checks whether the
-channel has a registered (and enabled) agent.  If so, it applies smart
-triggering logic to decide whether to respond, then fetches recent
-history, runs the agent service's tool-calling loop, and sends the
-response back to the channel.
+This cog listens to every message in the guild.  The bot answers when it
+is addressed; otherwise it stays out of the conversation.  When it does
+answer, it fetches recent history, runs the agent service's tool-calling
+loop, and sends the response back to the channel.
 
 An explicit summon — an @mention (of the bot's user or of the managed role
 Discord creates for it), a reply to the bot, or the bot's name in the
-message text — always gets a response, whatever the response mode,
-and skips the classifier.  Channels with no registration are not ignored
-outright: a summon wakes the agent there with default settings.  A
-*paused* agent stays silent either way; pausing is a deliberate opt-out.
+message text — always gets a response, in every channel: registered,
+unregistered, or paused.  Channels with no registration use default
+settings.  The one way to get unprompted replies is a registered channel
+whose response mode is "always"; pausing such a channel turns those off
+while summons keep working.
+
+There used to be a "smart" mode where a classifier model guessed whether an
+unaddressed message was meant for the bot.  It guessed wrong often enough to
+annoy people, so it is gone: a stored "smart" mode now behaves as "strict".
 
 Threads (including forum posts) are handled too.  A thread uses its own
 registration if it has one, otherwise its parent channel's, otherwise the
@@ -19,10 +23,9 @@ unregistered defaults.  So a paused parent also silences its threads, and
 cooldown, rate limit and the concurrency lock are tracked per thread.
 
 Response modes:
-- "smart" (default): Uses hard gates + LLM intent classifier to decide
-  when to respond. Only responds when confident the bot is being addressed.
-- "strict": Only responds when explicitly summoned.
-- "always": Responds to every message (original behavior). Cooldown still applies.
+- "strict" (default): Only responds when explicitly summoned.
+- "always": Responds to every message. Cooldown still applies, and pausing
+  the channel suspends it.
 
 Guard rails:
 - Ignores all bot messages (prevents loops).
@@ -48,16 +51,11 @@ from bot.app.agent_runtime import (
 from bot.app.redis.agent_store import AgentRedisStore
 from bot.app.suggested_replies import send_agent_reply
 from bot.domain.agent.agent_service import run_agent
-from bot.domain.agent.intent_classifier import Intent, classify_intent
 from bot.domain.agent.suggestions import collect_suggestions
 from bot.domain.agent.summon import build_summon_pattern, is_summoned_by_name
-from bot.api.discord.utils import flatten_discord_message
-from bot.api.openai.utils import sanitize_name
 from bot.app.utils.logger import get_logger
 
 logger = get_logger()
-
-ASK_CLARIFY_RESPONSE = "Did you want me to do something, or just chatting?"
 
 
 class AgentListenerCog(commands.Cog):
@@ -155,70 +153,18 @@ class AgentListenerCog(commands.Cog):
             message.content, self._summon_pattern(message.guild)
         )
 
-    async def _should_respond(
-        self, message: discord.Message, config: Dict, summoned: bool
-    ) -> bool:
-        """Apply smart triggering logic based on response_mode.
+    @staticmethod
+    def _should_respond(config: Dict, summoned: bool) -> bool:
+        """Addressed directly wins everywhere; "always" mode answers the rest.
 
-        Returns True if the bot should respond, False otherwise.
-        For ASK_CLARIFY results, sends a short clarification and returns False.
+        Any other stored mode -- "strict", or the retired "smart" -- means
+        summons only.
         """
-        response_mode = config.get("response_mode", "smart")
-
-        # Being addressed directly wins in every mode.
         if summoned:
             return True
-
-        # "always" mode — original behavior, respond to everything
-        if response_mode == "always":
-            return True
-
-        # "strict" mode — only an explicit summon triggers
-        if response_mode == "strict":
-            return False
-
-        # --- "smart" mode: run LLM intent classifier ---
-        content = flatten_discord_message(message)
-        if not content or not content.strip():
-            return False
-
-        # Build minimal history for classifier context
-        recent_history = []
-        async for msg in message.channel.history(limit=8, oldest_first=False):
-            if msg.id == message.id:
-                continue
-            author_name = sanitize_name(msg.author.display_name)
-            recent_history.append({
-                "role": "assistant" if msg.author.bot else "user",
-                "content": flatten_discord_message(msg)[:200],
-                "name": author_name,
-            })
-        recent_history.reverse()
-
-        bot_name = self.bot.user.display_name if self.bot.user else "Bot"
-
-        intent = await classify_intent(
-            latest_message=content,
-            recent_history=recent_history,
-            bot_name=bot_name,
+        return config.get("response_mode", "strict") == "always" and bool(
+            config.get("enabled", False)
         )
-
-        logger.info({
-            "event": "intent_classification",
-            "channel": message.channel.id,
-            "intent": intent.value,
-            "message_preview": content[:80],
-        })
-
-        if intent == Intent.RESPOND:
-            return True
-
-        if intent == Intent.ASK_CLARIFY:
-            await message.channel.send(ASK_CLARIFY_RESPONSE)
-            self._record_response(message.channel.id)
-            return False
-
-        return False
 
     async def _get_channel_config(
         self, guild_id: str, channel: discord.abc.GuildChannel
@@ -254,8 +200,8 @@ class AgentListenerCog(commands.Cog):
                 "guild": guild_id,
                 "channel": channel_id,
             })
-        elif not config.get("enabled", False):
-            # Paused is a deliberate opt-out; stay quiet even when summoned.
+        elif not config.get("enabled", False) and not summoned:
+            # Paused turns off unprompted replies; a summon still gets through.
             return
 
         # 5. Cooldown check (skipped when the bot is addressed directly)
@@ -269,9 +215,8 @@ class AgentListenerCog(commands.Cog):
             logger.warning(f"Agent rate limit hit in channel {channel_id}")
             return
 
-        # 7. Smart triggering — decide whether we should respond
-        should_respond = await self._should_respond(message, config, summoned)
-        if not should_respond:
+        # 7. Addressed, or an "always" channel that isn't paused?
+        if not self._should_respond(config, summoned):
             return
 
         # 8. Acquire per-channel lock so we don't run multiple agents concurrently

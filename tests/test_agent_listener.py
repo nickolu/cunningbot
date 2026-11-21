@@ -126,16 +126,53 @@ async def test_thread_inherits_parent_registration():
 
 @pytest.mark.asyncio
 async def test_thread_own_registration_wins_over_parent():
-    thread_config = {"enabled": False}
+    thread_config = {"enabled": False, "response_mode": "always"}
     cog = make_cog(
-        {str(THREAD_ID): thread_config, str(CHANNEL_ID): {"enabled": True}}
+        {str(THREAD_ID): thread_config, str(CHANNEL_ID): {"enabled": True, "response_mode": "always"}}
     )
-    message = make_message(thread(), mentions=[cog.bot.user])
+    message = make_message(thread())  # not summoned
 
     await cog.on_message(message)
 
-    # The thread's own (paused) registration is used, so it stays silent.
+    # The thread's own (paused) registration is used, not the parent's
+    # "always", so an unaddressed message gets nothing.
     cog._handle_agent_response.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_paused_channel_still_answers_a_summon_with_its_own_config():
+    paused = {"enabled": False, "model": "gpt-x", "response_mode": "always"}
+    cog = make_cog({str(CHANNEL_ID): paused})
+    message = make_message(text_channel(), mentions=[cog.bot.user])
+
+    await cog.on_message(message)
+
+    cog._handle_agent_response.assert_awaited_once_with(message, paused)
+
+
+@pytest.mark.asyncio
+async def test_paused_always_channel_ignores_unaddressed_messages():
+    cog = make_cog({str(CHANNEL_ID): {"enabled": False, "response_mode": "always"}})
+
+    await cog.on_message(make_message(text_channel(), content="anyone around?"))
+
+    cog._handle_agent_response.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["strict", "smart", None])
+async def test_registered_channel_answers_only_summons_unless_always(mode):
+    config = {"enabled": True}
+    if mode is not None:
+        config["response_mode"] = mode
+    cog = make_cog({str(CHANNEL_ID): config})
+
+    await cog.on_message(make_message(text_channel(), content="what's the weather like"))
+    cog._handle_agent_response.assert_not_awaited()
+
+    message = make_message(text_channel(), content="hey CunningBot what's the weather like")
+    await cog.on_message(message)
+    cog._handle_agent_response.assert_awaited_once_with(message, config)
 
 
 @pytest.mark.asyncio

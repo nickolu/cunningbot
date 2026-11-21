@@ -39,6 +39,9 @@ from bot.domain.scan.extractor import openai_llm
 logger = get_logger()
 
 CAPTURE_EMOJI = "📅"
+# Text channels, threads (forum posts included), and the chat under a voice
+# or stage channel. Anywhere a person can type a plan.
+WATCHED_CHANNELS = (discord.TextChannel, discord.Thread, discord.VoiceChannel, discord.StageChannel)
 UNDO_EMOJI = "❌"
 CONTEXT_MESSAGES = 3
 
@@ -61,7 +64,7 @@ class CalendarListenerCog(commands.Cog):
     async def on_message(self, message: discord.Message) -> None:
         if message.author.bot or message.guild is None:
             return
-        if not isinstance(message.channel, (discord.TextChannel, discord.Thread)):
+        if not isinstance(message.channel, WATCHED_CHANNELS):
             return
         content = flatten_discord_message(message)
         if not looks_like_date(content):

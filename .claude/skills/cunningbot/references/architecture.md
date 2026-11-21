@@ -51,16 +51,16 @@ Cogs are discovered by scanning `bot/app/commands/` in `bot/main.py` — every
    (`<@&role>`), a reply to it, or its name in the text.
 3. Redis lookup `agent:{guild}:{channel}`. **Absent:** answer only if summoned,
    using `UNREGISTERED_AGENT_CONFIG` (logs `agent_summoned_unregistered`).
-   **Disabled (paused):** stay silent, even when summoned.
+   **Disabled (paused):** answer only if summoned, with the channel's own
+   config. Pausing turns off unprompted ("always") replies and scheduled
+   runs; it never silences a summon.
 4. Cooldown (default 5s) — bypassed when summoned.
 5. Rate limit (default 10/min per channel).
-6. **Should we respond?** `response_mode`:
-   - `always` — yes.
-   - `strict` — only @mention or reply.
-   - `smart` (default) — @mention/reply always wins; otherwise
-     `bot/domain/agent/intent_classifier.py` asks `gpt-4o-mini` for
-     `RESPOND` / `IGNORE` / `ASK_CLARIFY` given the last 8 messages. It is
-     tuned to lean RESPOND.
+6. **Should we respond?** A summon always wins. Otherwise only
+   `response_mode: always` in an unpaused registered channel responds.
+   `strict` is the default; a stored `smart` (the retired classifier mode,
+   removed 2026-11-21 because its unprompted replies annoyed people) behaves
+   as `strict`. There is no model call in the decision any more.
 7. Per-channel `asyncio.Lock` — a second message while the agent is thinking is
    dropped, not queued. The locks live in `AGENT_CHANNEL_LOCKS` in
    `bot/app/agent_runtime.py`, shared with `/bot`.

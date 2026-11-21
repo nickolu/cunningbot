@@ -99,7 +99,7 @@ class AgentCog(commands.Cog):
         persona_text = persona or "server default"
         embed = discord.Embed(
             title="Agent Activated",
-            description=f"An AI agent is now active in this channel.",
+            description="An AI agent is now active in this channel.",
             color=0x00CC66,
         )
         embed.add_field(name="Model", value=config["model"], inline=True)
@@ -107,8 +107,8 @@ class AgentCog(commands.Cog):
         embed.add_field(name="Context Window", value=str(config["context_window"]), inline=True)
         embed.add_field(name="Cooldown", value=f"{config['cooldown_seconds']}s", inline=True)
         embed.add_field(name="Tools", value=tools_text, inline=False)
-        embed.add_field(name="Response Mode", value="smart", inline=True)
-        embed.set_footer(text="The agent uses smart triggering — it responds when addressed. Use /agent configure to change.")
+        embed.add_field(name="Response Mode", value="strict", inline=True)
+        embed.set_footer(text="It answers when you say its name, @mention it, or reply to it. /agent configure response_mode:always makes it join every message.")
 
         await interaction.response.send_message(embed=embed)
 
@@ -171,7 +171,10 @@ class AgentCog(commands.Cog):
         embed.add_field(name="Context Window", value=str(config.get("context_window", 30)), inline=True)
         embed.add_field(name="Cooldown", value=f"{config.get('cooldown_seconds', 5)}s", inline=True)
         embed.add_field(name="Rate Limit", value=f"{config.get('max_responses_per_minute', 10)}/min", inline=True)
-        embed.add_field(name="Response Mode", value=config.get("response_mode", "smart"), inline=True)
+        mode = config.get("response_mode", "strict")
+        if mode != "always":
+            mode = "strict"  # the retired "smart" mode behaves as strict
+        embed.add_field(name="Response Mode", value=mode, inline=True)
         embed.add_field(name="Tools", value=", ".join(config.get("tools", [])), inline=False)
         embed.set_footer(text=f"Registered by user {config.get('registered_by', '?')}")
 
@@ -195,9 +198,8 @@ class AgentCog(commands.Cog):
     @app_commands.choices(model=model_choices(DEFAULT_AGENT_MODEL))
     @app_commands.choices(
         response_mode=[
-            app_commands.Choice(name="Smart (LLM decides, default)", value="smart"),
-            app_commands.Choice(name="Strict (only when addressed directly)", value="strict"),
-            app_commands.Choice(name="Always (respond to everything)", value="always"),
+            app_commands.Choice(name="Strict (only when addressed directly, default)", value="strict"),
+            app_commands.Choice(name="Always (respond to every message)", value="always"),
         ]
     )
     async def configure(
@@ -329,7 +331,8 @@ class AgentCog(commands.Cog):
         )
         if success:
             await interaction.response.send_message(
-                "Agent paused — it will not answer here, even if addressed. "
+                "Agent paused — it won't join in on its own or run scheduled prompts here, "
+                "but it still answers when you say its name, @mention it, or reply to it. "
                 "Use `/agent resume` to reactivate."
             )
         else:
