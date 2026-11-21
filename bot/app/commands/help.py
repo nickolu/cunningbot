@@ -152,6 +152,24 @@ HELP_PAGES = [
             "The agent can answer \"how many people are on the DayZ server?\" too."
         ),
         inline=False,
+    ).add_field(
+        name="/calendar — Shared server calendar",
+        value=(
+            "A calendar the server keeps for itself, no Google account needed.\n"
+            "`/calendar upcoming [days]` — what's on, grouped by day, with ids\n"
+            "`/calendar add <title> <date> [time] [end_date]` — put something on it "
+            "(`12/5`, `2026-12-05`, `tomorrow`; `7pm`)\n"
+            "`/calendar remove <id>` — for whoever added it, or anyone who can manage messages\n"
+            "`/calendar status` — capture on or off, timezone, how much is scheduled\n\n"
+            "**Admin (Manage Server):**\n"
+            "`/calendar enable [timezone]` — the bot quietly reads chat and, when someone "
+            "mentions a plan with a day attached (\"game night Friday at 8\"), adds it and "
+            "reacts 📅 on the message. React ❌ to take it back; deleting the message removes "
+            "it too. Nothing is posted. Timezone defaults to Pacific.\n"
+            "`/calendar disable` — stop reading chat; the calendar itself stays\n\n"
+            "The agent can answer \"what's coming up this weekend?\" and \"add the trip to the calendar\"."
+        ),
+        inline=False,
     ),
 
     # Page 4 — Polls, Dice, GIFs, Reddit, Personas
@@ -227,7 +245,7 @@ HELP_PAGES = [
         value=(
             "Say the bot's name, @mention it, or reply to it in **any** channel and it "
             "answers, using its tools (weather, images, GIFs, web search, this server's "
-            "news feeds, dice, DayZ server status, publishing web pages, upload links and uploaded files, and "
+            "news feeds, dice, DayZ server status, the server calendar, publishing web pages, upload links and uploaded files, and "
             "GitHub issues where enabled). It may end a reply with buttons for likely "
             "next messages; anyone can click one.\n"
             "`/agent register` — let it also join in on its own when a conversation calls for it\n"

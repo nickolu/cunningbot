@@ -312,6 +312,25 @@ they expire.
 
 ## Follow-ups
 
+### Server calendar: what v1 left out
+Built 2026-11-21 (branch `feat/guild-calendar`). Per-guild opt-in with
+`/calendar enable`; capture reacts 📅, ❌ undoes, deleting the source message
+removes its events. Store is `bot/app/redis/calendar_store.py`; the regex gate
+and extractor are in `bot/domain/calendar/`. Decisions and leftovers:
+- **Message edits are not re-read.** `on_raw_message_edit` would re-extract and
+  replace the events keyed to that message id; the store already links them.
+- **No reminders.** A worker (`bot/app/tasks/`) posting "tomorrow: ..." would
+  need `redis_lock` and a per-guild announce channel in the config.
+- **No `.ics` export.** The publishing path (`bot/domain/pages/`) could serve
+  one with no auth; events already carry everything an `.ics` needs.
+- **Dedup is same-day plus title overlap.** A plan whose date moves ("actually
+  Saturday") becomes a second event; the first has to be ❌'d by hand.
+- **Budget is 400 model calls per guild per local day** (`DAILY_MODEL_BUDGET`).
+  Watch `calendar_budget_exhausted` in the logs; if it fires, the regex gate is
+  leakier than expected and wants tightening before the cap is raised.
+- **Already-registered agent channels need the backfill** for `calendar_events`
+  and `add_calendar_event` (see `references/add-agent-tool.md`).
+
 ### Scheduled prompts: what v1 left out
 Phase 5 shipped (#68, #70, #71). **Working in production**, confirmed by the
 user 2026-10-14: 5 jobs created since 2026-09-22 (2 live, 3 cancelled), 17
