@@ -565,3 +565,4 @@ async def test_recap_posts_once_after_the_day_is_read():
     channel.send.assert_awaited_once()
     embed = channel.send.call_args.kwargs["embed"]
     assert f"#{puzzle_for_date(latest)}" in embed.title and "Nick" in embed.description
+    assert embed.url == "https://framed.wtf"
