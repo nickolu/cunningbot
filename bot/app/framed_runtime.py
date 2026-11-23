@@ -30,6 +30,7 @@ SYNC_LOCK_TIMEOUT = 15 * 60
 BACKFILL_LOCK_TIMEOUT = 4 * 60 * 60
 WORKER_MAX_DAYS = 31
 EMBED_COLOR = 0xE74C3C
+FRAMED_URL = "https://framed.wtf"
 
 # Strong references to running backfills, so they aren't garbage collected.
 BACKFILL_TASKS: Set["asyncio.Task[None]"] = set()
@@ -112,7 +113,10 @@ def recap_embed(
 ) -> discord.Embed:
     day = data.latest_day
     title, body = stats_service.format_day(data, day)
-    embed = discord.Embed(title=f"🎬 {title}", description=body, color=EMBED_COLOR)
+    # The title doubles as a quiet link to the game itself.
+    embed = discord.Embed(
+        title=f"🎬 {title}", url=FRAMED_URL, description=body, color=EMBED_COLOR
+    )
     label, rows = stats_service.leaderboard_for(data, "year")
     if rows:
         embed.add_field(
