@@ -245,6 +245,36 @@ class TestExtractor:
         ), context())
         assert [e.title for e in got] == ["Keep"]
 
+    @pytest.mark.parametrize("text", [
+        "march 13 is CRSSD festival",
+        "Mar. 13 is CRSSD festival",
+        "crssd is on the 13th of march",
+        "3/13 is crssd",
+    ])
+    def test_month_and_day_with_no_year_roll_forward_to_next_year(self, text):
+        # Said in November, the model writes this year's March at full confidence.
+        got = parse_reply(reply({"title": "CRSSD festival", "date": "2026-03-13", "confidence": 1.0}),
+                          context(text))
+        assert [(e.title, e.date) for e in got] == [("CRSSD festival", "2027-03-13")]
+
+    def test_rolled_forward_end_date_moves_with_the_start(self):
+        got = parse_reply(reply({"title": "CRSSD", "date": "2026-03-13", "end_date": "2026-03-15",
+                                 "confidence": 0.9}), context("crssd is march 13-15"))
+        assert (got[0].date, got[0].end_date) == ("2027-03-13", "2027-03-15")
+
+    @pytest.mark.parametrize("text", [
+        "march 13 2026 was crssd",          # a year is written out
+        "crssd was 3/13/26",                # numeric with a two-digit year
+        "we did game night friday at 8",    # a weekday, not a month
+        "the 20th was game night",          # an ordinal, not a month
+    ])
+    def test_past_dates_are_still_dropped_without_a_year_less_month_day(self, text):
+        assert parse_reply(reply({"title": "Old", "date": "2026-11-20", "confidence": 0.9}), context(text)) == []
+        assert parse_reply(reply({"title": "Old", "date": "2026-03-13", "confidence": 0.9}), context(text)) == []
+
+    def test_prompt_tells_the_model_a_year_less_day_means_the_next_one(self):
+        assert "write next year's date" in build_prompt(context("march 13 is crssd"))
+
     def test_today_counts_as_upcoming(self):
         got = parse_reply(reply({"title": "Tonight", "date": "2026-11-21", "time": "19:00", "confidence": 0.9}), context())
         assert got and got[0].date == "2026-11-21"

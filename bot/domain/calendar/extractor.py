@@ -11,6 +11,12 @@ and 24-hour times; everything it returns is re-checked in code (parseable,
 not in the past, not absurdly far out, confident enough), because a model
 that is asked for a date will happily write one that does not exist.
 
+One correction is made rather than rejected: a month and day with no year
+("March 13 is CRSSD") that the model has placed earlier this year is moved to
+next year, since the message plainly meant the next one coming. Without
+this, every plan for early next year mentioned in the autumn was dropped as
+"past" with the model at full confidence.
+
 Shares `extract_json`, `ExtractError` and the production `openai_llm` with the
 channel-scan extractor: same model, same wire format, same failure handling.
 """
@@ -20,6 +26,7 @@ import json
 import re
 from typing import Awaitable, Callable, List, Optional
 
+from bot.domain.calendar.gate import MONTHS
 from bot.domain.calendar.models import CaptureContext, ChatLine, ExtractedEvent, zone
 from bot.domain.scan.extractor import ExtractError, extract_json, openai_llm
 
@@ -33,6 +40,18 @@ MAX_CONTEXT_CHARS = 200
 
 _WHITESPACE = re.compile(r"\s+")
 _TIME = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
+# A day named by month ("march 13", "13th of March", "3/13") with no year. The
+# model tends to write this year's date for these even when that day has
+# passed; such a date is read as the next time the day comes around. A
+# weekday or "the 28th" is left alone: the model already resolves those
+# against the sent date.
+_MONTH_DAY = re.compile(
+    r"(?<![a-z])(?:" + MONTHS + r")(?![a-z])\.?\s+\d{1,2}\b"
+    r"|\b\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:" + MONTHS + r")(?![a-z])"
+    r"|\b\d{1,2}[/.-]\d{1,2}\b(?![/.-]\d)",
+    re.IGNORECASE,
+)
+_STATED_YEAR = re.compile(r"\b(?:19|20)\d{2}\b|\b\d{1,2}[/.-]\d{1,2}[/.-]\d{2}\b")
 
 SYSTEM_PROMPT = (
     "You maintain a shared calendar for a Discord server. You read one chat "
@@ -63,7 +82,9 @@ def build_prompt(context: CaptureContext) -> str:
         "a shared calendar: a game night, a trip, a release, a birthday party, a "
         "deadline, a stream, a match. Resolve relative words (\"Friday\", \"next "
         "week\", \"the 28th\") against the sent date above; a bare weekday means the "
-        "next one coming, including today if it has not passed.\n"
+        "next one coming, including today if it has not passed. A month and day with "
+        "no year (\"March 13\", \"Dec 5\") also mean the next one coming: if that day "
+        "has already passed this year, write next year's date.\n"
         "Do NOT add: things in the past; vague or hypothetical timing (\"sometime in "
         "March\", \"we should do this one day\"); facts and trivia that merely contain "
         "a date; things minutes or a few hours away that nobody needs reminding of "
@@ -112,6 +133,13 @@ def _parse_time(raw: object) -> Optional[str]:
     return "%02d:%02d" % (int(match.group(1)), int(match.group(2)))
 
 
+def _next_year(day: dt.date) -> dt.date:
+    try:
+        return day.replace(year=day.year + 1)
+    except ValueError:  # Feb 29
+        return day.replace(year=day.year + 1, day=28)
+
+
 def parse_reply(reply: str, context: CaptureContext) -> List[ExtractedEvent]:
     """The usable events in the model's reply.
 
@@ -132,6 +160,8 @@ def parse_reply(reply: str, context: CaptureContext) -> List[ExtractedEvent]:
 
     today = context.message.sent_at.astimezone(zone(context.timezone)).date()
     horizon = today + dt.timedelta(days=MAX_DAYS_AHEAD)
+    text = context.message.content or ""
+    roll_forward = bool(_MONTH_DAY.search(text)) and not _STATED_YEAR.search(text)
     events: List[ExtractedEvent] = []
     seen = set()
     for entry in raw_events:
@@ -141,6 +171,11 @@ def parse_reply(reply: str, context: CaptureContext) -> List[ExtractedEvent]:
         date = _parse_date(entry.get("date"))
         if not title or date is None:
             continue
+        end = _parse_date(entry.get("end_date")) if entry.get("end_date") else None
+        if roll_forward and date < today and today - date <= dt.timedelta(days=366):
+            # "march 13" said in November: the model wrote this year's March.
+            date = _next_year(date)
+            end = _next_year(end) if end is not None else None
         if date < today or date > horizon:
             continue
         try:
@@ -149,7 +184,6 @@ def parse_reply(reply: str, context: CaptureContext) -> List[ExtractedEvent]:
             confidence = 0.0
         if confidence < MIN_CONFIDENCE:
             continue
-        end = _parse_date(entry.get("end_date")) if entry.get("end_date") else None
         if end is not None and (end <= date or end > horizon):
             end = None
         key = (title.lower(), date.isoformat())

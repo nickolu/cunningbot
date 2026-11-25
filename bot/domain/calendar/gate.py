@@ -17,7 +17,7 @@ import re
 # this low.
 MIN_CHARS = 4
 
-_MONTHS = (
+MONTHS = (
     r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|"
     r"aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?"
 )
@@ -42,7 +42,7 @@ _CLOCK = (
 )
 
 DATE_HINT = re.compile(
-    r"(?<![a-z])(?:" + _MONTHS + r")(?![a-z])"
+    r"(?<![a-z])(?:" + MONTHS + r")(?![a-z])"
     r"|(?<![a-z])(?:" + _WEEKDAYS + r")(?![a-z])"
     r"|" + _RELATIVE +
     r"|" + _NUMERIC_DATE +
