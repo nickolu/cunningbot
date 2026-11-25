@@ -6,7 +6,7 @@ Logging utilities for the bot.
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Protocol
+from typing import Any, Optional, Protocol
 from loguru import logger as _loguru_logger
 
 # Sinks
@@ -61,8 +61,10 @@ def get_logger() -> Any:
 
     json_sink = JSONSink()
     _loguru_logger.remove()
-    # Human-readable console sink for container/stdout visibility
-    _loguru_logger.add(lambda msg: print(msg, end=""), enqueue=True)
+    # Human-readable console sink for container/stdout visibility. Flushed on
+    # every line: stdout in a container is a pipe, so without this the lines
+    # sit in Python's buffer and `docker compose logs` lags by hours.
+    _loguru_logger.add(lambda msg: print(msg, end="", flush=True), enqueue=True)
     # Structured JSON sink to file for long-term storage
     _loguru_logger.add(json_sink.write, serialize=True, enqueue=True)
     _logger_instance = _loguru_logger

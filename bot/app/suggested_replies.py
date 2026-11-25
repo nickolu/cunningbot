@@ -54,7 +54,6 @@ from bot.utils import split_message
 logger = get_logger()
 
 EXPIRED_MESSAGE = "Those suggestions have expired. Mention me to keep going."
-PAUSED_MESSAGE = "I'm paused in this channel."
 ERROR_MESSAGE = "Sorry, I ran into an error handling that."
 
 # The choice is echoed into the channel; it must not ping anyone.
@@ -193,13 +192,11 @@ async def handle_click(interaction: discord.Interaction, nonce: str, index: int)
     if guild is None or not isinstance(channel, (discord.TextChannel, discord.Thread)):
         return
 
+    # A click is a summon, and summons work in paused channels too, so the
+    # channel's own settings apply whether or not it is paused.
     config = await get_channel_agent_config(AgentRedisStore(), guild.id, channel)
     if config is None:
         config = UNREGISTERED_AGENT_CONFIG
-    elif not config.get("enabled", False):
-        # Paused silences the bot even when summoned; a button is no different.
-        await interaction.response.send_message(PAUSED_MESSAGE, ephemeral=True)
-        return
 
     options = await SuggestionRedisStore().claim(guild.id, channel.id, nonce)
     if options is None or not 0 <= index < len(options):

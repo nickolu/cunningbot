@@ -15,7 +15,6 @@ from bot.app.commands.help import HELP_PAGES
 from bot.app.redis.suggestion_store import SUGGESTION_TTL_SECONDS, SuggestionRedisStore
 from bot.app.suggested_replies import (
     EXPIRED_MESSAGE,
-    PAUSED_MESSAGE,
     SuggestionButton,
     handle_click,
     send_agent_reply,
@@ -363,18 +362,18 @@ class TestClick:
         assert run_agent.await_count == 1
 
     @pytest.mark.asyncio
-    async def test_paused_channel_refuses_and_keeps_the_set(self) -> None:
+    async def test_paused_channel_still_runs_a_click(self) -> None:
+        # A click is a summon, and a paused channel still answers summons.
         redis = FakeRedis()
         await make_store(redis).save(GUILD, CHANNEL, "abc123abc123", 77, ["A", "B"])
-        run_agent = AsyncMock()
+        run_agent = AsyncMock(return_value="ok")
 
-        interaction = await self._click(
-            make_channel(), redis, {"enabled": False}, "abc123abc123", 0, run_agent
+        await self._click(
+            make_channel(), redis, {"enabled": False, "context_window": 9}, "abc123abc123", 0, run_agent
         )
 
-        interaction.response.send_message.assert_awaited_once_with(PAUSED_MESSAGE, ephemeral=True)
-        run_agent.assert_not_awaited()
-        assert f"suggest:{GUILD}:{CHANNEL}" in redis.hashes
+        run_agent.assert_awaited_once()
+        assert run_agent.await_args.kwargs.get("agent_config", {}).get("context_window") == 9
 
     @pytest.mark.asyncio
     async def test_click_waits_for_a_busy_channel_instead_of_dropping(self) -> None:

@@ -24,6 +24,7 @@ its state in Redis, and runs under Docker Compose on a Raspberry Pi.
 | `/trivia`, `/answer` | Scheduled trivia with difficulty-weighted scoring, weekly and all-time leaderboards, and personal stats. |
 | `/news` | Add RSS feeds to a channel, posted directly or as AI summaries on a schedule, with filters and dedup. |
 | `/dayz` | Monitor DayZ servers: live player counts on demand, a channel whose name tracks a server's status, and online/offline notices. |
+| `/calendar` | A shared server calendar with no external account: `upcoming`, `add`, `remove`, `status`. `enable` lets the bot quietly add plans people mention in chat (it reacts 📅; react ❌ to undo). |
 | `/weather` | On-demand forecasts and history by US ZIP code, or a daily forecast post. |
 | `/framed` | Track daily [Framed](https://framed.wtf) results from a registered channel: leaderboards by points, player stats and streaks, daily rankings, head-to-head, a morning recap, and backfill from channel history. |
 | `/poll`, `/poll-results` | Emoji-reaction polls with up to 10 options. |
@@ -52,9 +53,11 @@ the channel can click instead of typing, and run a prompt on a schedule
 ("summarize this channel every weekday at 9am"), confirmed with buttons before
 it's saved.
 
-`/agent register` lets the bot also join a channel's conversation on its own,
-with per-channel model, persona, response mode, cooldown, context window, and
-tool settings. `/bot prompt:` runs the agent once anywhere without registering.
+The bot answers in any channel when you say its name, @mention it, or reply
+to it, and otherwise stays out of the conversation. `/agent register` gives a
+channel its own model, persona, cooldown, context window, and tool settings;
+`response_mode: always` there makes it join every message. `/bot prompt:` runs
+the agent once anywhere without registering.
 
 **Web pages** are served by a small Vercel app in `web/` — see `web/README.md`.
 Pages published under a name live for a year and update in place; one-off

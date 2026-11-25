@@ -146,10 +146,28 @@ HELP_PAGES = [
             "`/dayz server unregister` — remove a server and any channel watching it\n"
             "`/dayz server watch` — keep a channel's name updated with a server's status, "
             "e.g. `🟢 Chernarus 32/95 · 3:45pm`, refreshed about every 6 minutes. "
-            "Use a voice channel so capitals and spaces survive. Optional: a text channel for "
+            "Use a voice channel so capitals and spaces survive; give the bot's role View Channel, Connect and Manage Channels on it. Optional: a text channel for "
             "online/offline notices, a name template, a timezone\n"
             "`/dayz server unwatch` — stop updating a channel and give it its old name back\n\n"
             "The agent can answer \"how many people are on the DayZ server?\" too."
+        ),
+        inline=False,
+    ).add_field(
+        name="/calendar — Shared server calendar",
+        value=(
+            "A calendar the server keeps for itself, no Google account needed.\n"
+            "`/calendar upcoming [days]` — what's on, grouped by day, with ids\n"
+            "`/calendar add <title> <date> [time] [end_date]` — put something on it "
+            "(`12/5`, `2026-12-05`, `tomorrow`; `7pm`)\n"
+            "`/calendar remove <id>` — for whoever added it, or anyone who can manage messages\n"
+            "`/calendar status` — capture on or off, timezone, how much is scheduled\n\n"
+            "**Admin (Manage Server):**\n"
+            "`/calendar enable [timezone]` — the bot quietly reads chat and, when someone "
+            "mentions a plan with a day attached (\"game night Friday at 8\"), adds it and "
+            "reacts 📅 on the message. React ❌ to take it back; deleting the message removes "
+            "it too. Nothing is posted. Timezone defaults to Pacific.\n"
+            "`/calendar disable` — stop reading chat; the calendar itself stays\n\n"
+            "The agent can answer \"what's coming up this weekend?\" and \"add the trip to the calendar\"."
         ),
         inline=False,
     ),
@@ -226,18 +244,18 @@ HELP_PAGES = [
         name="/agent — Channel AI agent",
         value=(
             "Say the bot's name, @mention it, or reply to it in **any** channel and it "
-            "answers, using its tools (weather, images, GIFs, web search, this server's "
-            "news feeds, dice, DayZ server status, publishing web pages, upload links and uploaded files, and "
-            "GitHub issues where enabled). It may end a reply with buttons for likely "
-            "next messages; anyone can click one.\n"
-            "`/agent register` — let it also join in on its own when a conversation calls for it\n"
-            "`/agent configure` — model, persona, response mode, cooldown, context window\n"
+            "answers, using its tools (weather, images, GIFs, web search, news feeds, dice, "
+            "DayZ status, the calendar, web pages, uploads, and GitHub issues where enabled). "
+            "It may end a reply with buttons for likely next messages; anyone can click one.\n"
+            "`/agent register` — give this channel its own settings (model, persona, tools)\n"
+            "`/agent configure` — model, persona, cooldown, context window; `response_mode` "
+            "`always` makes it join every message (default `strict`: only when addressed)\n"
             "`/agent tool <name> <enable|disable>` — turn one tool on or off here\n"
             "`scan_channel_history` — owner-only, off by default: scans a channel's whole "
-            "history for something in the background and posts the results when done. "
-            "Say `stop` or react 🛑 to stop it.\n"
+            "history in the background and posts the results. Say `stop` or react 🛑 to stop it.\n"
             "`/agent status` — show this channel's settings\n"
-            "`/agent pause` / `/agent resume` — silence it here (paused channels ignore summons too)\n"
+            "`/agent pause` / `/agent resume` — no unprompted replies or scheduled prompts here; "
+            "it still answers when addressed\n"
             "`/agent unregister` — remove the registration"
         ),
         inline=False,
